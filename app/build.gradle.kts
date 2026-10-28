@@ -9,9 +9,14 @@ android {
         applicationId = "com.r3gate.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "1.2.1"
+        versionCode = 5
+        versionName = "2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+    signingConfigs {
+        getByName("debug") {
+            System.getenv("WT_KEYSTORE_PATH")?.let { storeFile=file(it); storePassword="android"; keyAlias="androiddebugkey"; keyPassword="android" }
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
