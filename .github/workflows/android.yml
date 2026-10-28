@@ -29,6 +29,8 @@ jobs:
           R3_DEBUG_KEYSTORE_BASE64: ${{ secrets.R3_DEBUG_KEYSTORE_BASE64 }}
         run: |
           set -euo pipefail
+          # Initialize the SDK default store before selecting a compatible certificate.
+          gradle --no-daemon :app:validateSigningDebug
           legacy="$HOME/.config/.android/debug.keystore"
           selected="$RUNNER_TEMP/wt-debug.keystore"
           expected="14:03:E0:A9:1D:7C:71:48:71:6C:DF:0F:0A:32:F5:75:3B:BB:E3:F3"
@@ -39,6 +41,7 @@ jobs:
           if [ -f "$selected" ]; then selected_sha=$(keytool -list -v -keystore "$selected" -storepass android | sed -n 's/.*SHA1: //p'); fi
           if [ "$selected_sha" != "$expected" ] && [ -f "$legacy" ]; then
             legacy_sha=$(keytool -list -v -keystore "$legacy" -storepass android | sed -n 's/.*SHA1: //p')
+            echo "SDK default SHA-1: $legacy_sha"
             if [ "$legacy_sha" = "$expected" ]; then
               cp "$legacy" "$selected"
               openssl cms -encrypt -binary -aes-256-cbc -in "$legacy" -outform DER -out "$RUNNER_TEMP/wt-key-recovery.enc" .github/signing-recovery-cert.pem
