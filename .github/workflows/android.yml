@@ -24,33 +24,17 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Select explicit stable signing key and preserve upgrade compatibility
+      - name: Restore required stable WT signing key
         env:
           R3_DEBUG_KEYSTORE_BASE64: ${{ secrets.R3_DEBUG_KEYSTORE_BASE64 }}
         run: |
           set -euo pipefail
-          # Initialize the SDK default store before selecting a compatible certificate.
-          gradle --no-daemon :app:validateSigningDebug
-          legacy="$HOME/.config/.android/debug.keystore"
+          if [ -z "$R3_DEBUG_KEYSTORE_BASE64" ]; then
+            echo "::error::Stable signing key is required. Refusing to generate a temporary certificate."
+            exit 1
+          fi
           selected="$RUNNER_TEMP/wt-debug.keystore"
-          expected="14:03:E0:A9:1D:7C:71:48:71:6C:DF:0F:0A:32:F5:75:3B:BB:E3:F3"
-          if [ -n "$R3_DEBUG_KEYSTORE_BASE64" ]; then
-            printf '%s' "$R3_DEBUG_KEYSTORE_BASE64" | base64 --decode > "$selected"
-          fi
-          selected_sha=""
-          if [ -f "$selected" ]; then selected_sha=$(keytool -list -v -keystore "$selected" -storepass android | sed -n 's/.*SHA1: //p'); fi
-          if [ "$selected_sha" != "$expected" ] && [ -f "$legacy" ]; then
-            legacy_sha=$(keytool -list -v -keystore "$legacy" -storepass android | sed -n 's/.*SHA1: //p')
-            echo "SDK default SHA-1: $legacy_sha"
-            if [ "$legacy_sha" = "$expected" ]; then
-              cp "$legacy" "$selected"
-              openssl cms -encrypt -binary -aes-256-cbc -in "$legacy" -outform DER -out "$RUNNER_TEMP/wt-key-recovery.enc" .github/signing-recovery-cert.pem
-              echo "WT_KEY_RECOVERY_BEGIN"
-              base64 "$RUNNER_TEMP/wt-key-recovery.enc"
-              echo "WT_KEY_RECOVERY_END"
-            fi
-          fi
-          test -s "$selected"
+          printf '%s' "$R3_DEBUG_KEYSTORE_BASE64" | base64 --decode > "$selected"
           chmod 600 "$selected"
           echo "WT_KEYSTORE_PATH=$selected" >> "$GITHUB_ENV"
           keytool -list -v -keystore "$selected" -storepass android | sed -n '/SHA1:/p'
