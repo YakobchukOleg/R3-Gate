@@ -1,4 +1,4 @@
-# R3 Gate 1.1
+# R3 Gate 1.2
 
 Personal Android work tracker, Polish interface, Android 8 or later.
 
@@ -45,3 +45,16 @@ JSON exports include records and photo references, not photo bytes or persistent
 - Export/import on test data only; inspect legacy dates and object links.
 
 Known: photo thumbnails decode sampled images synchronously; large photo collections may need pagination. Shift time edits clip existing object segments to the revised shift boundaries; extensions outside recorded segments cannot reconstruct object assignment.
+
+
+## Version 1.2: dashboard and trip flow
+
+Dark navy screens, cyan action tiles and orange stop/travel controls follow the supplied visual reference. System bars stay black. All displayed dates, including SMS and widget dates, use dd-MM-yyyy; ISO dates remain internal for sorting.
+
+The standalone shopping button is removed. During an open shift, PRZEJAZD starts a travel segment. Tapping the highlighted button again asks for the PIN and offers active objects, Zakupy (no shop records or tags), or creation of a new object. Cancelling either dialog preserves the running travel segment. Saving a new object returns home without ending travel; tap PRZEJAZD again to select it. Selecting a destination closes travel at that moment. The object switch button in both app and widget requires the PIN and closes the previous segment before starting the next object's time. Whole-shift paid time remains continuous.
+
+Notes support the Zakupy / paragon checkbox with optional receipt photos and text, plus a shopping-only history filter. Completed shifts can be deleted from Mój raport using a PIN and confirmation; deleting a shift also removes its object-hour contributions, without deleting materials/photos/notes. Existing record deletion remains available in record details.
+
+The widget shows the current object or travel/shopping status, an elapsed timer, and highlighted travel controls. Start/stop visibility depends on whether the day is open. Its minimum size is increased so controls remain readable. Existing launcher placements may need resizing after updating.
+
+Android acceptance checks cover travel cancellation, creation of an object while travelling, arrival and shopping transitions, wrong/correct PINs for object switches, receipt filtering, shift deletion and displayed dates. Captured emulator screenshots are included in R3-Gate-check-results.
