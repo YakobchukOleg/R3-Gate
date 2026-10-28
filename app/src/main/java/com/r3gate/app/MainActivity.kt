@@ -39,7 +39,8 @@ class MainActivity : Activity() {
     private val fmt = SimpleDateFormat("dd-MM-yyyy HH:mm", Locale.US)
     private val clock = SimpleDateFormat("HH:mm", Locale.US)
     private val dateFmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-    private var earningsVisible = false
+    private var walletUnlocked = false
+    private var walletDraft = JSONObject()
     private val ticker = Handler(Looper.getMainLooper())
     private var screen = "home"
     private val expandedFilters = mutableSetOf<String>()
@@ -70,7 +71,9 @@ class MainActivity : Activity() {
                 android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS)
         }
         migrate()
+        migrateWallet()
         expandedFilters.addAll(savedInstanceState?.getStringArrayList("expandedFilters") ?: emptyList())
+        walletDraft = JSONObject(savedInstanceState?.getString("walletDraft") ?: "{}")
         cameraPath = savedInstanceState?.getString("cameraPath")
         pendingUpload = savedInstanceState?.getString("pendingUpload") ?: ""
         if (savedInstanceState != null && prefs.contains("pin") && intent?.getStringExtra("widget_action")==null) {
@@ -87,6 +90,8 @@ class MainActivity : Activity() {
     }
     override fun onResume() { super.onResume(); ticker.removeCallbacks(tick); ticker.postDelayed(tick, 60000) }
     override fun onPause() { ticker.removeCallbacks(tick); super.onPause() }
+    override fun onStop() { walletUnlocked=false; super.onStop() }
+    override fun onRestart() { super.onRestart(); if(screen=="wallet" || screen=="payment") settings() }
     private fun hash(s: String): String = MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).joinToString("") { "%02x".format(it) }
     private fun setupPin() {
         val field = EditText(this).apply { hint="PIN (4–8 cyfr)"; inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD }
@@ -131,7 +136,7 @@ class MainActivity : Activity() {
     }
     private fun startOnObject(obj: JSONObject) {
         val d=data(); if (active(d)!=null) { toast("Dzień pracy już rozpoczęty"); home(); return }
-        val t=System.currentTimeMillis(); d.put("active",JSONObject().put("id",UUID.randomUUID().toString()).put("start",t).put("object",objectName(obj)).put("objectId",obj.optString("id")).put("stageStart",t).put("stages",JSONArray())); save(d,"START",fmt.format(Date(t))); home()
+        val t=System.currentTimeMillis(); d.put("active",JSONObject().put("id",UUID.randomUUID().toString()).put("start",t).put("object",objectName(obj)).put("objectId",obj.optString("id")).put("stageStart",t).put("stages",JSONArray()).put("rate",defaultRate().toPlainString())); save(d,"START",fmt.format(Date(t))); home()
     }
     private fun stopShift() {
         val d=data(); val a=active(d); if(a==null) { toast("Brak rozpoczętej pracy"); home(); return }
@@ -247,78 +252,75 @@ class MainActivity : Activity() {
         label(sms)
         button("KOPIUJ RAPORT") {
             (getSystemService(CLIPBOARD_SERVICE) as ClipboardManager)
-                .setPrimaryClip(ClipData.newPlainText("R3 Gate raport", sms))
+                .setPrimaryClip(ClipData.newPlainText("WT raport", sms))
             toast("Raport skopiowany")
         }
     }
     private fun toast(s:String)=Toast.makeText(this,s,Toast.LENGTH_LONG).show()
     private fun dp(n:Int) = (n * resources.displayMetrics.density).toInt()
     private fun background(color:Int): GradientDrawable = GradientDrawable().apply {
-        setColor(color); cornerRadius = dp(14).toFloat()
+        setColor(color); cornerRadius = dp(8).toFloat()
     }
     private fun base(title:String) {
-        homeVisible = false
-        val frame = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.BLACK) }
-        val top = View(this).apply { setBackgroundColor(Color.BLACK) }
-        frame.addView(top,LinearLayout.LayoutParams(-1,0))
-        val scroll = ScrollView(this).apply { setBackgroundColor(0xFF0C1421.toInt()); isFillViewport = true }
-        root = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(dp(16),dp(18),dp(16),dp(24)) }
-        scroll.addView(root)
+        homeVisible=false
+        val frame=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setBackgroundColor(Color.BLACK) }
+        val top=View(this); frame.addView(top,LinearLayout.LayoutParams(-1,0))
+        val header=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; gravity=Gravity.CENTER_VERTICAL; setPadding(dp(16),0,dp(8),0); setBackgroundColor(0xFF37474F.toInt()) }
+        header.addView(TextView(this).apply { text=title; textSize=27f; gravity=Gravity.CENTER_VERTICAL; setTextColor(Color.WHITE); setTypeface(null,android.graphics.Typeface.BOLD) },LinearLayout.LayoutParams(0,dp(56),1f).apply { gravity=Gravity.CENTER_VERTICAL })
+        if(title=="WT") header.addView(Button(this).apply {
+            text="⚙"; textSize=27f; contentDescription="Ustawienia"; setTextColor(Color.WHITE)
+            background=android.graphics.drawable.ColorDrawable(Color.TRANSPARENT); backgroundTintList=null; setPadding(0,0,0,0)
+            setOnClickListener { settings() }
+        },LinearLayout.LayoutParams(dp(48),dp(48)))
+        frame.addView(header,LinearLayout.LayoutParams(-1,dp(56)))
+        val scroll=ScrollView(this).apply { setBackgroundColor(Color.WHITE); isFillViewport=true }
+        root=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(dp(16),dp(12),dp(16),dp(24)); isFocusableInTouchMode=true; descendantFocusability=ViewGroup.FOCUS_BEFORE_DESCENDANTS }
+        scroll.addView(root,ScrollView.LayoutParams(-1,-2))
         frame.addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
-        val bottom = View(this); frame.addView(bottom,LinearLayout.LayoutParams(-1,0))
-        frame.setOnApplyWindowInsetsListener { _, insets ->
-            val topInset: Int
-            val bottomInset: Int
-            if (Build.VERSION.SDK_INT >= 30) {
-                val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
-                val ime = insets.getInsets(WindowInsets.Type.ime())
-                topInset = bars.top; bottomInset = maxOf(bars.bottom,ime.bottom)
-                scroll.setPadding(bars.left,0,bars.right,0)
+        val bottom=View(this); frame.addView(bottom,LinearLayout.LayoutParams(-1,0))
+        frame.setOnApplyWindowInsetsListener { _,insets ->
+            val topInset:Int; val bottomInset:Int
+            if(Build.VERSION.SDK_INT>=30) {
+                val bars=insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
+                val ime=insets.getInsets(WindowInsets.Type.ime())
+                topInset=bars.top; bottomInset=maxOf(bars.bottom,ime.bottom)
+                scroll.setPadding(bars.left,0,bars.right,0); header.setPadding(dp(16)+bars.left,0,dp(8)+bars.right,0)
             } else {
-                topInset = insets.systemWindowInsetTop; bottomInset = insets.systemWindowInsetBottom
+                topInset=insets.systemWindowInsetTop; bottomInset=insets.systemWindowInsetBottom
                 scroll.setPadding(insets.systemWindowInsetLeft,0,insets.systemWindowInsetRight,0)
             }
-            top.layoutParams = top.layoutParams.apply { height = topInset }
-            bottom.layoutParams = bottom.layoutParams.apply { height = bottomInset }
+            top.layoutParams=top.layoutParams.apply { height=topInset }
+            bottom.layoutParams=bottom.layoutParams.apply { height=bottomInset }
             insets
         }
-        setContentView(frame); frame.requestApplyInsets()
-        root.addView(TextView(this).apply {
-            text=title; textSize=27f; setTextColor(0xFFF3F7FC.toInt())
-            setPadding(0,0,0,dp(16)); setTypeface(null,android.graphics.Typeface.BOLD)
-        })
+        setContentView(frame); frame.requestApplyInsets(); root.requestFocus()
     }
     private fun displayLegacyDates(text:String):String = Regex("\\b(\\d{4})-(\\d{2})-(\\d{2})\\b").replace(text) {
         it.groupValues[3]+"-"+it.groupValues[2]+"-"+it.groupValues[1]
     }
     private fun label(s:String) { root.addView(TextView(this).apply {
-        text=displayLegacyDates(s); textSize=16f; setTextColor(0xFFB9C9DB.toInt()); setPadding(dp(2),dp(8),dp(2),dp(8))
+        text=displayLegacyDates(s); textSize=16f; setTextColor(0xFF37474F.toInt()); setPadding(dp(2),dp(8),dp(2),dp(8))
     }) }
     private fun makeButton(s:String, f:()->Unit):Button {
-        val danger=s.contains("ZAKOŃCZ") || s.startsWith("Usuń")
+        val accent=s.contains("ZAKOŃCZ") || s.startsWith("Usuń") || (s.startsWith("🚗") && active(data())?.optString("kind")=="Przejazd")
         val primary=s=="Zapisz" || s.contains("ROZPOCZNIJ") || s.startsWith("Wyślij zdjęcia")
-        val travel=s.startsWith("🚗") && active(data())?.optString("kind")=="Przejazd"
-        val fill=when { danger || travel -> 0xFFFF793F.toInt(); primary -> 0xFF29D3EE.toInt(); else -> 0xFF1B2C40.toInt() }
+        val fill=when { accent -> 0xFFFF5C5C.toInt(); primary -> 0xFF37474F.toInt(); else -> 0xFFECEFF1.toInt() }
         return Button(this).apply {
-            text=s; textSize=14f; isAllCaps=false; minHeight=dp(54)
-            setTextColor(if(danger || primary || travel) 0xFF07131F.toInt() else 0xFFE9F3FE.toInt())
-            background=background(fill).apply { setStroke(dp(1),if(travel || primary) 0xFF63E9FF.toInt() else 0xFF304961.toInt()) }
-            backgroundTintList=null; elevation=dp(2).toFloat()
-            setPadding(dp(14),dp(12),dp(14),dp(12)); setOnClickListener { f() }
+            text=s; textSize=14f; isAllCaps=false; minHeight=dp(28); minimumHeight=dp(28)
+            setTextColor(if(accent || primary) Color.WHITE else 0xFF37474F.toInt())
+            background=background(fill); backgroundTintList=null; elevation=0f
+            setPadding(dp(12),dp(6),dp(12),dp(6)); setOnClickListener { f() }
         }
     }
     private fun button(s:String, f:()->Unit) {
-        root.addView(makeButton(s,f),LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
+        root.addView(makeButton(s,f),LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(8) })
     }
     private fun tiles(items:List<Pair<String,()->Unit>>) {
         items.chunked(2).forEach { pair ->
             val row=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
-            pair.forEachIndexed { i,item ->
-                row.addView(makeButton(item.first,item.second).apply { minHeight=dp(90) },
-                    LinearLayout.LayoutParams(0,-1,1f).apply { if(i==0) rightMargin=dp(8) })
-            }
+            pair.forEachIndexed { i,item -> row.addView(makeButton(item.first,item.second).apply { minHeight=dp(45); minimumHeight=dp(45) },LinearLayout.LayoutParams(0,-2,1f).apply { if(i==0) rightMargin=dp(8) }) }
             if(pair.size==1) row.addView(View(this),LinearLayout.LayoutParams(0,1,1f))
-            root.addView(row,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
+            root.addView(row,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(8) })
         }
     }
     private fun filters(key:String, applied:Boolean=false, content:()->Unit) {
@@ -345,7 +347,9 @@ class MainActivity : Activity() {
     private fun back() {
         when {
             screen == "home" -> finish()
-            screen == "sms" -> report()
+            screen == "sms" -> settings()
+            screen in listOf("drive","logs","about","widgetSettings","wallet") -> settings()
+            screen == "payment" -> wallet()
             screen == "form" -> {
                 AlertDialog.Builder(this).setMessage("Zachować szkic i wrócić?")
                     .setNegativeButton("Zostań",null).setPositiveButton("Wróć") { _, _ ->
@@ -365,31 +369,32 @@ class MainActivity : Activity() {
     override fun onBackPressed() { back() }
     override fun onSaveInstanceState(out: Bundle) {
         out.putString("smsFrom",smsFrom?.toString()); out.putString("smsTo",smsTo?.toString()); out.putString("detailParent",detailParent); out.putString("screen",screen); out.putString("formKind",formKind); out.putString("formReturn",formReturn)
+        out.putString("walletDraft",walletDraft.toString())
         out.putStringArrayList("expandedFilters",ArrayList(expandedFilters))
         out.putString("draft",draft.toString()); out.putString("cameraPath",cameraPath); out.putString("pendingUpload",pendingUpload)
         super.onSaveInstanceState(out)
     }
     private fun duration(ms:Long):String { val m=(ms.coerceAtLeast(0)/60000); return "%02d:%02d".format(m/60,m%60) }
     private fun home() {
-        base("R3 Gate")
+        base("WT")
         screen="home"; homeVisible=true
         val d=data(); val a=active(d)
         val recent=rows(d,"shifts").lastOrNull(); val shown=a?:recent
         val card=LinearLayout(this).apply {
-            orientation=LinearLayout.VERTICAL; setPadding(dp(18),dp(16),dp(18),dp(16))
-            background=background(if(a!=null) 0xFF11483E.toInt() else 0xFF1B2C40.toInt()).apply { setStroke(dp(1),if(a!=null) 0xFF30D793.toInt() else 0xFF304961.toInt()) }
+            orientation=LinearLayout.VERTICAL; setPadding(dp(14),dp(12),dp(14),dp(12))
+            background=background(0xFF37474F.toInt())
         }
         fun line(text:String,size:Float,color:Int) { card.addView(TextView(this).apply {
             this.text=text; textSize=size; setTextColor(color); setPadding(0,dp(4),0,dp(4))
         }) }
-        line(if(a!=null) "● ONLINE" else "● OFFLINE",22f,if(a!=null) 0xFF73F4B5.toInt() else 0xFFB9C9DB.toInt())
-        line(shown?.let { duration((if(a!=null) System.currentTimeMillis() else it.optLong("end"))-it.optLong("start")) } ?: "00:00",40f,Color.WHITE)
+        line(if(a!=null) "● ONLINE" else "● OFFLINE",16f,if(a!=null) 0xFFFF9898.toInt() else 0xFFCFD8DC.toInt())
+        line(shown?.let { duration((if(a!=null) System.currentTimeMillis() else it.optLong("end"))-it.optLong("start")) } ?: "00:00",32f,Color.WHITE)
         line("Rozpoczęcie: "+(shown?.let { fmt.format(Date(it.optLong("start"))) } ?: "—"),14f,0xFFDBEAF7.toInt())
         if(a==null) line("Zakończenie: "+(recent?.let { fmt.format(Date(it.optLong("end"))) } ?: "—"),14f,0xFFDBEAF7.toInt())
         if(a!=null) {
             val kind=a.optString("kind","Obiekt")
             line(if(kind=="Obiekt") a.optString("object") else kind,16f,Color.WHITE)
-            if(kind=="Przejazd") line("W drodze: "+duration(System.currentTimeMillis()-a.optLong("stageStart")),18f,0xFFFFBA8B.toInt())
+            if(kind=="Przejazd") line("W drodze: "+duration(System.currentTimeMillis()-a.optLong("stageStart")),18f,0xFFFF9898.toInt())
         }
         root.addView(card,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(16) })
         if(a==null) button("🟢 ROZPOCZNIJ PRACĘ") { confirmPin { startShift() } }
@@ -404,19 +409,172 @@ class MainActivity : Activity() {
             "MATERIAŁY" to { openScreen("list:materials:") },
             "NOTATKI" to { openScreen("notes") },
             "OBIEKTY" to { openScreen("objects") },
-            "GOOGLE DRIVE" to { openScreen("drive") },
-            "📊 MÓJ RAPORT" to { report() },
-            "📁 LOGI / KOPIA" to { logs() }
+            "MÓJ CZAS" to { report() }
         ))
     }
+    private fun settings() {
+        base("Ustawienia"); screen="settings"; nav()
+        button("Portfel / rozliczenia (PIN)") { confirmPin { walletUnlocked=true; wallet() } }
+        button("GENERUJ RAPORT SMS") { weeklySms() }
+        button("Google Disk") { driveSettings() }
+        button("Logi / eksport / import") { logs() }
+        button("Wygląd widżetu") { widgetSettings() }
+        button("O aplikacji") { about() }
+    }
+    private fun about() {
+        base("O aplikacji"); screen="about"; nav()
+        val info=packageManager.getPackageInfo(packageName,0)
+        label("WT — Work Time")
+        label("Wersja: "+info.versionName)
+        label("Czas pracy, obiekty, materiały, zdjęcia, notatki i rozliczenia.")
+        filters("aboutDiagnostics") { label("Pakiet: "+packageName+"\nSHA-1: "+signingFingerprint()) }
+    }
+    private fun widgetSettings() {
+        base("Wygląd widżetu"); screen="widgetSettings"; nav()
+        label("Przezroczystość tła widżetu")
+        val value=TextView(this).apply { setTextColor(0xFF37474F.toInt()); text=prefs.getInt("widgetTransparency",0).toString()+"%" }
+        root.addView(value)
+        val previewFrame=FrameLayout(this).apply { setBackgroundColor(0xFF90A4AE.toInt()); setPadding(dp(8),dp(8),dp(8),dp(8)) }
+        val preview=GateWidget.render(this).apply(this,previewFrame)
+        val slider=SeekBar(this).apply { max=100; progress=prefs.getInt("widgetTransparency",0); contentDescription="Przezroczystość tła widżetu" }
+        slider.setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(bar:SeekBar?,progress:Int,fromUser:Boolean) {
+                value.text=progress.toString()+"%"; prefs.edit().putInt("widgetTransparency",progress).apply()
+                preview.findViewById<ImageView>(R.id.wbackground).imageAlpha=255*(100-progress)/100
+            }
+            override fun onStartTrackingTouch(bar:SeekBar?) {}
+            override fun onStopTrackingTouch(bar:SeekBar?) { GateWidget.refresh(this@MainActivity) }
+        })
+        root.addView(slider,LinearLayout.LayoutParams(-1,dp(44)))
+        label("0% — pełne tło. 100% — przezroczyste tło. Tekst i przyciski pozostają widoczne.")
+        previewFrame.addView(preview,FrameLayout.LayoutParams(-1,-2)); root.addView(previewFrame)
+        label("Rozmiar zmienisz, przytrzymując widżet na pulpicie i przeciągając jego ramkę.")
+    }
+    private fun walletConfig(d:JSONObject):JSONObject = d.optJSONObject("walletSettings") ?: JSONObject().put("defaultRate","30.00").put("openingCents",0).also { d.put("walletSettings",it) }
+    private fun defaultRate():BigDecimal = WalletRules.rate(walletConfig(data()).optString("defaultRate","30.00")) ?: BigDecimal("30.00")
+    private fun migrateWallet() {
+        val d=data(); var changed=false
+        if(!d.has("walletSettings")) { walletConfig(d); changed=true }
+        for(sh in rows(d,"shifts")+listOfNotNull(active(d))) if(!sh.has("rate")) { sh.put("rate","30.00"); changed=true }
+        if(changed) prefs.edit().putString("data",d.toString()).apply()
+    }
+    private fun walletShifts(d:JSONObject) = rows(d,"shifts").mapNotNull {
+        val rate=WalletRules.rate(it.optString("rate","30.00")) ?: return@mapNotNull null
+        WalletRules.Shift(it.optLong("start"),it.optLong("end"),rate)
+    }
+    private fun walletPayments(d:JSONObject) = rows(d,"payments").map { WalletRules.Payment(it.optString("periodFrom"),it.optString("periodTo"),it.optLong("cents"),it.optString("method")) }
+    private fun money(cents:Long):String = BigDecimal.valueOf(cents,2).toPlainString().replace('.',',')+" zł"
+    private fun walletRange():Pair<LocalDate,LocalDate> {
+        val now=LocalDate.now()
+        return try { LocalDate.parse(prefs.getString("walletFrom",now.withDayOfMonth(1).toString())) to LocalDate.parse(prefs.getString("walletTo",now.withDayOfMonth(now.lengthOfMonth()).toString())) }
+        catch(_:Exception) { now.withDayOfMonth(1) to now.withDayOfMonth(now.lengthOfMonth()) }
+    }
+    private fun wallet() {
+        if(!walletUnlocked) { settings(); confirmPin { walletUnlocked=true; wallet() }; return }
+        base("Portfel"); screen="wallet"; nav()
+        val (from,to)=walletRange()
+        label("Okres: "+from.format(displayDate)+" – "+to.format(displayDate))
+        filters("wallet") {
+            button("Data od: "+from.format(displayDate)) { pickReportDate(from) { prefs.edit().putString("walletFrom",it.toString()).apply(); wallet() } }
+            button("Data do: "+to.format(displayDate)) { pickReportDate(to) { prefs.edit().putString("walletTo",it.toString()).apply(); wallet() } }
+            button("Bieżący miesiąc") { prefs.edit().remove("walletFrom").remove("walletTo").apply(); wallet() }
+        }
+        if(to.isBefore(from)) { label("Data do nie może być wcześniejsza niż Data od."); return }
+        val d=data(); val config=walletConfig(d); val shifts=walletShifts(d); val payments=walletPayments(d)
+        val summary=WalletRules.summary(shifts,payments,from,to)
+        label("Naliczone: "+money(summary.earned))
+        label("Otrzymano — gotówka: "+money(summary.cash))
+        label("Otrzymano — karta: "+money(summary.card))
+        if(summary.overlapping==0) label((if(summary.due>=0) "Do wypłaty: " else "Nadpłata: ")+money(kotlin.math.abs(summary.due)))
+        else label("Saldo okresu niepełne: "+summary.overlapping+" wypłat obejmuje szerszy okres. Poszerz daty lub popraw przypisanie wypłaty.")
+        val global=WalletRules.earned(shifts)+config.optLong("openingCents")-payments.sumOf { it.cents }
+        label((if(global>=0) "Łącznie do wypłaty (cała historia): " else "Łączna nadpłata (cała historia): ")+money(kotlin.math.abs(global)))
+        label("Naliczanie obejmuje zakończone zmiany, także przejazdy i zakupy. Otwarty dzień zostanie rozliczony po zakończeniu.")
+        button("+ Dodaj wypłatę") { walletDraft=JSONObject().put("id",UUID.randomUUID().toString()).put("date",LocalDate.now().toString()).put("periodFrom",from.toString()).put("periodTo",to.toString()).put("method","cash"); paymentForm() }
+        filters("walletRates") {
+            button("Domyślna stawka: "+defaultRate().toPlainString()+" zł/h") { rateDialog(false) }
+            button("Zmień stawkę zmian w tym okresie") { rateDialog(true) }
+            button("Saldo początkowe: "+money(config.optLong("openingCents"))) { openingDialog() }
+        }
+        label("Wypłaty przypisane do tego okresu")
+        val selected=rows(d,"payments").filter { it.optString("periodFrom")<=to.toString() && it.optString("periodTo")>=from.toString() }.sortedByDescending { it.optString("date") }
+        if(selected.isEmpty()) label("Brak wypłat w tym okresie.")
+        for(payment in selected) {
+            button(dateText(payment.optString("date"))+" · "+money(payment.optLong("cents"))+" · "+if(payment.optString("method")=="cash") "Gotówka" else "Karta") {
+                walletDraft=JSONObject(payment.toString()).put("amount",BigDecimal.valueOf(payment.optLong("cents"),2).toPlainString()); paymentForm()
+            }
+            label("Za okres: "+dateText(payment.optString("periodFrom"))+" – "+dateText(payment.optString("periodTo")))
+        }
+    }
+    private fun walletInput(caption:String,key:String,numeric:Boolean=false) {
+        label(caption)
+        root.addView(EditText(this).apply {
+            hint=caption; setText(walletDraft.optString(key)); setTextColor(0xFF37474F.toInt()); setHintTextColor(0xFF78909C.toInt())
+            background=background(0xFFECEFF1.toInt()); setPadding(dp(10),dp(6),dp(10),dp(6))
+            inputType=if(numeric) InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL else InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            addTextChangedListener(object:TextWatcher {
+                override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int) {}
+                override fun onTextChanged(s:CharSequence?,start:Int,before:Int,count:Int) { walletDraft.put(key,s.toString()) }
+                override fun afterTextChanged(s:Editable?) {}
+            })
+        },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(8) })
+    }
+    private fun paymentForm() {
+        if(!walletUnlocked) { settings(); confirmPin { walletUnlocked=true; paymentForm() }; return }
+        base("Wypłata"); screen="payment"; nav()
+        for((key,title) in listOf("date" to "Data otrzymania","periodFrom" to "Za okres od","periodTo" to "Za okres do")) {
+            button(title+": "+dateText(walletDraft.optString(key))) { pickReportDate(try { LocalDate.parse(walletDraft.optString(key)) } catch(_:Exception) { LocalDate.now() }) { walletDraft.put(key,it.toString()); paymentForm() } }
+        }
+        walletInput("Kwota (zł)","amount",true)
+        button("Sposób: "+if(walletDraft.optString("method")=="cash") "Gotówka" else "Karta") {
+            AlertDialog.Builder(this).setTitle("Sposób wypłaty").setItems(arrayOf("Gotówka","Karta")) { _,index -> walletDraft.put("method",if(index==0) "cash" else "card"); paymentForm() }.show()
+        }
+        walletInput("Notatka (opcjonalnie)","note")
+        button("Zapisz") {
+            val cents=WalletRules.money(walletDraft.optString("amount"))
+            val from=try { LocalDate.parse(walletDraft.optString("periodFrom")) } catch(_:Exception) { null }
+            val to=try { LocalDate.parse(walletDraft.optString("periodTo")) } catch(_:Exception) { null }
+            if(cents==null || cents<=0 || from==null || to==null || to.isBefore(from)) { toast("Podaj poprawną kwotę i okres wypłaty"); return@button }
+            walletDraft.put("cents",cents); walletDraft.remove("amount")
+            val d=data(); val list=arr(d,"payments"); val id=walletDraft.optString("id")
+            val index=(0 until list.length()).find { list.getJSONObject(it).optString("id")==id }
+            if(index==null) list.put(walletDraft) else list.put(index,walletDraft)
+            save(d,"PAYMENT_SAVE",id); wallet()
+        }
+        val id=walletDraft.optString("id")
+        if(rows(data(),"payments").any { it.optString("id")==id }) button("Usuń wypłatę (PIN)") {
+            confirmPin { AlertDialog.Builder(this).setMessage("Usunąć tę wypłatę z rozliczenia?").setNegativeButton("Anuluj",null).setPositiveButton("Usuń") { _, _ ->
+                val d=data(); val next=JSONArray(); rows(d,"payments").filter { it.optString("id")!=id }.forEach { next.put(it) }; d.put("payments",next); save(d,"PAYMENT_DELETE",id); wallet()
+            }.show() }
+        }
+    }
+    private fun rateDialog(existing:Boolean) {
+        val input=EditText(this).apply { hint="Stawka zł/h"; setText(defaultRate().toPlainString()); inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL }
+        val dialog=AlertDialog.Builder(this).setTitle(if(existing) "Stawka za wybrany okres" else "Stawka dla nowych zmian")
+            .setMessage(if(existing) "Zmienisz stawkę zakończonych zmian rozpoczynających się w wybranym okresie." else "Zmiana dotyczy tylko nowych dni pracy. Starsze zmiany zachowają swoje stawki.")
+            .setView(input).setNegativeButton("Anuluj",null).setPositiveButton("Zapisz",null).create()
+        dialog.setOnShowListener { dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val rate=WalletRules.rate(input.text.toString())
+            if(rate==null) { input.error="Podaj stawkę większą od zera"; return@setOnClickListener }
+            val d=data()
+            if(existing) { val (from,to)=walletRange(); rows(d,"shifts").filter { localDate(it.optLong("start")) in from..to }.forEach { it.put("rate",rate.toPlainString()) } }
+            else walletConfig(d).put("defaultRate",rate.toPlainString())
+            save(d,"RATE_EDIT",if(existing) "period" else "default"); dialog.dismiss(); wallet()
+        } }; dialog.show()
+    }
+    private fun openingDialog() {
+        val field=EditText(this).apply { hint="Saldo początkowe zł"; setText(BigDecimal.valueOf(walletConfig(data()).optLong("openingCents"),2).toPlainString()); inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED }
+        val dialog=AlertDialog.Builder(this).setTitle("Saldo sprzed zapisanej historii").setMessage("Dodatnia kwota: zaległa wypłata. Ujemna: wcześniejsza nadpłata. Uwzględniana tylko w saldzie całej historii.").setView(field).setNegativeButton("Anuluj",null).setPositiveButton("Zapisz",null).create()
+        dialog.setOnShowListener { dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val amount=WalletRules.money(field.text.toString(),true)
+            if(amount==null) { field.error="Nieprawidłowa kwota"; return@setOnClickListener }
+            val d=data(); walletConfig(d).put("openingCents",amount); save(d,"OPENING_BALANCE_EDIT",""); dialog.dismiss(); wallet()
+        } }; dialog.show()
+    }
     private fun report() {
-        base("Mój raport"); screen = "report"; nav(); button("📋 GENERUJ RAPORT SMS") { weeklySms() }; val d=data(); val list=arr(d,"shifts")
+        base("Mój czas"); screen = "report"; nav(); val d=data(); val list=arr(d,"shifts")
         var total=0L; for(i in 0 until list.length()) { val x=list.optJSONObject(i)?:continue; total+=(x.optLong("end")-x.optLong("start")).coerceAtLeast(0) }
         label("Łączny czas: ${duration(total)}")
-        button(if(earningsVisible) "Ukryj zarobek" else "ZAROBEK (pokaż)") {
-            if(earningsVisible) { earningsVisible=false; report() } else confirmPin { earningsVisible=true; report() }
-        }
-        if(earningsVisible) label("Zarobek (30 zł/h): %.2f zł".format(Locale.US,total/3600000.0*30))
         for(i in list.length()-1 downTo 0) {
             val s=list.optJSONObject(i)?:continue
             label("${fmt.format(Date(s.optLong("start")))} → ${fmt.format(Date(s.optLong("end")))}  (${duration(s.optLong("end")-s.optLong("start"))})")
@@ -472,19 +630,21 @@ class MainActivity : Activity() {
     }
     private fun logs() {
         base("Logi i kopia zapasowa"); screen = "logs"; nav()
-        label("Kopia JSON zawiera dane i odnośniki. Zachowaj również zdjęcia na Drive; zdjęcia lokalne nie są dołączane do JSON.")
-        button("Eksportuj dziennik JSON") { startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type="application/json"; putExtra(Intent.EXTRA_TITLE,"R3-Gate-backup.json") },100) }
-        button("Importuj dziennik JSON") { startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type="application/json" },101) }
+        label("Kopia JSON zawiera dane i odnośniki. Zachowaj również zdjęcia na Google Disk; zdjęcia lokalne nie są dołączane do JSON.")
+        button("Eksportuj dziennik JSON") { confirmPin { startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type="application/json"; putExtra(Intent.EXTRA_TITLE,"WT-backup.json") },100) } }
+        button("Importuj dziennik JSON") { confirmPin { startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type="application/json" },101) } }
         val list=arr(data(),"logs"); for(i in list.length()-1 downTo 0) { val x=list.optJSONObject(i)?:continue; label("${x.optString("at")} | ${x.optString("type")} | ${x.optString("detail")}") }
     }
     @Deprecated("Legacy activity result")
     override fun onActivityResult(requestCode:Int,resultCode:Int,dataIntent:Intent?) {
         super.onActivityResult(requestCode,resultCode,dataIntent)
-        if (requestCode == 203) {
-            if (resultCode == RESULT_OK && dataIntent != null) {
+        if(requestCode==203) {
+            if(dataIntent!=null) {
                 try { authorized(Identity.getAuthorizationClient(this).getAuthorizationResultFromIntent(dataIntent)) }
-                catch (_:Exception) { toast("Autoryzacja nieudana. Sprawdź konfigurację Google Cloud."); pendingUpload="" }
-            } else { pendingUpload=""; toast("Anulowano połączenie z Google Drive") }
+                catch(e:Exception) { driveFailure(e) }
+            } else {
+                pendingUpload=""; prefs.edit().putString("driveError","Połączenie anulowane przed udzieleniem dostępu. Spróbuj ponownie.").apply(); driveSettings()
+            }
             return
         }
         if (requestCode == 201 || requestCode == 202) {
@@ -507,16 +667,26 @@ class MainActivity : Activity() {
         if(resultCode!=RESULT_OK) return
         val uri=dataIntent?.data?:return
         try {
-            if(requestCode==100) { contentResolver.openOutputStream(uri)?.use { it.write(data().toString(2).toByteArray(Charsets.UTF_8)) }; toast("Kopia zapisana") }
+            if(requestCode==100) { contentResolver.openOutputStream(uri)?.use { it.write(exportData().toString(2).toByteArray(Charsets.UTF_8)) }; toast("Kopia zapisana") }
             if(requestCode==101) {
-                val content=contentResolver.openInputStream(uri)!!.bufferedReader().use { it.readText() }; val imported=JSONObject(content)
+                val content=contentResolver.openInputStream(uri)!!.bufferedReader().use { it.readText() }; val imported=JSONObject(content); validateImport(imported)
                 AlertDialog.Builder(this).setTitle("Przywrócić kopię?").setMessage("Obecne dane zostaną zastąpione.").setNegativeButton("Anuluj",null).setPositiveButton("Importuj") { _, _ ->
-                    prefs.edit().putString("data",imported.toString()).apply(); migrate(); GateWidget.refresh(this); logs()
+                    prefs.edit().putString("preImportBackup",data().toString()).putString("data",imported.toString()).putInt("widgetTransparency",imported.optJSONObject("wtSettings")?.optInt("widgetTransparency",prefs.getInt("widgetTransparency",0))?.coerceIn(0,100) ?: prefs.getInt("widgetTransparency",0)).apply(); migrate(); migrateWallet(); GateWidget.refresh(this); logs()
                 }.show()
             }
         } catch (_:Exception) { toast("Błąd pliku JSON") }
     }
 
+    private fun exportData():JSONObject = JSONObject(data().toString()).put("wtBackupVersion",1).put("wtSettings",JSONObject().put("widgetTransparency",prefs.getInt("widgetTransparency",0)))
+    private fun validateImport(d:JSONObject) {
+        for(key in listOf("objects","shifts","links","materials","notes","payments","logs")) if(d.has(key) && d.optJSONArray(key)==null) throw IllegalArgumentException("Nieprawidłowa lista: "+key)
+        if(!listOf("objects","shifts","links","materials","notes","payments").any { d.has(it) }) throw IllegalArgumentException("Brak danych WT")
+        for(p in rows(d,"payments")) {
+            require(p.optLong("cents")>0 && p.optString("method") in listOf("cash","card"))
+            val from=LocalDate.parse(p.optString("periodFrom")); val to=LocalDate.parse(p.optString("periodTo")); LocalDate.parse(p.optString("date")); require(!to.isBefore(from))
+        }
+        d.optJSONObject("walletSettings")?.let { require(WalletRules.rate(it.optString("defaultRate","30.00"))!=null) }
+    }
     private val displayDate = DateTimeFormatter.ofPattern("dd-MM-yyyy")
     private fun rows(d:JSONObject,key:String) = (0 until arr(d,key).length()).mapNotNull { arr(d,key).optJSONObject(it) }
     private fun objectName(o:JSONObject) = listOf(o.optString("TAG"),o.optString("organization"),o.optString("city"),o.optString("Adres")).filter { it.isNotBlank() }.joinToString(" · ")
@@ -570,6 +740,12 @@ class MainActivity : Activity() {
         screen=target
         when {
             target=="home" -> home()
+            target=="settings" -> settings()
+            target=="about" -> about()
+            target=="widgetSettings" -> widgetSettings()
+            target=="wallet" -> wallet()
+            target=="payment" -> paymentForm()
+            target=="sms" -> weeklySms()
             target=="objects" -> objects()
             target.startsWith("object:") -> objectDetails(target.substringAfter(":"))
             target.startsWith("detail:") -> { val p=target.split(":"); recordDetails(p[1],p[2],detailParent) }
@@ -583,7 +759,6 @@ class MainActivity : Activity() {
             target=="notesActive" -> recordList("notes","",true)
             target=="notesLog" -> recordList("notes","")
             target=="report" -> report()
-            target=="sms" -> weeklySms()
             target=="logs" -> logs()
             target=="form" -> renderForm()
             target=="drive" -> driveSettings()
@@ -735,14 +910,14 @@ class MainActivity : Activity() {
             }
         }
         showPhotos(r)
-        if(r.optString("Link Google Drive").isNotBlank()) button("Otwórz folder Drive") { openLink(r.optString("Link Google Drive")) }
-        if(arr(r,"photos").length()>0) button(if(uploading) "Trwa przesyłanie…" else "Wyślij zdjęcia na Google Drive / ponów") {
+        if(r.optString("Link Google Drive").isNotBlank()) button("Otwórz folder Google Disk") { openLink(r.optString("Link Google Drive")) }
+        if(arr(r,"photos").length()>0) button(if(uploading) "Trwa przesyłanie…" else "Wyślij zdjęcia na Google Disk / ponów") {
             if(!uploading) { pendingUpload=key+":"+id; authorizeDrive() }
         }
         button("Edytuj") { screen=parent; newForm(key,id) }
         button("Usuń wpis (PIN)") {
             confirmPin {
-                AlertDialog.Builder(this).setMessage("Usunąć ten wpis z aplikacji? Pliki na Drive pozostaną.")
+                AlertDialog.Builder(this).setMessage("Usunąć ten wpis z aplikacji? Pliki na Google Disk pozostaną.")
                     .setNegativeButton("Anuluj",null).setPositiveButton("Usuń") { _, _ ->
                         val d=data(); val newer=JSONArray()
                         rows(d,key).filter { it.optString("id")!=id }.forEach { newer.put(it) }
@@ -770,7 +945,7 @@ class MainActivity : Activity() {
                 root.addView(thumb,LinearLayout.LayoutParams(-1,dp(200)))
             } catch (_:Exception) { label("Zdjęcie "+(i+1)+": plik niedostępny na tym urządzeniu") }
             val driveId=r.optJSONObject("driveFiles")?.optString(hash(prefs.getString("driveEmail","") ?: "").take(24)+"|"+uri).orEmpty()
-            label("Zdjęcie "+(i+1)+if(driveId.isBlank()) " · lokalne" else " · zapisane na Drive")
+            label("Zdjęcie "+(i+1)+if(driveId.isBlank()) " · lokalne" else " · zapisane na Google Disk")
         }
     }
     private fun newForm(key:String,id:String="",objectId:String="") {
@@ -788,7 +963,7 @@ class MainActivity : Activity() {
         val e=EditText(this).apply {
             setText(draft.optString(key)); textSize=17f; minHeight=dp(48)
             inputType=if(numeric) InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL else InputType.TYPE_CLASS_TEXT or (if(multiline) InputType.TYPE_TEXT_FLAG_MULTI_LINE else 0)
-            setSingleLine(!multiline); setPadding(dp(10),dp(8),dp(10),dp(8)); setTextColor(Color.WHITE); setHintTextColor(0xFF91A7BD.toInt()); background=background(0xFF203349.toInt())
+            setSingleLine(!multiline); setPadding(dp(10),dp(8),dp(10),dp(8)); setTextColor(0xFF37474F.toInt()); setHintTextColor(0xFF78909C.toInt()); background=background(0xFFECEFF1.toInt())
         }
         e.addTextChangedListener(object:TextWatcher {
             override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int) {}
@@ -828,19 +1003,19 @@ class MainActivity : Activity() {
                 if(formKind=="notes") {
                     field("Treść (opcjonalnie, gdy dodajesz zdjęcie)","text",true)
                     root.addView(CheckBox(this).apply {
-                        text="Zakupy / paragon"; setTextColor(Color.WHITE)
-                        buttonTintList=android.content.res.ColorStateList.valueOf(0xFF29D3EE.toInt())
+                        text="Zakupy / paragon"; setTextColor(0xFF37474F.toInt())
+                        buttonTintList=android.content.res.ColorStateList.valueOf(0xFFFF5C5C.toInt())
                         isChecked=draft.optBoolean("shopping")
                         setOnCheckedChangeListener { _,checked -> draft.put("shopping",checked) }
                     })
                     root.addView(CheckBox(this).apply {
-                        setTextColor(Color.WHITE); buttonTintList=android.content.res.ColorStateList.valueOf(0xFF29D3EE.toInt())
+                        setTextColor(0xFF37474F.toInt()); buttonTintList=android.content.res.ColorStateList.valueOf(0xFFFF5C5C.toInt())
                         text="Aktualna"; isChecked=draft.optBoolean("aktualne")
                         setOnCheckedChangeListener { _,checked -> draft.put("aktualne",checked); if(checked) draft.put("done",false) }
                     })
                 }
                 button("Dodaj zdjęcia z galerii") { pickPhotos() }; button("Zrób zdjęcie") { camera() }
-                if(formKind=="links") field("Link Google Drive (opcjonalnie)","Link Google Drive")
+                if(formKind=="links") field("Link Google Disk (opcjonalnie)","Link Google Drive")
             }
             showPhotos(draft)
             if(arr(draft,"photos").length()>0) button("Usuń zdjęcie ze szkicu") {
@@ -904,22 +1079,34 @@ class MainActivity : Activity() {
 
     private val driveScope="https://www.googleapis.com/auth/drive.file"
     private fun driveSettings() {
-        base("Google Drive"); screen="drive"; nav()
-        label(if(prefs.getBoolean("driveConnected",false)) "Połączono: "+prefs.getString("driveEmail","Google Drive") else "Dysk nie jest połączony")
-        label("Zdjęcia będą zapisywane w: R3 Gate / obiekt / data. Aplikacja prosi tylko o dostęp do plików używanych przez R3 Gate.")
-        button("Połącz Google Drive / autoryzuj") { pendingUpload=""; authorizeDrive() }
-        if(prefs.getBoolean("driveConnected",false)) button("Odłącz Google Drive") {
+        base("Google Disk"); screen="drive"; nav()
+        label(if(prefs.getBoolean("driveConnected",false)) "Połączono: "+prefs.getString("driveEmail","Google Disk") else "Disk nie jest połączony")
+        prefs.getString("driveError",null)?.takeIf { it.isNotBlank() }?.let { label(it) }
+        label("Zdjęcia będą zapisane w folderze aplikacji, z podziałem na obiekty i daty. Dotychczasowy folder zostanie zachowany.")
+        button("Połącz Google Disk") { pendingUpload=""; authorizeDrive() }
+        if(prefs.getBoolean("driveConnected",false)) button("Odłącz Google Disk") {
             if(uploading) { toast("Poczekaj na zakończenie przesyłania"); return@button }
-            val request=com.google.android.gms.auth.api.identity.RevokeAccessRequest.builder()
-                .setScopes(listOf(Scope(driveScope))).build()
-            Identity.getAuthorizationClient(this).revokeAccess(request)
-                .addOnSuccessListener {
-                    driveToken=null; prefs.edit().remove("driveEmail").putBoolean("driveConnected",false).apply()
-                    driveSettings()
-                }.addOnFailureListener { toast("Nie udało się odłączyć. Spróbuj ponownie w połączeniu z internetem.") }
+            val request=com.google.android.gms.auth.api.identity.RevokeAccessRequest.builder().setScopes(listOf(Scope(driveScope))).build()
+            Identity.getAuthorizationClient(this).revokeAccess(request).addOnSuccessListener {
+                driveToken=null; prefs.edit().remove("driveEmail").remove("driveError").putBoolean("driveConnected",false).apply(); driveSettings()
+            }.addOnFailureListener { driveFailure(it) }
         }
-        label("Jeśli Google odrzuca autoryzację, projekt Google Cloud musi mieć włączone Drive API oraz klienta Android dla poniższego pakietu i podpisu.")
-        label("Pakiet: "+packageName+"\nSHA-1: "+signingFingerprint())
+        filters("driveDiagnostics") {
+            label("Dane do konfiguracji autoryzacji Google")
+            label("Pakiet: "+packageName+"\nSHA-1: "+signingFingerprint())
+        }
+    }
+    private fun driveFailure(e:Exception) {
+        pendingUpload=""
+        val code=(e as? com.google.android.gms.common.api.ApiException)?.statusCode
+        val message=when(code) {
+            10 -> "Google odrzucił konfigurację aplikacji (kod 10). Sprawdź zgodność podpisu APK z klientem Android w Google Cloud."
+            16 -> "Autoryzacja nie została zakończona (kod 16). Sprawdź konto testowe Google i spróbuj ponownie."
+            7 -> "Brak połączenia z Google. Sprawdź internet i spróbuj ponownie."
+            else -> "Nie udało się połączyć z Google Disk"+(code?.let { " (kod "+it+")" } ?: "")+". Sprawdź konto, dostęp i konfigurację Google."
+        }
+        prefs.edit().putString("driveError",message).apply(); toast(message)
+        if(screen=="drive") driveSettings()
     }
     private fun signingFingerprint():String = try {
         @Suppress("DEPRECATION")
@@ -932,17 +1119,14 @@ class MainActivity : Activity() {
             .addOnSuccessListener { result ->
                 if(result.hasResolution()) {
                     try { startIntentSenderForResult(result.pendingIntent!!.intentSender,203,null,0,0,0) }
-                    catch (_:Exception) { pendingUpload=""; toast("Nie można otworzyć autoryzacji Google") }
+                    catch (e:Exception) { driveFailure(e) }
                 } else authorized(result)
-            }.addOnFailureListener {
-                pendingUpload=""
-                toast("Google Drive: autoryzacja nieudana. Sprawdź internet, Usługi Google Play i klienta OAuth Android w Google Cloud.")
-            }
+            }.addOnFailureListener { driveFailure(it) }
     }
     private fun authorized(result:com.google.android.gms.auth.api.identity.AuthorizationResult) {
         val token=result.accessToken
         if(token.isNullOrBlank() || driveScope !in result.grantedScopes) {
-            pendingUpload=""; toast("Nie udzielono dostępu do Drive"); return
+            pendingUpload=""; toast("Nie udzielono dostępu do Google Disk"); return
         }
         driveToken=token
         val upload=pendingUpload; pendingUpload=""
@@ -950,10 +1134,10 @@ class MainActivity : Activity() {
             try {
                 val about=driveJson("GET","https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)",token)
                 runOnUiThread {
-                    prefs.edit().putBoolean("driveConnected",true).putString("driveEmail",about.optJSONObject("user")?.optString("emailAddress") ?: "Google Drive").apply()
+                    prefs.edit().remove("driveError").putBoolean("driveConnected",true).putString("driveEmail",about.optJSONObject("user")?.optString("emailAddress") ?: "Google Drive").apply()
                     if(upload.isBlank()) driveSettings() else uploadPhotos(upload,token)
                 }
-            } catch (_:Exception) { runOnUiThread { toast("Nie udało się połączyć z Drive. Sprawdź, czy Drive API jest włączone."); } }
+            } catch (_:Exception) { runOnUiThread { prefs.edit().putString("driveError","Google Disk nie odpowiada. Sprawdź, czy Drive API jest włączone i konto ma dostęp.").apply(); toast("Nie udało się połączyć z Google Disk"); } }
         }
     }
     private fun driveJson(method:String,url:String,token:String,body:JSONObject?=null):JSONObject {
@@ -968,6 +1152,12 @@ class MainActivity : Activity() {
             if(c.responseCode !in 200..299) throw java.io.IOException("Drive HTTP "+c.responseCode)
             return JSONObject(c.inputStream.bufferedReader().use { it.readText() }.ifBlank { "{}" })
         } finally { c.disconnect() }
+    }
+    private fun driveRoot(token:String):String {
+        val q="trashed = false and mimeType = 'application/vnd.google-apps.folder' and (name = 'WT' or name = 'R3 Gate') and 'root' in parents"
+        val list=driveJson("GET","https://www.googleapis.com/drive/v3/files?q="+URLEncoder.encode(q,"UTF-8")+"&fields=files(id,name)&pageSize=100",token).optJSONArray("files")
+        if(list!=null && list.length()>0) return list.getJSONObject(0).getString("id")
+        return driveFolder("WT",null,token)
     }
     private fun driveFolder(name:String,parent:String?,token:String):String {
         val safeName=name.replace("\\","\\\\").replace("'","\\'")
@@ -991,7 +1181,7 @@ class MainActivity : Activity() {
         toast("Przesyłanie zdjęć. Pozostaw aplikację otwartą.")
         io.execute {
             try {
-                val rootId=driveFolder("R3 Gate",null,token)
+                val rootId=driveRoot(token)
                 val objId=driveFolder(if(obj==null) "Bez obiektu" else obj.optString("TAG")+" "+obj.optString("organization"),rootId,token)
                 val dayId=driveFolder(dateText(recordDate(row)),objId,token)
                 for((index,photo) in photoList.withIndex()) {
@@ -1040,7 +1230,7 @@ class MainActivity : Activity() {
                         toast("Zdjęcie "+(index+1)+" / "+photoList.size+" zapisane")
                     }
                 }
-                runOnUiThread { uploading=false; toast("Zdjęcia zapisane na Google Drive"); if(!isDestroyed && screen=="detail:"+key+":"+id) recordDetails(key,id,detailParent) }
+                runOnUiThread { uploading=false; toast("Zdjęcia zapisane na Google Disk"); if(!isDestroyed && screen=="detail:"+key+":"+id) recordDetails(key,id,detailParent) }
             } catch (_:Exception) {
                 runOnUiThread { uploading=false; toast("Przesyłanie przerwane. Sprawdź internet i ponów — zapisane zdjęcia nie będą wysyłane ponownie.") }
             }
