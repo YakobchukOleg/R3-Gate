@@ -99,10 +99,12 @@ class AppFlowTest {
             // The unit picker is a platform dialog outside the activity content root.
             instrumentation.waitForIdleSync()
             androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.withText("OK"))
+                .inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog())
                 .perform(androidx.test.espresso.action.ViewActions.click())
             instrumentation.waitForIdleSync()
             scenario.onActivity { a -> click(a,"Jednostka: szt.") }
             androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.withText("m"))
+                .inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog())
                 .perform(androidx.test.espresso.action.ViewActions.click())
             instrumentation.waitForIdleSync()
             scenario.onActivity { a ->
@@ -139,13 +141,16 @@ class AppFlowTest {
     private fun store(d:JSONObject) { instrumentation.targetContext.getSharedPreferences("r3_gate",0).edit().putString("data",d.toString()).commit() }
     private fun pin(value:String="1234") {
         androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.withHint("PIN"))
+            .inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog())
             .perform(androidx.test.espresso.action.ViewActions.typeText(value),androidx.test.espresso.action.ViewActions.closeSoftKeyboard())
         androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.withText("Potwierdź"))
+            .inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog())
             .perform(androidx.test.espresso.action.ViewActions.click())
         instrumentation.waitForIdleSync()
     }
     private fun dialogClick(text:String) {
         androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.withText(text))
+            .inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog())
             .perform(androidx.test.espresso.action.ViewActions.click())
         instrumentation.waitForIdleSync()
     }
