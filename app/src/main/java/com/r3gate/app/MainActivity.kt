@@ -42,6 +42,7 @@ class MainActivity : Activity() {
     private var earningsVisible = false
     private val ticker = Handler(Looper.getMainLooper())
     private var screen = "home"
+    private val expandedFilters = mutableSetOf<String>()
     private var formKind = ""
     private var formReturn = "home"
     private var draft = JSONObject()
@@ -69,6 +70,7 @@ class MainActivity : Activity() {
                 android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS)
         }
         migrate()
+        expandedFilters.addAll(savedInstanceState?.getStringArrayList("expandedFilters") ?: emptyList())
         cameraPath = savedInstanceState?.getString("cameraPath")
         pendingUpload = savedInstanceState?.getString("pendingUpload") ?: ""
         if (savedInstanceState != null && prefs.contains("pin") && intent?.getStringExtra("widget_action")==null) {
@@ -319,6 +321,26 @@ class MainActivity : Activity() {
             root.addView(row,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
         }
     }
+    private fun filters(key:String, applied:Boolean=false, content:()->Unit) {
+        val parent=root
+        val panel=LinearLayout(this).apply {
+            orientation=LinearLayout.VERTICAL
+            visibility=if(key in expandedFilters) View.VISIBLE else View.GONE
+        }
+        lateinit var toggle:Button
+        fun title() = "Filtry"+(if(applied) " •" else "")+(if(key in expandedFilters) " ▴" else " ▾")
+        toggle=makeButton(title()) {
+            if(!expandedFilters.add(key)) expandedFilters.remove(key)
+            panel.visibility=if(key in expandedFilters) View.VISIBLE else View.GONE
+            toggle.text=title()
+            toggle.contentDescription="Filtry: "+if(key in expandedFilters) "rozwinięte" else "zwinięte"
+        }
+        toggle.contentDescription="Filtry: "+if(key in expandedFilters) "rozwinięte" else "zwinięte"
+        parent.addView(toggle,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
+        parent.addView(panel,LinearLayout.LayoutParams(-1,-2))
+        root=panel
+        try { content() } finally { root=parent }
+    }
     private fun nav() { button("← Wstecz") { back() } }
     private fun back() {
         when {
@@ -343,6 +365,7 @@ class MainActivity : Activity() {
     override fun onBackPressed() { back() }
     override fun onSaveInstanceState(out: Bundle) {
         out.putString("smsFrom",smsFrom?.toString()); out.putString("smsTo",smsTo?.toString()); out.putString("detailParent",detailParent); out.putString("screen",screen); out.putString("formKind",formKind); out.putString("formReturn",formReturn)
+        out.putStringArrayList("expandedFilters",ArrayList(expandedFilters))
         out.putString("draft",draft.toString()); out.putString("cameraPath",cameraPath); out.putString("pendingUpload",pendingUpload)
         super.onSaveInstanceState(out)
     }
@@ -569,12 +592,14 @@ class MainActivity : Activity() {
     }
     private fun objects() {
         base("Obiekty"); screen="objects"; nav()
-        button("+ Dodaj obiekt") { newForm("objects") }
         val all=rows(data(),"objects")
         val showArchived=prefs.getBoolean("archived_objects",false)
+        filters("objects",showArchived) {
         button(if(showArchived) "Pokaż aktywne" else "Pokaż archiwalne") {
             prefs.edit().putBoolean("archived_objects",!showArchived).apply(); objects()
         }
+        }
+        button("+ Dodaj obiekt") { newForm("objects") }
         for(o in all.filter { it.optBoolean("archived")==showArchived }.sortedBy { objectName(it) }) {
             button(objectName(o)) { openScreen("object:"+o.optString("id")) }
         }
@@ -586,13 +611,15 @@ class MainActivity : Activity() {
         val periodKey="objectPeriod_"+id
         val period=JSONObject(prefs.getString(periodKey,"{}")!!)
         fun periodRefresh() { prefs.edit().putString(periodKey,period.toString()).apply(); objectDetails(id) }
-        button("Data od: "+period.optString("from").let { if(it.isBlank()) "wszystkie" else dateText(it) }) {
-            pickReportDate(LocalDate.now()) { period.put("from",it.toString()); periodRefresh() }
+        filters("object:"+id, period.optString("from").isNotBlank() || period.optString("to").isNotBlank()) {
+            button("Data od: "+period.optString("from").let { if(it.isBlank()) "wszystkie" else dateText(it) }) {
+                pickReportDate(LocalDate.now()) { period.put("from",it.toString()); periodRefresh() }
+            }
+            button("Data do: "+period.optString("to").let { if(it.isBlank()) "wszystkie" else dateText(it) }) {
+                pickReportDate(LocalDate.now()) { period.put("to",it.toString()); periodRefresh() }
+            }
+            button("Wyczyść okres") { prefs.edit().remove(periodKey).apply(); objectDetails(id) }
         }
-        button("Data do: "+period.optString("to").let { if(it.isBlank()) "wszystkie" else dateText(it) }) {
-            pickReportDate(LocalDate.now()) { period.put("to",it.toString()); periodRefresh() }
-        }
-        button("Wyczyść okres") { prefs.edit().remove(periodKey).apply(); objectDetails(id) }
         label(objectName(obj)); label(obj.optString("notes",obj.optString("Opis")))
         button("Edytuj obiekt") { newForm("objects",id) }
         button("Otwórz w Google Maps") {
@@ -638,20 +665,22 @@ class MainActivity : Activity() {
         val filterKey="filter_"+target
         val f=try { JSONObject(prefs.getString(filterKey,if(objectId.isBlank()) "{}" else prefs.getString("objectPeriod_"+objectId,"{}"))!!) } catch (_:Exception) { JSONObject() }
         fun refresh() { prefs.edit().putString(filterKey,f.toString()).apply(); openScreen(target) }
-        button("Data od: "+f.optString("from").let { if(it.isBlank()) "wszystkie" else dateText(it) }) {
-            pickReportDate(LocalDate.now()) { f.put("from",it.toString()); refresh() }
+        filters(target, f.optString("from").isNotBlank() || f.optString("to").isNotBlank() || f.optString("objectId").isNotBlank() || f.optBoolean("nameSort") || f.optBoolean("shoppingOnly")) {
+            button("Data od: "+f.optString("from").let { if(it.isBlank()) "wszystkie" else dateText(it) }) {
+                pickReportDate(LocalDate.now()) { f.put("from",it.toString()); refresh() }
+            }
+            button("Data do: "+f.optString("to").let { if(it.isBlank()) "wszystkie" else dateText(it) }) {
+                pickReportDate(LocalDate.now()) { f.put("to",it.toString()); refresh() }
+            }
+            if(objectId.isBlank()) button("Obiekt: "+(objectById(f.optString("objectId"))?.let { objectName(it) } ?: "wszystkie")) {
+                chooseObject(true) { f.put("objectId",it?.optString("id") ?: ""); refresh() }
+            }
+            if(key=="notes") button(if(f.optBoolean("shoppingOnly")) "Zakupy / paragony: tylko zakupy" else "Zakupy / paragony: wszystkie notatki") {
+                f.put("shoppingOnly",!f.optBoolean("shoppingOnly")); refresh()
+            }
+            button("Wyczyść filtry") { prefs.edit().remove(filterKey).apply(); openScreen(target) }
+            button(if(f.optBoolean("nameSort")) "Sortowanie: nazwa" else "Sortowanie: data, najnowsze") { f.put("nameSort",!f.optBoolean("nameSort")); refresh() }
         }
-        button("Data do: "+f.optString("to").let { if(it.isBlank()) "wszystkie" else dateText(it) }) {
-            pickReportDate(LocalDate.now()) { f.put("to",it.toString()); refresh() }
-        }
-        if(objectId.isBlank()) button("Obiekt: "+(objectById(f.optString("objectId"))?.let { objectName(it) } ?: "wszystkie")) {
-            chooseObject(true) { f.put("objectId",it?.optString("id") ?: ""); refresh() }
-        }
-        if(key=="notes") button(if(f.optBoolean("shoppingOnly")) "Zakupy / paragony: tylko zakupy" else "Zakupy / paragony: wszystkie notatki") {
-            f.put("shoppingOnly",!f.optBoolean("shoppingOnly")); refresh()
-        }
-        button("Wyczyść filtry") { prefs.edit().remove(filterKey).apply(); openScreen(target) }
-        button(if(f.optBoolean("nameSort")) "Sortowanie: nazwa" else "Sortowanie: data, najnowsze") { f.put("nameSort",!f.optBoolean("nameSort")); refresh() }
         button("+ Dodaj") { newForm(key,objectId=objectId) }
         if(f.optString("from").isNotBlank() && f.optString("to").isNotBlank() && f.optString("from")>f.optString("to")) { label("Data do musi być po dacie od."); return }
         val selected=objectId.ifBlank { f.optString("objectId") }
