@@ -47,6 +47,7 @@ class AppFlowTest {
     }
     @Test fun backAndInsetsAndNotes() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            instrumentation.waitForIdleSync()
             scenario.onActivity { a ->
                 assertTrue(has(a,"R3 Gate"))
                 val header=all(a).filterIsInstance<TextView>().first { it.text.toString()=="R3 Gate" }
@@ -85,25 +86,49 @@ class AppFlowTest {
                 assertEquals(5,inputs.size)
                 inputs[0].setText("Kopytkowo"); inputs[1].setText("25"); inputs[2].setText("Nowy obiekt")
                 click(a,"Zapisz")
-                assertTrue(all(a).filterIsInstance<Button>().any { it.text.toString().startsWith("KOP-02") })
+                assertTrue("Expected second city tag",all(a).filterIsInstance<Button>().any { it.text.toString().startsWith("KOP-02") })
                 click(a,"KOP-01 · Test · Kopytkowo · 24"); click(a,"Materiały — ilości i daty"); click(a,"+ Dodaj")
                 val fields=all(a).filterIsInstance<EditText>()
                 fields[0].setText("Kabel")
                 fields[1].setText("12.5")
-                click(a,"Jednostka: szt.")
+                click(a,"Data: Wybierz datę")
             }
             // The unit picker is a platform dialog outside the activity content root.
             instrumentation.waitForIdleSync()
-            val node=instrumentation.uiAutomation.rootInActiveWindow.findAccessibilityNodeInfosByText("m")
-                .first { it.text?.toString()=="m" }
-            assertTrue(node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK))
+            androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.withText("OK"))
+                .perform(androidx.test.espresso.action.ViewActions.click())
+            instrumentation.waitForIdleSync()
+            scenario.onActivity { a -> click(a,"Jednostka: szt.") }
+            androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.withText("m"))
+                .perform(androidx.test.espresso.action.ViewActions.click())
             instrumentation.waitForIdleSync()
             scenario.onActivity { a ->
                 click(a,"Zapisz")
-                assertTrue(has(a,"Kabel · m: 12.5"))
+                assertTrue("Material total missing: "+all(a).filterIsInstance<TextView>().joinToString(" | ") { it.text },has(a,"Kabel · m: 12.5"))
                 a.onBackPressed(); assertTrue(has(a,"KOP-01"))
             }
             shot("04-object-details")
         }
     }
+
+    @Test fun migrationKeepsLegacyLinksAndNotes() {
+        val context=instrumentation.targetContext
+        val prefs=context.getSharedPreferences("r3_gate",0)
+        val obj=JSONObject().put("id","legacy-object").put("TAG","KOP-01").put("Adres","Kopytkowo 24").put("Opis","Firma")
+        val link=JSONObject().put("id","legacy-photo").put("Data (RRRR-MM-DD)","2026-10-28")
+            .put("Obiekt","KOP-01 — Kopytkowo 24").put("Link Google Drive","https://drive.google.com/drive/folders/example")
+        val note=JSONObject().put("id","legacy-note").put("Tytuł","Uwaga").put("Treść","Sprawdzić gniazdo")
+        val data=JSONObject().put("objects",JSONArray().put(obj)).put("links",JSONArray().put(link)).put("notes",JSONArray().put(note))
+        prefs.edit().putString("data",data.toString()).commit()
+        ActivityScenario.launch(MainActivity::class.java).use {
+            instrumentation.waitForIdleSync()
+            val migrated=JSONObject(prefs.getString("data","{}")!!)
+            assertEquals(2,migrated.getInt("schemaVersion"))
+            assertEquals("2026-10-28",migrated.getJSONArray("links").getJSONObject(0).getString("date"))
+            assertEquals("legacy-object",migrated.getJSONArray("links").getJSONObject(0).getString("objectId"))
+            assertTrue(migrated.getJSONArray("notes").getJSONObject(0).getString("text").contains("Sprawdzić gniazdo"))
+            assertEquals("KOP-01",migrated.getJSONArray("objects").getJSONObject(0).getString("TAG"))
+        }
+    }
+
 }
