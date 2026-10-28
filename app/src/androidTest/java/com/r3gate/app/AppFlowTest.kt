@@ -44,6 +44,9 @@ class AppFlowTest {
         val file=File(instrumentation.targetContext.getExternalFilesDir(null),name+".png")
         val bitmap=instrumentation.uiAutomation.takeScreenshot()
         file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG,100,it) }
+        instrumentation.uiAutomation.executeShellCommand("cp "+file.absolutePath+" /sdcard/Download/r3-"+name+".png").use {
+            java.io.FileInputStream(it.fileDescriptor).use { input -> input.readBytes() }
+        }
     }
     @Test fun backAndInsetsAndNotes() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
