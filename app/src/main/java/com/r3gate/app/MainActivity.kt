@@ -172,7 +172,7 @@ class MainActivity : Activity() {
         homeVisible = false
         val scroll=ScrollView(this); root=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(22,24,22,28); setBackgroundColor(0xFFF5F7FA.toInt()) }
         scroll.addView(root); setContentView(scroll)
-        val header=TextView(this).apply { text=title; textSize=25f; setTextColor(0xFF18212E.toInt()); setPadding(0,0,0,16); setTypeface(null,1) }; root.addView(header)
+        val header=TextView(this).apply { text=title; textSize=25f; setTextColor(0xFF18212E.toInt()); setPadding(0,0,0,16); setTypeface(null,android.graphics.Typeface.BOLD) }; root.addView(header)
     }
     private fun label(s:String) { root.addView(TextView(this).apply { text=s; textSize=17f; setTextColor(0xFF253446.toInt()); setPadding(2,8,2,8) }) }
     private fun button(s:String, f:()->Unit) { root.addView(Button(this).apply { text=s; isAllCaps=false; setOnClickListener { f() } },LinearLayout.LayoutParams(-1,-2)) }
