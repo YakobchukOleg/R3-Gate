@@ -25,7 +25,10 @@ class MainActivity : Activity() {
     private val dateFmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
     private var earningsVisible = false
     private val ticker = Handler(Looper.getMainLooper())
-    private val tick = object : Runnable { override fun run() { if (::root.isInitialized) home(); ticker.postDelayed(this, 60000) } }
+    private var homeVisible = false
+    private var smsFrom: LocalDate? = null
+    private var smsTo: LocalDate? = null
+    private val tick = object : Runnable { override fun run() { if (::root.isInitialized && homeVisible) home(); ticker.postDelayed(this, 60000) } }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -61,7 +64,7 @@ class MainActivity : Activity() {
         home()
     }
     private fun data(): JSONObject = try { JSONObject(prefs.getString("data","{}")!!) } catch (_: Exception) { JSONObject() }
-    private fun arr(d:JSONObject,key:String):JSONArray = d.optJSONArray(key) ?: JSONArray()
+    private fun arr(d:JSONObject,key:String):JSONArray = d.optJSONArray(key) ?: JSONArray().also { d.put(key,it) }
     private fun save(d:JSONObject, kind:String, detail:String) {
         val log=arr(d,"logs"); log.put(JSONObject().put("at",fmt.format(Date())).put("type",kind).put("detail",detail)); d.put("logs",log)
         prefs.edit().putString("data",d.toString()).apply(); GateWidget.refresh(this)
@@ -108,73 +111,65 @@ class MainActivity : Activity() {
             }.setNegativeButton("Anuluj",null).show()
     }
     private fun weeklySms() {
-        val d=data()
-        val today=LocalDate.now()
-        val start=today.minusDays(((today.dayOfWeek.value-3+7)%7).toLong())
-        val dates=(0L..6L).map { start.plusDays(it) }
-        val pl=mapOf(1 to "Poniedziałek",2 to "Wtorek",3 to "Środa",4 to "Czwartek",5 to "Piątek",6 to "Sobota",7 to "Niedziela")
-        val dayFormat=DateTimeFormatter.ofPattern("dd.MM.yyyy")
-        val list=arr(d,"shifts")
-        val textLines=mutableListOf<String>()
-        var sum=0L
-        for(date in dates) {
-            val shifts=mutableListOf<JSONObject>()
-            for(i in 0 until list.length()) {
-                val sh=list.optJSONObject(i)?:continue
-                val shiftDate=java.time.Instant.ofEpochMilli(sh.optLong("start")).atZone(ZoneId.systemDefault()).toLocalDate()
-                if(shiftDate==date) shifts.add(sh)
-            }
-            shifts.sortBy { it.optLong("start") }
-            for(sh in shifts) {
-                val st=sh.optLong("start"); val en=sh.optLong("end")
-                if(en<=st) continue
-                textLines.add("${date.format(dayFormat)} ${pl[date.dayOfWeek.value]} ${clock.format(Date(st))}–${clock.format(Date(en))}")
-                sum+=en-st
-            }
-        }
-        val mins=sum/60000
-        val sms=textLines.joinToString("\n\n")+"\n\nRazem\n${mins/60} godz. ${mins%60} min"
-        base("Raport SMS"); nav()
-        label("Okres: ${start.format(dayFormat)} – ${start.plusDays(6).format(dayFormat)}")
-        label(sms)
-        button("KOPIUJ RAPORT") {
-            val clipboard=getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
-            clipboard.setPrimaryClip(ClipData.newPlainText("R3 Gate raport",sms))
-            toast("Raport skopiowany")
-        }
-        button("Poprzedni okres") { weeklySmsFor(start.minusWeeks(1)) }
+        val today = LocalDate.now()
+        if (smsFrom == null) smsFrom = today.minusDays(((today.dayOfWeek.value + 4) % 7).toLong())
+        if (smsTo == null) smsTo = smsFrom!!.plusDays(6)
+        smsReport()
     }
-    private fun weeklySmsFor(start:LocalDate) {
-        val d=data(); val list=arr(d,"shifts")
-        val pl=mapOf(1 to "Poniedziałek",2 to "Wtorek",3 to "Środa",4 to "Czwartek",5 to "Piątek",6 to "Sobota",7 to "Niedziela")
-        val df=DateTimeFormatter.ofPattern("dd.MM.yyyy")
-        val lines=mutableListOf<String>(); var sum=0L
-        for(offset in 0L..6L) {
-            val date=start.plusDays(offset)
-            val matches=(0 until list.length()).mapNotNull { list.optJSONObject(it) }
-                .filter { Instant.ofEpochMilli(it.optLong("start")).atZone(ZoneId.systemDefault()).toLocalDate()==date }
-                .sortedBy { it.optLong("start") }
-            for(sh in matches) {
-                val st=sh.optLong("start"); val en=sh.optLong("end")
-                if(en<=st) continue
-                lines.add("${date.format(df)} ${pl[date.dayOfWeek.value]} ${clock.format(Date(st))}–${clock.format(Date(en))}")
-                sum+=en-st
-            }
-        }
-        val mins=sum/60000
-        val sms=lines.joinToString("\n\n")+"\n\nRazem\n${mins/60} godz. ${mins%60} min"
+    private fun pickReportDate(initial: LocalDate, selected: (LocalDate) -> Unit) {
+        DatePickerDialog(this, { _, year, month, day ->
+            selected(LocalDate.of(year, month + 1, day))
+        }, initial.year, initial.monthValue - 1, initial.dayOfMonth).apply {
+            datePicker.calendarViewShown = true
+        }.show()
+    }
+    private fun smsReport() {
+        val from = smsFrom ?: return
+        val to = smsTo ?: return
+        val df = DateTimeFormatter.ofPattern("dd.MM.yyyy")
         base("Raport SMS"); nav()
-        label("Okres: ${start.format(df)} – ${start.plusDays(6).format(df)}")
+        button("Data od: ${from.format(df)}") {
+            pickReportDate(from) { smsFrom = it; smsReport() }
+        }
+        button("Data do: ${to.format(df)}") {
+            pickReportDate(to) { smsTo = it; smsReport() }
+        }
+        if (to.isBefore(from)) {
+            label("Data do nie może być wcześniejsza niż Data od.")
+            return
+        }
+        label("Okres: ${from.format(df)} – ${to.format(df)} (włącznie)")
+        val list = arr(data(), "shifts")
+        val pl = listOf("Poniedziałek", "Wtorek", "Środa", "Czwartek", "Piątek", "Sobota", "Niedziela")
+        val shifts = (0 until list.length()).mapNotNull { list.optJSONObject(it) }
+            .filter {
+                val date = Instant.ofEpochMilli(it.optLong("start")).atZone(ZoneId.systemDefault()).toLocalDate()
+                !date.isBefore(from) && !date.isAfter(to) && it.optLong("end") > it.optLong("start")
+            }.sortedBy { it.optLong("start") }
+        if (shifts.isEmpty()) {
+            label("Brak zakończonych zmian w wybranym okresie.")
+            return
+        }
+        var sum = 0L
+        val lines = shifts.map {
+            val start = it.optLong("start")
+            val end = it.optLong("end")
+            val date = Instant.ofEpochMilli(start).atZone(ZoneId.systemDefault()).toLocalDate()
+            sum += end - start
+            "${date.format(df)} ${pl[date.dayOfWeek.value - 1]} ${clock.format(Date(start))}–${clock.format(Date(end))}"
+        }
+        val minutes = sum / 60000
+        val sms = lines.joinToString("\n\n") + "\n\nRazem\n${minutes / 60} godz. ${minutes % 60} min"
         label(sms)
         button("KOPIUJ RAPORT") {
-            (getSystemService(CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("R3 Gate raport",sms))
+            (getSystemService(CLIPBOARD_SERVICE) as ClipboardManager)
+                .setPrimaryClip(ClipData.newPlainText("R3 Gate raport", sms))
             toast("Raport skopiowany")
         }
-        button("← Poprzedni tydzień") { weeklySmsFor(start.minusWeeks(1)) }
-        button("Następny tydzień →") { weeklySmsFor(start.plusWeeks(1)) }
     }
     private fun toast(s:String)=Toast.makeText(this,s,Toast.LENGTH_LONG).show()
     private fun base(title:String) {
+        homeVisible = false
         val scroll=ScrollView(this); root=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(22,24,22,28); setBackgroundColor(0xFFF5F7FA.toInt()) }
         scroll.addView(root); setContentView(scroll)
         val header=TextView(this).apply { text=title; textSize=25f; setTextColor(0xFF18212E.toInt()); setPadding(0,0,0,16); setTypeface(null,1) }; root.addView(header)
@@ -185,6 +180,7 @@ class MainActivity : Activity() {
     private fun duration(ms:Long):String { val m=(ms.coerceAtLeast(0)/60000); return "%02d:%02d".format(m/60,m%60) }
     private fun home() {
         base("R3 Gate")
+        homeVisible = true
         val d=data(); val a=active(d)
         label(if(a!=null) "🟢 ONLINE" else "⚪ OFFLINE")
         val last=arr(d,"shifts"); val recent=if(last.length()>0) last.optJSONObject(last.length()-1) else null
