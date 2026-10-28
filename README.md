@@ -28,7 +28,7 @@ The widget targets 4x2 cells with a 160dp minimum height and 140dp resize minimu
 
 Google Identity requests only drive.file. Drive API and an Android OAuth client must match the actual package/certificate. Settings shows actionable authorization errors; package/SHA-1 diagnostics are collapsed. Photos use WT/object/date; an existing WT or legacy R3 Gate root is reused. Tokens stay in memory and are refreshed through authorization. Uploads use resumable requests and file mappings to avoid duplicate retries.
 
-CI uses an explicit keystore path and verifies the produced APK with apksigner. The legacy certificate is SHA-1 14:03:E0:A9:1D:7C:71:48:71:6C:DF:0F:0A:32:F5:75:3B:BB:E3:F3. When available, compatibility key recovery is encrypted to the checked-in public certificate; no private key is committed or printed. A stable signing secret must be maintained for future updates. These are personal test APKs, not Play Store releases.
+CI requires the stable signing secret, uses an explicit keystore path and verifies the produced APK with apksigner. Stable SHA-1 is FF:9F:79:03:07:93:D6:FA:4D:C3:5E:6E:0F:A6:DD:3C:75:1E:EA:93. The previous 1.x APK used a temporary SDK certificate (14:03:E0:A9:1D:7C:71:48:71:6C:DF:0F:0A:32:F5:75:3B:BB:E3:F3); its private key was not retained, so a direct update is impossible. Export/USB-backup existing data before uninstalling anything. No private signing key is committed or printed. These are personal test APKs, not Play Store releases.
 
 ## Backups and checks
 
