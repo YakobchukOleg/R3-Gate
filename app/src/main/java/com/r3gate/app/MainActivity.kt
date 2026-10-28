@@ -72,6 +72,8 @@ class MainActivity : Activity() {
         cameraPath = savedInstanceState?.getString("cameraPath")
         pendingUpload = savedInstanceState?.getString("pendingUpload") ?: ""
         if (savedInstanceState != null && prefs.contains("pin")) {
+            smsFrom = savedInstanceState.getString("smsFrom")?.let { LocalDate.parse(it) }
+            smsTo = savedInstanceState.getString("smsTo")?.let { LocalDate.parse(it) }
             detailParent = savedInstanceState.getString("detailParent") ?: "home"
             formKind = savedInstanceState.getString("formKind") ?: ""
             formReturn = savedInstanceState.getString("formReturn") ?: "home"
@@ -287,7 +289,7 @@ class MainActivity : Activity() {
     @Deprecated("Legacy back dispatcher")
     override fun onBackPressed() { back() }
     override fun onSaveInstanceState(out: Bundle) {
-        out.putString("detailParent",detailParent); out.putString("screen",screen); out.putString("formKind",formKind); out.putString("formReturn",formReturn)
+        out.putString("smsFrom",smsFrom?.toString()); out.putString("smsTo",smsTo?.toString()); out.putString("detailParent",detailParent); out.putString("screen",screen); out.putString("formKind",formKind); out.putString("formReturn",formReturn)
         out.putString("draft",draft.toString()); out.putString("cameraPath",cameraPath); out.putString("pendingUpload",pendingUpload)
         super.onSaveInstanceState(out)
     }
@@ -334,20 +336,39 @@ class MainActivity : Activity() {
         }
     }
     private fun editShift(id:String) {
-        val d=data(); val shifts=arr(d,"shifts"); var shift:JSONObject?=null
-        for(i in 0 until shifts.length()) if(shifts.optJSONObject(i)?.optString("id")==id) shift=shifts.optJSONObject(i)
-        val s=shift?:return
-        val layout=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(20,0,20,0) }
-        val start=EditText(this).apply { setText(fmt.format(Date(s.optLong("start")))); hint="Start: dd-MM-yyyy HH:mm"; layout.addView(this) }
-        val end=EditText(this).apply { setText(fmt.format(Date(s.optLong("end")))); hint="Koniec: dd-MM-yyyy HH:mm"; layout.addView(this) }
-        AlertDialog.Builder(this).setTitle("Edytuj zmianę").setView(layout).setNegativeButton("Anuluj",null).setPositiveButton("Zapisz") { _, _ ->
-            try {
-                fmt.isLenient=false; val st=fmt.parse(start.text.toString())!!.time; val en=fmt.parse(end.text.toString())!!.time
-                if(en<=st) { toast("Koniec musi być po rozpoczęciu"); return@setPositiveButton }
-                val old="${fmt.format(Date(s.optLong("start")))} → ${fmt.format(Date(s.optLong("end")))}"
-                s.put("start",st).put("end",en); save(d,"EDIT_SHIFT","$old => ${start.text} → ${end.text}"); report()
-            } catch (_:Exception) { toast("Format: dd-MM-yyyy HH:mm") }
-        }.show()
+        val d=data()
+        val s=rows(d,"shifts").find { it.optString("id")==id } ?: return
+        var start=Instant.ofEpochMilli(s.optLong("start")).atZone(ZoneId.systemDefault()).toLocalDateTime()
+        var end=Instant.ofEpochMilli(s.optLong("end")).atZone(ZoneId.systemDefault()).toLocalDateTime()
+        val layout=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(dp(16),0,dp(16),0) }
+        val dateStart=Button(this)
+        val dateEnd=Button(this)
+        val timeStart=Button(this)
+        val timeEnd=Button(this)
+        fun refresh() {
+            dateStart.text="Data rozpoczęcia: "+start.toLocalDate().format(displayDate)
+            dateEnd.text="Data zakończenia: "+end.toLocalDate().format(displayDate)
+            timeStart.text="Rozpoczęcie: "+start.toLocalTime().format(DateTimeFormatter.ofPattern("HH:mm"))
+            timeEnd.text="Zakończenie: "+end.toLocalTime().format(DateTimeFormatter.ofPattern("HH:mm"))
+        }
+        dateStart.setOnClickListener { pickReportDate(start.toLocalDate()) { start=LocalDateTime.of(it,start.toLocalTime()); refresh() } }
+        dateEnd.setOnClickListener { pickReportDate(end.toLocalDate()) { end=LocalDateTime.of(it,end.toLocalTime()); refresh() } }
+        timeStart.setOnClickListener { TimePickerDialog(this,{ _,h,m -> start=start.withHour(h).withMinute(m); refresh() },start.hour,start.minute,true).show() }
+        timeEnd.setOnClickListener { TimePickerDialog(this,{ _,h,m -> end=end.withHour(h).withMinute(m); refresh() },end.hour,end.minute,true).show() }
+        listOf(dateStart,dateEnd,timeStart,timeEnd).forEach { layout.addView(it) }; refresh()
+        val dialog=AlertDialog.Builder(this).setTitle("Edytuj zmianę").setView(layout)
+            .setNegativeButton("Anuluj",null).setPositiveButton("Zapisz",null).create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val st=start.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                val en=end.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                if(en<=st) { toast("Koniec musi być po rozpoczęciu"); return@setOnClickListener }
+                val current=data()
+                val row=rows(current,"shifts").find { it.optString("id")==id } ?: return@setOnClickListener
+                row.put("start",st).put("end",en); save(current,"EDIT_SHIFT",id); dialog.dismiss(); report()
+            }
+        }
+        dialog.show()
     }
     private fun logs() {
         base("Logi i kopia zapasowa"); screen = "logs"; nav()
@@ -485,6 +506,16 @@ class MainActivity : Activity() {
     private fun objectDetails(id:String) {
         val obj=objectById(id) ?: run { objects(); return }
         base(obj.optString("TAG")); screen="object:"+id; nav()
+        val periodKey="objectPeriod_"+id
+        val period=JSONObject(prefs.getString(periodKey,"{}")!!)
+        fun periodRefresh() { prefs.edit().putString(periodKey,period.toString()).apply(); objectDetails(id) }
+        button("Data od: "+period.optString("from").let { if(it.isBlank()) "wszystkie" else dateText(it) }) {
+            pickReportDate(LocalDate.now()) { period.put("from",it.toString()); periodRefresh() }
+        }
+        button("Data do: "+period.optString("to").let { if(it.isBlank()) "wszystkie" else dateText(it) }) {
+            pickReportDate(LocalDate.now()) { period.put("to",it.toString()); periodRefresh() }
+        }
+        button("Wyczyść okres") { prefs.edit().remove(periodKey).apply(); objectDetails(id) }
         label(objectName(obj)); label(obj.optString("notes",obj.optString("Opis")))
         button("Edytuj obiekt") { newForm("objects",id) }
         button("Otwórz w Google Maps") {
@@ -504,7 +535,7 @@ class MainActivity : Activity() {
                 var a=maxOf(st.optLong("start"),sh.optLong("start"))
                 val end=minOf(st.optLong("end"),if(sh.has("end")) sh.optLong("end") else System.currentTimeMillis())
                 for((day,ms) in DomainRules.timeByDay(a,end,ZoneId.systemDefault())) {
-                    totals[day]=(totals[day] ?: 0L)+ms
+                    if(DomainRules.inRange(day,period.optString("from"),period.optString("to"))) totals[day]=(totals[day] ?: 0L)+ms
                 }
             }
         }
@@ -528,7 +559,7 @@ class MainActivity : Activity() {
         base(when(key) { "links" -> "Zdjęcia"; "materials" -> "Materiały"; else -> if(onlyActive) "Aktualne notatki" else "Historia notatek" })
         screen=target; nav()
         val filterKey="filter_"+target
-        val f=try { JSONObject(prefs.getString(filterKey,"{}")!!) } catch (_:Exception) { JSONObject() }
+        val f=try { JSONObject(prefs.getString(filterKey,if(objectId.isBlank()) "{}" else prefs.getString("objectPeriod_"+objectId,"{}"))!!) } catch (_:Exception) { JSONObject() }
         fun refresh() { prefs.edit().putString(filterKey,f.toString()).apply(); openScreen(target) }
         button("Data od: "+f.optString("from").let { if(it.isBlank()) "wszystkie" else dateText(it) }) {
             pickReportDate(LocalDate.now()) { f.put("from",it.toString()); refresh() }
