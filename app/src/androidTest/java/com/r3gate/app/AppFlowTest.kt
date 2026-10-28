@@ -306,6 +306,11 @@ class AppFlowTest {
     private fun settings(a:Activity) {
         all(a).filterIsInstance<Button>().first { it.contentDescription=="Ustawienia" }.performClick()
     }
+    private fun deliverDocumentResult(a:MainActivity,code:Int,file:File) {
+        val method=MainActivity::class.java.getDeclaredMethod("onActivityResult",Integer.TYPE,Integer.TYPE,android.content.Intent::class.java)
+        method.isAccessible=true
+        method.invoke(a,code,Activity.RESULT_OK,android.content.Intent().setData(android.net.Uri.fromFile(file)))
+    }
     @Test fun settingsWalletAndBackupRoundTrip() {
         val d=stored(); val start=java.time.LocalDate.now().atTime(8,0).atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
         d.put("shifts",JSONArray().put(JSONObject().put("id","wallet-shift").put("start",start).put("end",start+8*3600000).put("rate","30.00")))
@@ -334,11 +339,11 @@ class AppFlowTest {
             }
             shot("10-wallet")
             val backup=File(instrumentation.targetContext.filesDir,"test-backup.json")
-            scenario.onActivity { a -> a.onActivityResult(100,Activity.RESULT_OK,android.content.Intent().setData(android.net.Uri.fromFile(backup))) }
+            scenario.onActivity { a -> deliverDocumentResult(a,100,backup) }
             val exported=JSONObject(backup.readText())
             assertEquals(2,exported.getJSONArray("payments").length()); assertTrue(exported.has("walletSettings")); assertTrue(exported.has("wtSettings"))
             store(JSONObject().put("schemaVersion",2).put("objects",JSONArray()))
-            scenario.onActivity { a -> a.onActivityResult(101,Activity.RESULT_OK,android.content.Intent().setData(android.net.Uri.fromFile(backup))) }
+            scenario.onActivity { a -> deliverDocumentResult(a,101,backup) }
             dialogClick("Importuj")
             assertEquals(2,stored().getJSONArray("payments").length())
             scenario.onActivity { a ->
