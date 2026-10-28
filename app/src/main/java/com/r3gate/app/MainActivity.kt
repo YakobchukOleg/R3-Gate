@@ -275,7 +275,7 @@ class MainActivity : Activity() {
         frame.addView(header,LinearLayout.LayoutParams(-1,dp(56)))
         val scroll=ScrollView(this).apply { setBackgroundColor(Color.WHITE); isFillViewport=true }
         root=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(dp(16),dp(12),dp(16),dp(24)); isFocusableInTouchMode=true; descendantFocusability=ViewGroup.FOCUS_BEFORE_DESCENDANTS }
-        scroll.addView(root,ScrollView.LayoutParams(-1,-2))
+        scroll.addView(root,FrameLayout.LayoutParams(-1,-2))
         frame.addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
         val bottom=View(this); frame.addView(bottom,LinearLayout.LayoutParams(-1,0))
         frame.setOnApplyWindowInsetsListener { _,insets ->
@@ -323,21 +323,21 @@ class MainActivity : Activity() {
             root.addView(row,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(8) })
         }
     }
-    private fun filters(key:String, applied:Boolean=false, content:()->Unit) {
+    private fun filters(key:String, applied:Boolean=false, caption:String="Filtry", content:()->Unit) {
         val parent=root
         val panel=LinearLayout(this).apply {
             orientation=LinearLayout.VERTICAL
             visibility=if(key in expandedFilters) View.VISIBLE else View.GONE
         }
         lateinit var toggle:Button
-        fun title() = "Filtry"+(if(applied) " •" else "")+(if(key in expandedFilters) " ▴" else " ▾")
+        fun title() = caption+(if(applied) " •" else "")+(if(key in expandedFilters) " ▴" else " ▾")
         toggle=makeButton(title()) {
             if(!expandedFilters.add(key)) expandedFilters.remove(key)
             panel.visibility=if(key in expandedFilters) View.VISIBLE else View.GONE
             toggle.text=title()
-            toggle.contentDescription="Filtry: "+if(key in expandedFilters) "rozwinięte" else "zwinięte"
+            toggle.contentDescription=caption+": "+if(key in expandedFilters) "rozwinięte" else "zwinięte"
         }
-        toggle.contentDescription="Filtry: "+if(key in expandedFilters) "rozwinięte" else "zwinięte"
+        toggle.contentDescription=caption+": "+if(key in expandedFilters) "rozwinięte" else "zwinięte"
         parent.addView(toggle,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
         parent.addView(panel,LinearLayout.LayoutParams(-1,-2))
         root=panel
@@ -427,7 +427,7 @@ class MainActivity : Activity() {
         label("WT — Work Time")
         label("Wersja: "+info.versionName)
         label("Czas pracy, obiekty, materiały, zdjęcia, notatki i rozliczenia.")
-        filters("aboutDiagnostics") { label("Pakiet: "+packageName+"\nSHA-1: "+signingFingerprint()) }
+        filters("aboutDiagnostics",caption="Szczegóły techniczne") { label("Pakiet: "+packageName+"\nSHA-1: "+signingFingerprint()) }
     }
     private fun widgetSettings() {
         base("Wygląd widżetu"); screen="widgetSettings"; nav()
@@ -491,7 +491,7 @@ class MainActivity : Activity() {
         label((if(global>=0) "Łącznie do wypłaty (cała historia): " else "Łączna nadpłata (cała historia): ")+money(kotlin.math.abs(global)))
         label("Naliczanie obejmuje zakończone zmiany, także przejazdy i zakupy. Otwarty dzień zostanie rozliczony po zakończeniu.")
         button("+ Dodaj wypłatę") { walletDraft=JSONObject().put("id",UUID.randomUUID().toString()).put("date",LocalDate.now().toString()).put("periodFrom",from.toString()).put("periodTo",to.toString()).put("method","cash"); paymentForm() }
-        filters("walletRates") {
+        filters("walletRates",caption="Stawka i saldo początkowe") {
             button("Domyślna stawka: "+defaultRate().toPlainString()+" zł/h") { rateDialog(false) }
             button("Zmień stawkę zmian w tym okresie") { rateDialog(true) }
             button("Saldo początkowe: "+money(config.optLong("openingCents"))) { openingDialog() }
@@ -1091,7 +1091,7 @@ class MainActivity : Activity() {
                 driveToken=null; prefs.edit().remove("driveEmail").remove("driveError").putBoolean("driveConnected",false).apply(); driveSettings()
             }.addOnFailureListener { driveFailure(it) }
         }
-        filters("driveDiagnostics") {
+        filters("driveDiagnostics",caption="Diagnostyka") {
             label("Dane do konfiguracji autoryzacji Google")
             label("Pakiet: "+packageName+"\nSHA-1: "+signingFingerprint())
         }
