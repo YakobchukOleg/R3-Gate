@@ -41,6 +41,9 @@ class AppFlowTest {
     private fun has(a:Activity,text:String) = all(a).filterIsInstance<TextView>().any { it.text.toString()==text }
     private fun shot(name:String) {
         instrumentation.waitForIdleSync()
+        // Let the compositor present the new frame and transient long toasts disappear.
+        android.os.SystemClock.sleep(3700)
+        instrumentation.uiAutomation.syncInputTransactions()
         val file=File(instrumentation.targetContext.getExternalFilesDir(null),name+".png")
         val bitmap=instrumentation.uiAutomation.takeScreenshot()
         file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG,100,it) }
