@@ -54,8 +54,8 @@ class AppFlowTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             instrumentation.waitForIdleSync()
             scenario.onActivity { a ->
-                assertTrue(has(a,"R3 Gate"))
-                val header=all(a).filterIsInstance<TextView>().first { it.text.toString()=="R3 Gate" }
+                assertTrue(has(a,"WT"))
+                val header=all(a).filterIsInstance<TextView>().first { it.text.toString()=="WT" }
                 val y=IntArray(2); header.getLocationOnScreen(y)
                 val inset=a.window.decorView.rootWindowInsets.getInsets(WindowInsets.Type.statusBars()).top
                 assertTrue("Header must be below status bar",y[1]>=inset)
@@ -63,7 +63,7 @@ class AppFlowTest {
             shot("01-home")
             scenario.onActivity { a -> click(a,"OBIEKTY"); assertTrue(has(a,"Obiekty")) }
             shot("02-objects")
-            scenario.onActivity { a -> a.onBackPressed(); assertTrue(has(a,"R3 Gate")); assertFalse(a.isFinishing) }
+            scenario.onActivity { a -> a.onBackPressed(); assertTrue(has(a,"WT")); assertFalse(a.isFinishing) }
             scenario.onActivity { a ->
                 click(a,"NOTATKI"); click(a,"+ Dodaj notatkę")
                 val inputs=all(a).filterIsInstance<EditText>()
@@ -79,7 +79,7 @@ class AppFlowTest {
                 assertFalse(all(a).filterIsInstance<Button>().any { it.text.toString().contains("Zabrać kabel") })
                 a.onBackPressed(); click(a,"Historia / Logi — wszystkie wpisy")
                 assertTrue(all(a).filterIsInstance<Button>().any { it.text.toString().contains("✓ Zabrać kabel") })
-                a.onBackPressed(); a.onBackPressed(); assertTrue(has(a,"R3 Gate"))
+                a.onBackPressed(); a.onBackPressed(); assertTrue(has(a,"WT"))
             }
         }
     }
@@ -212,7 +212,7 @@ class AppFlowTest {
                 assertEquals("ZMIEŃ OBIEKT",widgetView.findViewById<TextView>(R.id.wswitch).text.toString())
                 assertFalse(views(widgetView).filterIsInstance<TextView>().any { it.text=="ZAKUPY" })
                 val frame=android.widget.FrameLayout(a).apply { setBackgroundColor(android.graphics.Color.BLACK); setPadding(24,100,24,24) }
-                frame.addView(GateWidget.render(a).apply(a,frame),android.widget.FrameLayout.LayoutParams(-1,900))
+                frame.addView(GateWidget.render(a).apply(a,frame),android.widget.FrameLayout.LayoutParams(-1,(160*a.resources.displayMetrics.density).toInt()))
                 a.setContentView(frame)
             }
             shot("06-widget")
@@ -223,7 +223,7 @@ class AppFlowTest {
         d.put("shifts",JSONArray().put(JSONObject().put("id","shift-delete").put("start",start).put("end",start+3600000)))
         store(d)
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            scenario.onActivity { a -> click(a,"📊 MÓJ RAPORT")
+            scenario.onActivity { a -> click(a,"MÓJ CZAS")
                 assertTrue(all(a).filterIsInstance<TextView>().any { it.text.toString().startsWith("28-10-2026 08:00") })
                 click(a,"Usuń zmianę (PIN)")
             }
@@ -299,6 +299,79 @@ class AppFlowTest {
                 assertFalse(all(a).filterIsInstance<Button>().any { it.isShown && it.text.toString().startsWith("Obiekt:") })
             }
             assertEquals(1,stored().getJSONArray("notes").length())
+        }
+    }
+
+
+    private fun settings(a:Activity) {
+        all(a).filterIsInstance<Button>().first { it.contentDescription=="Ustawienia" }.performClick()
+    }
+    @Test fun settingsWalletAndBackupRoundTrip() {
+        val d=stored(); val start=java.time.LocalDate.now().atTime(8,0).atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+        d.put("shifts",JSONArray().put(JSONObject().put("id","wallet-shift").put("start",start).put("end",start+8*3600000).put("rate","30.00")))
+        store(d)
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { a ->
+                assertFalse(all(a).filterIsInstance<Button>().any { it.text=="GOOGLE DRIVE" || it.text=="ZAROBEK (pokaż)" })
+                settings(a); assertTrue(has(a,"Ustawienia"))
+                assertTrue(has(a,"GENERUJ RAPORT SMS")); assertTrue(has(a,"Logi / eksport / import")); assertTrue(has(a,"Google Disk"))
+                click(a,"O aplikacji"); assertTrue(has(a,"Wersja: 2.0")); a.onBackPressed()
+                click(a,"Portfel / rozliczenia (PIN)")
+                assertFalse(has(a,"Portfel"))
+            }
+            pin()
+            scenario.onActivity { a ->
+                assertTrue(has(a,"Naliczone: 240,00 zł")); click(a,"+ Dodaj wypłatę")
+                all(a).filterIsInstance<EditText>().first { it.hint=="Kwota (zł)" }.setText("100")
+                click(a,"Zapisz"); click(a,"+ Dodaj wypłatę")
+                all(a).filterIsInstance<EditText>().first { it.hint=="Kwota (zł)" }.setText("50,00")
+                click(a,"Sposób: Gotówka")
+            }
+            dialogClick("Karta")
+            scenario.onActivity { a ->
+                click(a,"Zapisz")
+                assertTrue(has(a,"Otrzymano — gotówka: 100,00 zł")); assertTrue(has(a,"Otrzymano — karta: 50,00 zł")); assertTrue(has(a,"Do wypłaty: 90,00 zł"))
+            }
+            shot("10-wallet")
+            val backup=File(instrumentation.targetContext.filesDir,"test-backup.json")
+            scenario.onActivity { a -> a.onActivityResult(100,Activity.RESULT_OK,android.content.Intent().setData(android.net.Uri.fromFile(backup))) }
+            val exported=JSONObject(backup.readText())
+            assertEquals(2,exported.getJSONArray("payments").length()); assertTrue(exported.has("walletSettings")); assertTrue(exported.has("wtSettings"))
+            store(JSONObject().put("schemaVersion",2).put("objects",JSONArray()))
+            scenario.onActivity { a -> a.onActivityResult(101,Activity.RESULT_OK,android.content.Intent().setData(android.net.Uri.fromFile(backup))) }
+            dialogClick("Importuj")
+            assertEquals(2,stored().getJSONArray("payments").length())
+            scenario.onActivity { a ->
+                assertTrue(has(a,"Eksportuj dziennik JSON")); assertTrue(has(a,"Importuj dziennik JSON"))
+                a.onBackPressed(); click(a,"GENERUJ RAPORT SMS")
+                assertTrue(all(a).filterIsInstance<Button>().any { it.text.toString().startsWith("Data od:") })
+                a.onBackPressed(); assertTrue(has(a,"Ustawienia"))
+            }
+        }
+    }
+    @Test fun widgetTransparencyAffectsOnlyBackgroundAndSettingsRemainReachable() {
+        seedActive()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { a ->
+                val gear=all(a).filterIsInstance<Button>().first { it.contentDescription=="Ustawienia" }
+                assertTrue(gear.isShown)
+                val stop=all(a).filterIsInstance<Button>().first { it.text.toString().contains("ZAKOŃCZ PRACĘ") }
+                assertTrue(stop.minimumHeight<=(32*a.resources.displayMetrics.density).toInt())
+                settings(a); click(a,"Wygląd widżetu")
+                all(a).filterIsInstance<android.widget.SeekBar>().first().progress=100
+                val widget=GateWidget.render(a).apply(a,android.widget.FrameLayout(a))
+                assertEquals(0,widget.findViewById<android.widget.ImageView>(R.id.wbackground).imageAlpha)
+                assertEquals(1f,widget.findViewById<TextView>(R.id.wduration).alpha,0f)
+                assertEquals(255,widget.findViewById<Button>(R.id.wstopbutton).background.alpha)
+            }
+            scenario.recreate()
+            scenario.onActivity { a -> assertEquals(100,all(a).filterIsInstance<android.widget.SeekBar>().first().progress) }
+            shot("11-widget-settings")
+            scenario.onActivity { a ->
+                a.onBackPressed(); assertTrue(has(a,"Ustawienia")); a.onBackPressed(); assertTrue(has(a,"WT"))
+                settings(a); click(a,"Google Disk"); assertFalse(all(a).filterIsInstance<TextView>().any { it.isShown && it.text.toString().startsWith("Pakiet:") })
+                a.onBackPressed(); assertTrue(has(a,"Ustawienia"))
+            }
         }
     }
 
