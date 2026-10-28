@@ -668,7 +668,7 @@ class MainActivity : Activity() {
             else try { JSONObject(prefs.getString("draft_"+key,"{}")!!) } catch (_:Exception) { JSONObject() }
         if(!draft.has("id")) draft.put("id",UUID.randomUUID().toString())
         if(!draft.has("created")) draft.put("created",fmt.format(Date()))
-        if(key!="objects" && !draft.has("date")) draft.put("date",active(data())?.let { localDate(it.optLong("start")).toString() } ?: LocalDate.now().toString())
+        if(key!="objects" && !draft.has("date")) draft.put("date",active(data())?.let { localDate(it.optLong("start")).toString() } ?: if(key=="materials") "" else LocalDate.now().toString())
         if(objectId.isNotBlank()) draft.put("objectId",objectId)
         renderForm()
     }
@@ -696,7 +696,7 @@ class MainActivity : Activity() {
             field("Miasto","city"); field("Adres","Adres"); field("Nazwa organizacji","organization")
             field("Notatki / kontakt","notes",true); field("Link Google Maps (opcjonalnie)","maps")
         } else {
-            button("Data: "+dateText(recordDate(draft))) {
+            button("Data: "+recordDate(draft).let { if(it.isBlank()) "Wybierz datę" else dateText(it) }) {
                 pickReportDate(try { LocalDate.parse(recordDate(draft)) } catch (_:Exception) { LocalDate.now() }) {
                     draft.put("date",it.toString()); renderForm()
                 }
@@ -922,7 +922,7 @@ class MainActivity : Activity() {
                         toast("Zdjęcie "+(index+1)+" / "+photoList.size+" zapisane")
                     }
                 }
-                runOnUiThread { uploading=false; toast("Zdjęcia zapisane na Google Drive"); if(!isDestroyed) recordDetails(key,id,detailParent) }
+                runOnUiThread { uploading=false; toast("Zdjęcia zapisane na Google Drive"); if(!isDestroyed && screen=="detail:"+key+":"+id) recordDetails(key,id,detailParent) }
             } catch (_:Exception) {
                 runOnUiThread { uploading=false; toast("Przesyłanie przerwane. Sprawdź internet i ponów — zapisane zdjęcia nie będą wysyłane ponownie.") }
             }
