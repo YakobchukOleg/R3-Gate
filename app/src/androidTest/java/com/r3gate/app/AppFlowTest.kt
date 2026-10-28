@@ -237,11 +237,68 @@ class AppFlowTest {
                 all(a).filterIsInstance<EditText>().first().setText("Paragon — kabel")
                 all(a).filterIsInstance<CheckBox>().first { it.text=="Zakupy / paragon" }.isChecked=true
                 click(a,"Zapisz"); click(a,"Historia / Logi — wszystkie wpisy")
+                clickFilters(a)
                 click(a,"Zakupy / paragony: wszystkie notatki")
                 assertTrue(all(a).filterIsInstance<Button>().any { it.text.toString().contains("Paragon — kabel") })
             }
             assertTrue(stored().getJSONArray("notes").getJSONObject(0).getBoolean("shopping"))
             shot("07-shopping-notes")
+        }
+    }
+
+
+    private fun clickFilters(a:Activity) {
+        all(a).filterIsInstance<Button>().first { it.isShown && it.text.toString().startsWith("Filtry") }.performClick()
+    }
+    private fun assertCollapsed(a:Activity,add:String="+ Dodaj") {
+        val buttons=all(a).filterIsInstance<Button>().filter { it.isShown }
+        assertEquals(listOf("← Wstecz","Filtry ▾",add),buttons.take(3).map { it.text.toString() })
+        assertFalse(buttons.any { it.text.toString().startsWith("Data od:") || it.text.toString().startsWith("Sortowanie:") || it.text=="Wyczyść filtry" })
+    }
+    @Test fun filtersAreCollapsedAcrossScreensAndKeepSelection() {
+        val d=stored()
+        val today=java.time.LocalDate.now().toString()
+        d.put("notes",JSONArray().put(JSONObject().put("id","filter-note").put("date",today).put("text","Aktywna uwaga").put("aktualne",true)))
+        store(d)
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { a -> click(a,"ZDJĘCIA"); assertCollapsed(a) }
+            shot("08-filters-closed")
+            scenario.onActivity { a ->
+                clickFilters(a)
+                assertTrue(all(a).filterIsInstance<Button>().any { it.isShown && it.text=="Data od: wszystkie" })
+                click(a,"Sortowanie: data, najnowsze")
+                assertTrue(all(a).filterIsInstance<Button>().any { it.isShown && it.text=="Sortowanie: nazwa" })
+                clickFilters(a)
+                assertFalse(all(a).filterIsInstance<Button>().any { it.isShown && it.text.toString().startsWith("Sortowanie:") })
+            }
+            scenario.recreate()
+            scenario.onActivity { a ->
+                assertFalse(all(a).filterIsInstance<Button>().any { it.isShown && it.text.toString().startsWith("Sortowanie:") })
+                clickFilters(a)
+                assertTrue(all(a).filterIsInstance<Button>().any { it.isShown && it.text=="Sortowanie: nazwa" })
+                click(a,"Wyczyść filtry")
+                assertTrue(all(a).filterIsInstance<Button>().any { it.isShown && it.text=="Sortowanie: data, najnowsze" })
+            }
+            shot("09-filters-open")
+            scenario.onActivity { a ->
+                a.onBackPressed(); click(a,"MATERIAŁY"); assertCollapsed(a)
+                a.onBackPressed(); click(a,"NOTATKI"); click(a,"Historia / Logi — wszystkie wpisy"); assertCollapsed(a)
+                clickFilters(a)
+                assertTrue(all(a).filterIsInstance<Button>().any { it.isShown && it.text.toString().startsWith("Zakupy / paragony:") })
+                a.onBackPressed(); click(a,"Aktualne (1)"); assertCollapsed(a)
+                assertTrue(all(a).filterIsInstance<Button>().any { it.isShown && it.text.toString().contains("Aktywna uwaga") })
+                a.onBackPressed(); a.onBackPressed(); click(a,"OBIEKTY"); assertCollapsed(a,"+ Dodaj obiekt")
+                clickFilters(a); click(a,"Pokaż archiwalne")
+                assertTrue(all(a).filterIsInstance<Button>().any { it.isShown && it.text=="Pokaż aktywne" })
+                click(a,"Pokaż aktywne"); click(a,"KOP-01 · Test · Kopytkowo · 24")
+                assertFalse(all(a).filterIsInstance<Button>().any { it.isShown && it.text.toString().startsWith("Data od:") })
+                clickFilters(a)
+                assertTrue(all(a).filterIsInstance<Button>().any { it.isShown && it.text=="Wyczyść okres" })
+                click(a,"Zdjęcia według dat"); assertCollapsed(a)
+                clickFilters(a)
+                assertFalse(all(a).filterIsInstance<Button>().any { it.isShown && it.text.toString().startsWith("Obiekt:") })
+            }
+            assertEquals(1,stored().getJSONArray("notes").length())
         }
     }
 
