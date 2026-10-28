@@ -1,24 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
- android:layout_width="match_parent" android:layout_height="match_parent"
- android:padding="12dp" android:orientation="vertical" android:background="@drawable/widget_bg">
- <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
- <TextView android:id="@+id/wtitle" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="R3 Gate" android:textColor="#FFFFFF" android:textStyle="bold" android:textSize="18sp"/>
- <TextView android:id="@+id/wstatus" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="● OFFLINE" android:textColor="#B9C9DB" android:textStyle="bold" android:textSize="16sp" android:paddingTop="4dp"/>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:background="@android:color/transparent">
+ <ImageView android:id="@+id/wbackground" android:layout_width="match_parent" android:layout_height="match_parent" android:src="@drawable/widget_bg" android:scaleType="fitXY" android:importantForAccessibility="no"/>
+ <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:padding="8dp" android:orientation="vertical">
+  <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+   <TextView android:id="@+id/wtitle" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="WT" android:textColor="#FFFFFF" android:textStyle="bold" android:textSize="15sp"/>
+   <TextView android:id="@+id/wstatus" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="● OFFLINE" android:textColor="#CFD8DC" android:textSize="12sp"/>
+  </LinearLayout>
+  <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+   <Chronometer android:id="@+id/wduration" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:textColor="#FFFFFF" android:textStyle="bold" android:textSize="22sp"/>
+   <Chronometer android:id="@+id/wstage" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="#FF9898" android:textSize="11sp" android:visibility="gone"/>
+  </LinearLayout>
+  <TextView android:id="@+id/wobject" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Gotowy do pracy" android:textColor="#FFFFFF" android:textSize="12sp" android:maxLines="1" android:ellipsize="end"/>
+  <TextView android:id="@+id/wstart" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Rozpoczęcie: —" android:textColor="#CFD8DC" android:textSize="10sp"/>
+  <TextView android:id="@+id/wend" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Zakończenie: —" android:textColor="#CFD8DC" android:textSize="10sp"/>
+  <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:paddingTop="4dp">
+   <Button android:id="@+id/wstartbutton" android:layout_width="match_parent" android:layout_height="28dp" android:minHeight="0dp" android:padding="0dp" android:background="@drawable/widget_button" android:backgroundTint="@null" android:textColor="#37474F" android:text="▶ ROZPOCZNIJ" android:textSize="11sp"/>
+   <Button android:id="@+id/wstopbutton" android:layout_width="match_parent" android:layout_height="28dp" android:minHeight="0dp" android:padding="0dp" android:background="@drawable/widget_active" android:backgroundTint="@null" android:textColor="#FFFFFF" android:text="■ ZAKOŃCZ PRACĘ" android:textSize="11sp"/>
+  </LinearLayout>
+  <LinearLayout android:id="@+id/wactions" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:paddingTop="4dp">
+   <Button android:id="@+id/wswitch" android:layout_width="0dp" android:layout_weight="1" android:layout_height="28dp" android:minHeight="0dp" android:padding="0dp" android:layout_marginEnd="4dp" android:background="@drawable/widget_button" android:backgroundTint="@null" android:textColor="#37474F" android:text="ZMIEŃ OBIEKT" android:textSize="10sp"/>
+   <Button android:id="@+id/wtravel" android:layout_width="0dp" android:layout_weight="1" android:layout_height="28dp" android:minHeight="0dp" android:padding="0dp" android:background="@drawable/widget_button" android:backgroundTint="@null" android:textColor="#37474F" android:text="PRZEJAZD" android:textSize="10sp"/>
+  </LinearLayout>
  </LinearLayout>
- <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
- <Chronometer android:id="@+id/wduration" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:textColor="#FFFFFF" android:textStyle="bold" android:textSize="30sp" android:paddingTop="3dp"/>
- <Chronometer android:id="@+id/wstage" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="#FFBA8B" android:textSize="12sp" android:visibility="gone"/>
- </LinearLayout>
- <TextView android:id="@+id/wobject" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Gotowy do pracy" android:textColor="#29D3EE" android:textSize="13sp" android:maxLines="2" android:ellipsize="end"/>
- <TextView android:id="@+id/wstart" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Rozpoczęcie: —" android:textColor="#B9C9DB" android:textSize="11sp" android:paddingTop="4dp"/>
- <TextView android:id="@+id/wend" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Zakończenie: —" android:textColor="#B9C9DB" android:textSize="11sp"/>
- <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:paddingTop="10dp">
-  <Button android:id="@+id/wstartbutton" android:layout_width="match_parent" android:layout_height="48dp" android:background="@drawable/widget_button" android:backgroundTint="@null" android:textColor="#DBEEFF" android:text="▶ ROZPOCZNIJ" android:textSize="12sp"/>
-  <Button android:id="@+id/wstopbutton" android:layout_width="match_parent" android:layout_height="48dp" android:background="@drawable/widget_active" android:backgroundTint="@null" android:textColor="#101B29" android:text="■ ZAKOŃCZ PRACĘ" android:textSize="12sp"/>
- </LinearLayout>
- <LinearLayout android:id="@+id/wactions" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:paddingTop="8dp">
-  <Button android:id="@+id/wswitch" android:layout_width="0dp" android:layout_weight="1" android:layout_height="48dp" android:layout_marginEnd="6dp" android:background="@drawable/widget_button" android:backgroundTint="@null" android:textColor="#DBEEFF" android:text="ZMIEŃ OBIEKT" android:textSize="11sp"/>
-  <Button android:id="@+id/wtravel" android:layout_width="0dp" android:layout_weight="1" android:layout_height="48dp" android:background="@drawable/widget_button" android:backgroundTint="@null" android:textColor="#DBEEFF" android:text="PRZEJAZD" android:textSize="11sp"/>
- </LinearLayout>
-</LinearLayout>
+</FrameLayout>
