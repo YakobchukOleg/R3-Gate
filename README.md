@@ -1,60 +1,37 @@
-# R3 Gate 1.2
+# WT — Work Time 2.0
 
-Personal Android work tracker, Polish interface, Android 8 or later.
+Personal Android work-time, object, materials, photos, notes and payment ledger. The existing applicationId com.r3gate.app and preferences r3_gate stay unchanged so an APK with the same signing certificate updates existing installations. The display name is WT Work Time.
 
-## Updated workflows
-- Android Back follows the menu tree; forms keep a local draft on Back. System bars have black backgrounds and safe insets, including cutouts and the keyboard.
-- All record forms put date first (dd-MM-yyyy), then object. New dates default to the open shift's start date, otherwise today; calendar selection is available.
-- Objects: generated city-prefix tags with persistent counters, city, address, organization, notes/contact, optional HTTPS Google Maps link. Archived objects keep all historical relationships and tags.
-- Work starts on a chosen object. Switching objects closes the previous work segment. Travel/shopping remain paid time in SMS totals but are excluded from individual object hours. Object work is split by local calendar day, including midnight and daylight-saving transitions.
-- Materials: object, date, name, photos, quantity in szt. or m; decimal metres, whole pieces; filters and totals keep units separate.
-- Notes: optional object, text or photos or both; Actual/Done state; active list and complete history. Completing a note removes it from Active without deleting it.
-- Photos: camera originals or Android document picker; grouped by object/date, filters and retries for Drive upload.
-- Existing JSON data migrates in place. Ambiguous old object names are not guessed. Records without an old date show an unknown-date label until edited. Old tags remain unchanged. No work history is invented.
+## Interface
 
-## Google Drive setup (required before end-to-end use)
-The source implements Google Identity Services AuthorizationClient and Drive REST uploads with the drive.file scope. Access tokens stay in memory and are never put in JSON backups or logs. Each upload is initiated by the user. Uploads use resumable sessions; completed photos are remembered and retries query appProperties to avoid duplicates. Keep the app open while uploading. It is not a background upload service.
+White screens, slate #37474F headers and primary controls, coral #FF5C5C accents and light-gray secondary fields follow the supplied reference. Header and settings gear stay outside the scrollable content. Ordinary controls and tiles have roughly half the previous height; long text still wraps. System bars remain black.
 
-In your own Google Cloud project:
-1. Enable Google Drive API.
-2. Configure the OAuth consent screen for personal testing and add your Google account as a test user if needed.
-3. Register an Android OAuth client for package com.r3gate.app and the SHA-1 fingerprint of the installed APK. Find the fingerprint in Google Drive settings in the app or in signing-report.txt in the APK artifact.
-4. Use a stable signing key before registering the final OAuth client (see below). No client secret belongs in the Android source.
-5. On the phone, tap GOOGLE DRIVE > Połącz Google Drive, select an account and approve the requested Drive access. Test a photo upload. Cloud setup and real account upload require device verification; passing CI does not verify them.
+Home contains work controls, photos, materials, notes, objects and work-time history. Settings contains wallet (PIN), SMS report generation, Google Disk, logs/export/import, widget appearance and About with the installed version. The report keeps two calendar fields Data od / Data do. Dates shown to users use dd-MM-yyyy; ISO dates are internal.
 
-Folders: R3 Gate / TAG organization / dd-MM-yyyy; unassigned notes use Bez obiektu. No public sharing permissions are created. Disconnect revokes authorization. Local record deletion does not delete Drive files.
+Filtering/sorting is collapsed under Filtry on photo/material/note lists, active/history notes, objects and object-period details. A dot marks applied filters. Changing an option preserves the expanded panel and collapsing does not clear the selection.
 
-## Build and signing
-GitHub Actions runs testDebugUnitTest, assembleDebug, lintDebug and signingReport. Download R3-Gate-APK from a successful run. Test and lint reports are in R3-Gate-check-results.
+## Work and records
 
-IMPORTANT: old builds generated a fresh debug key on each runner. A new APK can therefore fail to install over an earlier APK. Do not uninstall until exporting JSON via LOGI / KOPIA and verifying the backup. Preserve the old app until your migration is planned.
+Back follows menu hierarchy. Start/stop and object switching require a PIN. Object switches close the previous time segment. PRZEJAZD highlights while running; the arrival dialog offers an object, Zakupy without a store database, or a new object. Cancel keeps travel running, including while creating a new object. Whole shifts count as paid time; object summaries exclude travel/shopping. Objects use generated city-prefix tags and archival with a PIN. Notes allow optional object association, photo-only records, active/done status and a shopping/receipt checkbox. Materials support pieces or metres and camera/gallery photos.
 
-For repeatable personal-test updates, configure the repository Actions secret R3_DEBUG_KEYSTORE_BASE64 containing your base64-encoded standard Android debug keystore (alias androiddebugkey; store/key password android). This is an optional personal-test key, not a production release signing solution. The workflow restores it privately. Never commit a private keystore or secrets to this public repository. Without the secret, builds use an ephemeral debug key and OAuth registration can change between builds.
+## Wallet
 
-## Backup limitations
-JSON exports include records and photo references, not photo bytes or persistent document access grants. Keep photo originals and uploaded Drive copies. Local camera photos and gallery access may be lost on uninstall or device transfer. Existing Drive folder URLs remain in exported records. PIN configuration is separate from JSON.
+Wallet access is PIN protected and locks when the app leaves the foreground. Rates are saved per shift; legacy shifts use the previous 30 PLN/hour assumption. The default rate applies to new shifts. Users can explicitly change the rates of closed shifts starting in the selected period. Active shifts enter the ledger after closing. Earnings use integer grosz after aggregated decimal time calculation.
 
-## Device acceptance checks
-- Start/stop with PIN, switch object, travel/shopping, return from every submenu with system Back.
-- Check black status bar and legible clock on a phone with a cutout, rotation and keyboard.
-- Create two objects in the same city; archive one with PIN; check numbering and preserved history.
-- Add 12.5 m and 2 pieces; filter inclusive dates; confirm separate totals in the object.
-- Create a photo-only note without object; mark Actual, then Done; confirm Active/History lists.
-- Cancel camera/gallery/Google authorization; confirm no record or photo is lost.
-- Upload once, retry, disconnect/reconnect and verify Drive folders and no duplicate completed files.
-- Export/import on test data only; inspect legacy dates and object links.
+Each payment has received date, allocated work period, amount, cash/card method and an optional note. The selected-period balance includes payments fully allocated inside that period. Broad overlapping payments trigger an incomplete-balance notice; money is never silently prorated. Global balance includes every closed shift, every payment and the optional opening balance. Positive means payable; negative means overpayment. This is manual record keeping, with no bank connection or money transfers.
 
-Known: photo thumbnails decode sampled images synchronously; large photo collections may need pagination. Shift time edits clip existing object segments to the revised shift boundaries; extensions outside recorded segments cannot reconstruct object assignment.
+## Widget
 
+The widget targets 4x2 cells with a 160dp minimum height and 140dp resize minimum. Existing launcher placements may need manual resizing. The object is shown by tag; actions remain PIN protected. Widget background transparency is adjustable from 0 to 100 percent. It affects only the separate background image: text, timer and buttons remain opaque. App UI opacity is unchanged.
 
-## Version 1.2: dashboard and trip flow
+## Google Disk and signing
 
-Dark navy screens, cyan action tiles and orange stop/travel controls follow the supplied visual reference. System bars stay black. All displayed dates, including SMS and widget dates, use dd-MM-yyyy; ISO dates remain internal for sorting.
+Google Identity requests only drive.file. Drive API and an Android OAuth client must match the actual package/certificate. Settings shows actionable authorization errors; package/SHA-1 diagnostics are collapsed. Photos use WT/object/date; an existing WT or legacy R3 Gate root is reused. Tokens stay in memory and are refreshed through authorization. Uploads use resumable requests and file mappings to avoid duplicate retries.
 
-The standalone shopping button is removed. During an open shift, PRZEJAZD starts a travel segment. Tapping the highlighted button again asks for the PIN and offers active objects, Zakupy (no shop records or tags), or creation of a new object. Cancelling either dialog preserves the running travel segment. Saving a new object returns home without ending travel; tap PRZEJAZD again to select it. Selecting a destination closes travel at that moment. The object switch button in both app and widget requires the PIN and closes the previous segment before starting the next object's time. Whole-shift paid time remains continuous.
+CI uses an explicit keystore path and verifies the produced APK with apksigner. The legacy certificate is SHA-1 14:03:E0:A9:1D:7C:71:48:71:6C:DF:0F:0A:32:F5:75:3B:BB:E3:F3. When available, compatibility key recovery is encrypted to the checked-in public certificate; no private key is committed or printed. A stable signing secret must be maintained for future updates. These are personal test APKs, not Play Store releases.
 
-Notes support the Zakupy / paragon checkbox with optional receipt photos and text, plus a shopping-only history filter. Completed shifts can be deleted from Mój raport using a PIN and confirmation; deleting a shift also removes its object-hour contributions, without deleting materials/photos/notes. Existing record deletion remains available in record details.
+## Backups and checks
 
-The widget shows the current object or travel/shopping status, an elapsed timer, and highlighted travel controls. Start/stop visibility depends on whether the day is open. Its minimum size is increased so controls remain readable. Existing launcher placements may need resizing after updating.
+PIN-protected JSON export includes work records, payments, rates, opening balance and widget transparency. Old JSON backups remain importable. Local photo bytes are not embedded: keep originals or upload them to Disk. Import validates payment periods and amounts before replacing data, and retains a pre-import data snapshot locally.
 
-Android acceptance checks cover travel cancellation, creation of an object while travelling, arrival and shopping transitions, wrong/correct PINs for object switches, receipt filtering, shift deletion and displayed dates. Captured emulator screenshots are included in R3-Gate-check-results.
+GitHub Actions runs domain/ledger unit tests, APK build/lint and Android 15 acceptance tests for navigation, forms, travel, PIN switching, filters, wallet partial payments, backup round-trip and background-only opacity. R3-Gate-check-results contains synthetic emulator screenshots; R3-Gate-APK contains app-debug.apk and signing reports.
