@@ -165,6 +165,8 @@ class AppFlowTest {
             scenario.onActivity { a -> click(a,"🚗 PRZEJAZD · W DRODZE — ZAKOŃCZ") }
             pin(); dialogClick("Anuluj — przejazd trwa")
             assertEquals(departure,stored().getJSONObject("active").getLong("stageStart"))
+            scenario.recreate()
+            assertEquals(departure,stored().getJSONObject("active").getLong("stageStart"))
             shot("05-travel-active")
             scenario.onActivity { a -> click(a,"🚗 PRZEJAZD · W DRODZE — ZAKOŃCZ") }
             pin(); dialogClick("+ Nowy obiekt")
@@ -198,10 +200,10 @@ class AppFlowTest {
             val active=stored().getJSONObject("active")
             assertEquals("second",active.getString("objectId"))
             assertEquals("object-test",active.getJSONArray("stages").getJSONObject(0).getString("objectId"))
-            val widgetView=GateWidget.render(context).apply(context,android.widget.FrameLayout(context))
-            assertEquals("ZMIEŃ OBIEKT",widgetView.findViewById<TextView>(R.id.wswitch).text.toString())
-            assertFalse(views(widgetView).filterIsInstance<TextView>().any { it.text=="ZAKUPY" })
             scenario.onActivity { a ->
+                val widgetView=GateWidget.render(a).apply(a,android.widget.FrameLayout(a))
+                assertEquals("ZMIEŃ OBIEKT",widgetView.findViewById<TextView>(R.id.wswitch).text.toString())
+                assertFalse(views(widgetView).filterIsInstance<TextView>().any { it.text=="ZAKUPY" })
                 val frame=android.widget.FrameLayout(a).apply { setBackgroundColor(android.graphics.Color.BLACK); setPadding(24,100,24,24) }
                 frame.addView(GateWidget.render(a).apply(a,frame),android.widget.FrameLayout.LayoutParams(-1,900))
                 a.setContentView(frame)
