@@ -100,15 +100,19 @@ class MainActivity : Activity() {
             if (hash(prefs.getString("salt","")+field.text.toString()) == prefs.getString("pin","")) action() else toast("Nieprawidłowy PIN")
         }.show()
     }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent); setIntent(intent); handleLaunch()
+    }
     private fun handleLaunch() {
         val action=intent?.getStringExtra("widget_action")
         intent?.removeExtra("widget_action")
-        if (action == "start") confirmPin { startShift() }
-        else if (action == "stop") confirmPin { stopShift() }
-        else if (action == "switch") switchObject()
-        else if (action == "travel") beginStage("Przejazd")
-        else if (action == "shopping") beginStage("Zakupy")
         home()
+        when(action) {
+            "start" -> confirmPin { startShift() }
+            "stop" -> confirmPin { stopShift() }
+            "switch" -> confirmPin { switchObject() }
+            "travel", "shopping" -> toggleTravel()
+        }
     }
     private fun data(): JSONObject = try { JSONObject(prefs.getString("data","{}")!!) } catch (_: Exception) { JSONObject() }
     private fun arr(d:JSONObject,key:String):JSONArray = d.optJSONArray(key) ?: JSONArray().also { d.put(key,it) }
@@ -146,6 +150,7 @@ class MainActivity : Activity() {
         val now=System.currentTimeMillis()
         closeStage(a,now)
         a.put("stageStart",now).put("kind",kind)
+        if(kind!="Obiekt") { a.put("object",""); a.put("objectId","") }
         if(target.isNotEmpty()) a.put("object",target)
         save(d,"STAGE","$kind: "+a.optString("object")); home()
     }
@@ -161,6 +166,31 @@ class MainActivity : Activity() {
                 save(d,"STAGE",objectName(obj)); home()
             }
         }
+    }
+    private fun toggleTravel() {
+        val a=active(data()) ?: run { toast("Najpierw rozpocznij pracę"); return }
+        if(a.optString("kind")!="Przejazd") { beginStage("Przejazd"); return }
+        confirmPin { chooseArrival() }
+    }
+    private fun chooseArrival() {
+        if(active(data())?.optString("kind")!="Przejazd") return
+        val objects=rows(data(),"objects").filter { !it.optBoolean("archived") }
+        val choices=objects.map { objectName(it) }+listOf("🛒 Zakupy", "+ Nowy obiekt")
+        AlertDialog.Builder(this).setTitle("Dokąd przyjechałeś?")
+            .setMessage(null).setItems(choices.toTypedArray()) { _,index ->
+                when(index) {
+                    objects.size -> beginStage("Zakupy")
+                    objects.size+1 -> { screen="home"; newForm("objects") }
+                    else -> {
+                        val d=data(); val current=active(d) ?: return@setItems
+                        if(current.optString("kind")!="Przejazd") return@setItems
+                        val now=System.currentTimeMillis(); closeStage(current,now)
+                        val obj=objects[index]
+                        current.put("stageStart",now).put("kind","Obiekt").put("object",objectName(obj)).put("objectId",obj.optString("id"))
+                        save(d,"ARRIVAL",objectName(obj)); home()
+                    }
+                }
+            }.setNegativeButton("Anuluj — przejazd trwa",null).show()
     }
     private fun weeklySms() {
         val today = LocalDate.now()
@@ -178,7 +208,7 @@ class MainActivity : Activity() {
     private fun smsReport() {
         val from = smsFrom ?: return
         val to = smsTo ?: return
-        val df = DateTimeFormatter.ofPattern("dd.MM.yyyy")
+        val df = DateTimeFormatter.ofPattern("dd-MM-yyyy")
         base("Raport SMS"); screen = "sms"; nav()
         button("Data od: ${from.format(displayDate)}") {
             pickReportDate(from) { smsFrom = it; smsReport() }
@@ -229,7 +259,7 @@ class MainActivity : Activity() {
         val frame = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.BLACK) }
         val top = View(this).apply { setBackgroundColor(Color.BLACK) }
         frame.addView(top,LinearLayout.LayoutParams(-1,0))
-        val scroll = ScrollView(this).apply { setBackgroundColor(0xFFF3F5F8.toInt()); isFillViewport = true }
+        val scroll = ScrollView(this).apply { setBackgroundColor(0xFF0C1421.toInt()); isFillViewport = true }
         root = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(dp(16),dp(18),dp(16),dp(24)) }
         scroll.addView(root)
         frame.addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
@@ -252,19 +282,42 @@ class MainActivity : Activity() {
         }
         setContentView(frame); frame.requestApplyInsets()
         root.addView(TextView(this).apply {
-            text=title; textSize=27f; setTextColor(0xFF17253A.toInt())
+            text=title; textSize=27f; setTextColor(0xFFF3F7FC.toInt())
             setPadding(0,0,0,dp(16)); setTypeface(null,android.graphics.Typeface.BOLD)
         })
     }
+    private fun displayLegacyDates(text:String):String = Regex("\\b(\\d{4})-(\\d{2})-(\\d{2})\\b").replace(text) {
+        it.groupValues[3]+"-"+it.groupValues[2]+"-"+it.groupValues[1]
+    }
     private fun label(s:String) { root.addView(TextView(this).apply {
-        text=s; textSize=16f; setTextColor(0xFF35445A.toInt()); setPadding(dp(2),dp(8),dp(2),dp(8))
+        text=displayLegacyDates(s); textSize=16f; setTextColor(0xFFB9C9DB.toInt()); setPadding(dp(2),dp(8),dp(2),dp(8))
     }) }
+    private fun makeButton(s:String, f:()->Unit):Button {
+        val danger=s.contains("ZAKOŃCZ") || s.startsWith("Usuń")
+        val primary=s=="Zapisz" || s.contains("ROZPOCZNIJ") || s.startsWith("Wyślij zdjęcia")
+        val travel=s.startsWith("🚗") && active(data())?.optString("kind")=="Przejazd"
+        val fill=when { danger || travel -> 0xFFFF793F.toInt(); primary -> 0xFF29D3EE.toInt(); else -> 0xFF1B2C40.toInt() }
+        return Button(this).apply {
+            text=s; textSize=14f; isAllCaps=false; minHeight=dp(54)
+            setTextColor(if(danger || primary || travel) 0xFF07131F.toInt() else 0xFFE9F3FE.toInt())
+            background=background(fill).apply { setStroke(dp(1),if(travel || primary) 0xFF63E9FF.toInt() else 0xFF304961.toInt()) }
+            backgroundTintList=null; elevation=dp(2).toFloat()
+            setPadding(dp(14),dp(12),dp(14),dp(12)); setOnClickListener { f() }
+        }
+    }
     private fun button(s:String, f:()->Unit) {
-        root.addView(Button(this).apply {
-            text=s; textSize=15f; isAllCaps=false; minHeight=dp(52)
-            setTextColor(Color.WHITE); background=background(0xFF244C70.toInt())
-            setPadding(dp(12),dp(10),dp(12),dp(10)); setOnClickListener { f() }
-        },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
+        root.addView(makeButton(s,f),LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
+    }
+    private fun tiles(items:List<Pair<String,()->Unit>>) {
+        items.chunked(2).forEach { pair ->
+            val row=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
+            pair.forEachIndexed { i,item ->
+                row.addView(makeButton(item.first,item.second).apply { minHeight=dp(90) },
+                    LinearLayout.LayoutParams(0,-1,1f).apply { if(i==0) rightMargin=dp(8) })
+            }
+            if(pair.size==1) row.addView(View(this),LinearLayout.LayoutParams(0,1,1f))
+            root.addView(row,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
+        }
     }
     private fun nav() { button("← Wstecz") { back() } }
     private fun back() {
@@ -296,30 +349,42 @@ class MainActivity : Activity() {
     private fun duration(ms:Long):String { val m=(ms.coerceAtLeast(0)/60000); return "%02d:%02d".format(m/60,m%60) }
     private fun home() {
         base("R3 Gate")
-        screen = "home"
-        homeVisible = true
+        screen="home"; homeVisible=true
         val d=data(); val a=active(d)
-        label(if(a!=null) "🟢 ONLINE" else "⚪ OFFLINE")
-        val last=arr(d,"shifts"); val recent=if(last.length()>0) last.optJSONObject(last.length()-1) else null
-        val shown=a?:recent
-        label("Rozpoczęcie: "+(shown?.let { fmt.format(Date(it.optLong("start"))) }?:"—"))
-        label("Zakończenie: "+(if(a!=null) "— Offline" else recent?.let { fmt.format(Date(it.optLong("end"))) }?:"—"))
-        label("Czas pracy: "+(shown?.let { duration((if(a!=null) System.currentTimeMillis() else it.optLong("end"))-it.optLong("start")) }?:"00:00"))
-        button("🟢 ROZPOCZNIJ PRACĘ") { confirmPin { startShift() } }
-        button("🔴 ZAKOŃCZ PRACĘ") { confirmPin { stopShift() } }
-        if(a!=null) {
-            label("Aktualny etap: "+a.optString("kind","Obiekt")+" — "+a.optString("object",""))
-            button("🔄 ZMIEŃ OBIEKT") { switchObject() }
-            button("🚗 PRZEJAZD") { beginStage("Przejazd") }
-            button("🛒 ZAKUPY") { beginStage("Zakupy") }
+        val recent=rows(d,"shifts").lastOrNull(); val shown=a?:recent
+        val card=LinearLayout(this).apply {
+            orientation=LinearLayout.VERTICAL; setPadding(dp(18),dp(16),dp(18),dp(16))
+            background=background(if(a!=null) 0xFF11483E.toInt() else 0xFF1B2C40.toInt()).apply { setStroke(dp(1),if(a!=null) 0xFF30D793.toInt() else 0xFF304961.toInt()) }
         }
-        button("ZDJĘCIA") { openScreen("list:links:") }
-        button("MATERIAŁY") { openScreen("list:materials:") }
-        button("NOTATKI") { openScreen("notes") }
-        button("OBIEKTY") { openScreen("objects") }
-        button("GOOGLE DRIVE") { openScreen("drive") }
-        button("📊 MÓJ RAPORT") { report() }
-        button("📁 LOGI / KOPIA") { logs() }
+        fun line(text:String,size:Float,color:Int) { card.addView(TextView(this).apply {
+            this.text=text; textSize=size; setTextColor(color); setPadding(0,dp(4),0,dp(4))
+        }) }
+        line(if(a!=null) "● ONLINE" else "● OFFLINE",22f,if(a!=null) 0xFF73F4B5.toInt() else 0xFFB9C9DB.toInt())
+        line(shown?.let { duration((if(a!=null) System.currentTimeMillis() else it.optLong("end"))-it.optLong("start")) } ?: "00:00",40f,Color.WHITE)
+        line("Rozpoczęcie: "+(shown?.let { fmt.format(Date(it.optLong("start"))) } ?: "—"),14f,0xFFDBEAF7.toInt())
+        if(a==null) line("Zakończenie: "+(recent?.let { fmt.format(Date(it.optLong("end"))) } ?: "—"),14f,0xFFDBEAF7.toInt())
+        if(a!=null) {
+            val kind=a.optString("kind","Obiekt")
+            line(if(kind=="Obiekt") a.optString("object") else kind,16f,Color.WHITE)
+            if(kind=="Przejazd") line("W drodze: "+duration(System.currentTimeMillis()-a.optLong("stageStart")),18f,0xFFFFBA8B.toInt())
+        }
+        root.addView(card,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(16) })
+        if(a==null) button("🟢 ROZPOCZNIJ PRACĘ") { confirmPin { startShift() } }
+        else {
+            button("🔴 ZAKOŃCZ PRACĘ") { confirmPin { stopShift() } }
+            button("🔄 ZMIEŃ OBIEKT") { confirmPin { switchObject() } }
+            button(if(a.optString("kind")=="Przejazd") "🚗 PRZEJAZD · W DRODZE — ZAKOŃCZ" else "🚗 PRZEJAZD") { toggleTravel() }
+        }
+        label("TWÓJ DZIEŃ")
+        tiles(listOf(
+            "ZDJĘCIA" to { openScreen("list:links:") },
+            "MATERIAŁY" to { openScreen("list:materials:") },
+            "NOTATKI" to { openScreen("notes") },
+            "OBIEKTY" to { openScreen("objects") },
+            "GOOGLE DRIVE" to { openScreen("drive") },
+            "📊 MÓJ RAPORT" to { report() },
+            "📁 LOGI / KOPIA" to { logs() }
+        ))
     }
     private fun report() {
         base("Mój raport"); screen = "report"; nav(); button("📋 GENERUJ RAPORT SMS") { weeklySms() }; val d=data(); val list=arr(d,"shifts")
@@ -333,6 +398,18 @@ class MainActivity : Activity() {
             val s=list.optJSONObject(i)?:continue
             label("${fmt.format(Date(s.optLong("start")))} → ${fmt.format(Date(s.optLong("end")))}  (${duration(s.optLong("end")-s.optLong("start"))})")
             button("Edytuj czas") { confirmPin { editShift(s.optString("id")) } }
+            button("Usuń zmianę (PIN)") { deleteShift(s.optString("id")) }
+        }
+    }
+    private fun deleteShift(id:String) {
+        confirmPin {
+            AlertDialog.Builder(this).setTitle("Usunąć zmianę?")
+                .setMessage("Zniknie z raportu i zestawienia godzin obiektów. Materiały, zdjęcia i notatki pozostaną.")
+                .setNegativeButton("Anuluj",null).setPositiveButton("Usuń") { _, _ ->
+                    val d=data(); val remaining=JSONArray()
+                    rows(d,"shifts").filter { it.optString("id")!=id }.forEach { remaining.put(it) }
+                    d.put("shifts",remaining); save(d,"DELETE_SHIFT",id); report()
+                }.show()
         }
     }
     private fun editShift(id:String) {
@@ -570,6 +647,9 @@ class MainActivity : Activity() {
         if(objectId.isBlank()) button("Obiekt: "+(objectById(f.optString("objectId"))?.let { objectName(it) } ?: "wszystkie")) {
             chooseObject(true) { f.put("objectId",it?.optString("id") ?: ""); refresh() }
         }
+        if(key=="notes") button(if(f.optBoolean("shoppingOnly")) "Zakupy / paragony: tylko zakupy" else "Zakupy / paragony: wszystkie notatki") {
+            f.put("shoppingOnly",!f.optBoolean("shoppingOnly")); refresh()
+        }
         button("Wyczyść filtry") { prefs.edit().remove(filterKey).apply(); openScreen(target) }
         button(if(f.optBoolean("nameSort")) "Sortowanie: nazwa" else "Sortowanie: data, najnowsze") { f.put("nameSort",!f.optBoolean("nameSort")); refresh() }
         button("+ Dodaj") { newForm(key,objectId=objectId) }
@@ -579,6 +659,7 @@ class MainActivity : Activity() {
             val day=recordDate(it)
             (selected.isBlank() || it.optString("objectId")==selected) &&
             (!onlyActive || (it.optBoolean("aktualne") && !it.optBoolean("done"))) &&
+            (!f.optBoolean("shoppingOnly") || it.optBoolean("shopping")) &&
             DomainRules.inRange(day,f.optString("from"),f.optString("to"))
         }.let { list -> if(f.optBoolean("nameSort")) list.sortedBy { it.optString("name",it.optString("text")).lowercase(Locale.ROOT) } else list.sortedByDescending { recordDate(it)+it.optString("created") } }
         if(list.isEmpty()) label("Brak wpisów dla wybranych filtrów.")
@@ -599,7 +680,7 @@ class MainActivity : Activity() {
             val obj=objectById(r.optString("objectId"))?.let { objectName(it) } ?: r.optString("Obiekt").ifBlank { "Bez obiektu" }
             val summary=when(key) {
                 "materials" -> r.optString("name")+" · "+r.optString("quantity")+" "+r.optString("unit","szt.")
-                "notes" -> (if(r.optBoolean("done")) "✓ " else if(r.optBoolean("aktualne")) "● " else "")+r.optString("text").ifBlank { "Notatka ze zdjęciem" }.take(100)
+                "notes" -> (if(r.optBoolean("shopping")) "🛒 " else "")+(if(r.optBoolean("done")) "✓ " else if(r.optBoolean("aktualne")) "● " else "")+r.optString("text").ifBlank { "Notatka ze zdjęciem" }.take(100)
                 else -> "Zdjęcia: "+arr(r,"photos").length()+" · "+r.optString("Link Google Drive")
             }
             button(summary+"\n"+obj) { recordDetails(key,r.optString("id"),target) }
@@ -614,6 +695,7 @@ class MainActivity : Activity() {
         label(objectById(r.optString("objectId"))?.let { objectName(it) } ?: r.optString("Obiekt").ifBlank { "Bez obiektu" })
         if(key=="materials") label(r.optString("name")+" · "+r.optString("quantity")+" "+r.optString("unit","szt."))
         if(key=="notes") {
+            if(r.optBoolean("shopping")) label("🛒 Zakupy / paragon")
             label(r.optString("text"))
             label(if(r.optBoolean("done")) "Wykonano: "+r.optString("completedAt") else if(r.optBoolean("aktualne")) "Aktualna" else "Zwykła notatka")
             button(if(r.optBoolean("done")) "Oznacz jako aktualną" else "Wykonano") {
@@ -677,7 +759,7 @@ class MainActivity : Activity() {
         val e=EditText(this).apply {
             setText(draft.optString(key)); textSize=17f; minHeight=dp(48)
             inputType=if(numeric) InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL else InputType.TYPE_CLASS_TEXT or (if(multiline) InputType.TYPE_TEXT_FLAG_MULTI_LINE else 0)
-            setSingleLine(!multiline); setPadding(dp(10),dp(8),dp(10),dp(8)); background=background(Color.WHITE)
+            setSingleLine(!multiline); setPadding(dp(10),dp(8),dp(10),dp(8)); setTextColor(Color.WHITE); setHintTextColor(0xFF91A7BD.toInt()); background=background(0xFF203349.toInt())
         }
         e.addTextChangedListener(object:TextWatcher {
             override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int) {}
@@ -717,6 +799,13 @@ class MainActivity : Activity() {
                 if(formKind=="notes") {
                     field("Treść (opcjonalnie, gdy dodajesz zdjęcie)","text",true)
                     root.addView(CheckBox(this).apply {
+                        text="Zakupy / paragon"; setTextColor(Color.WHITE)
+                        buttonTintList=android.content.res.ColorStateList.valueOf(0xFF29D3EE.toInt())
+                        isChecked=draft.optBoolean("shopping")
+                        setOnCheckedChangeListener { _,checked -> draft.put("shopping",checked) }
+                    })
+                    root.addView(CheckBox(this).apply {
+                        setTextColor(Color.WHITE); buttonTintList=android.content.res.ColorStateList.valueOf(0xFF29D3EE.toInt())
                         text="Aktualna"; isChecked=draft.optBoolean("aktualne")
                         setOnCheckedChangeListener { _,checked -> draft.put("aktualne",checked); if(checked) draft.put("done",false) }
                     })
