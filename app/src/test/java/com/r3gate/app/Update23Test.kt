@@ -6,6 +6,12 @@ import java.time.*
 import java.math.BigDecimal
 
 class Update23Test {
+    @Test fun customTagsShareCountersAcrossCitiesWithoutRewritingSavedTags() {
+        val used=listOf("KOP-01","SZK-01","SZK-03","SZKOLA-02")
+        assertEquals("SZK-04" to 4,DomainRules.nextPrefixTag(DomainRules.customPrefix("szk"),1,used))
+        assertEquals("SZKOLA-03" to 3,DomainRules.nextPrefixTag(DomainRules.customPrefix("Szkoła"),0,used))
+        assertEquals("KOP-02" to 2,DomainRules.nextTag("Kopytkowo",0,used))
+    }
     @Test fun calendarPresets() {
         val today=LocalDate.of(2026,10,29)
         assertEquals(LocalDate.of(2026,10,19) to LocalDate.of(2026,10,25),TimeAnalytics.previousWeek(today))
