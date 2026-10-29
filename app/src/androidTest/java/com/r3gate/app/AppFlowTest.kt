@@ -92,7 +92,7 @@ class AppFlowTest {
                 inputs[0].setText("Kopytkowo"); inputs[1].setText("25"); inputs[2].setText("Nowy obiekt")
                 click(a,"Zapisz")
                 assertTrue("Expected second city tag",all(a).filterIsInstance<Button>().any { it.text.toString().startsWith("KOP-02") })
-                click(a,"KOP-01 · Test · Kopytkowo · 24"); click(a,"Materiały — ilości i daty"); click(a,"+ Dodaj")
+                click(a,"KOP-01 · Test · Kopytkowo · 24"); click(a,"Materiały"); click(a,"+ Dodaj")
                 val fields=all(a).filterIsInstance<EditText>()
                 fields[0].setText("Kabel")
                 fields[1].setText("12.5")
@@ -210,6 +210,7 @@ class AppFlowTest {
             scenario.onActivity { a ->
                 val widgetView=GateWidget.render(a).apply(a,android.widget.FrameLayout(a))
                 assertEquals("ZMIEŃ OBIEKT",widgetView.findViewById<TextView>(R.id.wswitch).text.toString())
+                assertEquals(0xFF42D77D.toInt(),widgetView.findViewById<TextView>(R.id.wstatus).currentTextColor)
                 assertFalse(views(widgetView).filterIsInstance<TextView>().any { it.text=="ZAKUPY" })
                 val frame=android.widget.FrameLayout(a).apply { setBackgroundColor(android.graphics.Color.BLACK); setPadding(24,100,24,24) }
                 frame.addView(GateWidget.render(a).apply(a,frame),android.widget.FrameLayout.LayoutParams(-1,(160*a.resources.displayMetrics.density).toInt()))
@@ -419,3 +420,4 @@ class AppFlowTest {
     }
 
 }
+
