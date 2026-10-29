@@ -9,8 +9,8 @@ android {
         applicationId = "com.r3gate.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "2.0"
+        versionCode = 6
+        versionName = "2.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     signingConfigs {
@@ -28,6 +28,7 @@ android {
 dependencies {
     implementation("com.google.android.gms:play-services-auth:22.0.0")
     implementation("androidx.core:core:1.13.1")
+    implementation("androidx.work:work-runtime-ktx:2.10.1")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test:core:1.6.1")
