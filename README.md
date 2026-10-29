@@ -1,6 +1,6 @@
-# WT — Work Time 2.0
+# WorkMeter 2.1
 
-Personal Android work-time, object, materials, photos, notes and payment ledger. The existing applicationId com.r3gate.app and preferences r3_gate stay unchanged so an APK with the same signing certificate updates existing installations. The display name is WT Work Time.
+Personal Android work-time, object, materials, photos, notes and payment ledger. The existing applicationId com.r3gate.app and preferences r3_gate stay unchanged so an APK with the same signing certificate updates existing installations. The display name is WorkMeter.
 
 ## Interface
 
@@ -8,7 +8,7 @@ White screens, slate #37474F headers and primary controls, coral #FF5C5C accents
 
 Home contains work controls, photos, materials, notes, objects and work-time history. Settings contains wallet (PIN), SMS report generation, Google Disk, logs/export/import, widget appearance and About with the installed version. The report keeps two calendar fields Data od / Data do. Dates shown to users use dd-MM-yyyy; ISO dates are internal.
 
-Filtering/sorting is collapsed under Filtry on photo/material/note lists, active/history notes, objects and object-period details. A dot marks applied filters. Changing an option preserves the expanded panel and collapsing does not clear the selection.
+Filtering/sorting is collapsed under Filtry on photo/material/note lists and active/history notes. Object list and object details have no filters. A dot marks applied filters. Changing an option preserves the expanded panel and collapsing does not clear the selection.
 
 ## Work and records
 
@@ -26,7 +26,7 @@ The widget targets 4x2 cells with a 160dp minimum height and 140dp resize minimu
 
 ## Google Disk and signing
 
-Google Identity requests only drive.file. Drive API and an Android OAuth client must match the actual package/certificate. Settings shows actionable authorization errors; package/SHA-1 diagnostics are collapsed. Photos use WT/object/date; an existing WT or legacy R3 Gate root is reused. Tokens stay in memory and are refreshed through authorization. Uploads use resumable requests and file mappings to avoid duplicate retries.
+Google Identity requests only drive.file. Drive API and an Android OAuth client must match the actual package/certificate. Settings shows actionable authorization errors; package/SHA-1 diagnostics are collapsed. Photos use WorkMeter/object/date; existing WorkMeter, WT or R3 Gate roots are reused. Tokens stay in memory and are refreshed through authorization. Uploads use resumable requests and file mappings to avoid duplicate retries.
 
 CI requires the stable signing secret, uses an explicit keystore path and verifies the produced APK with apksigner. Stable SHA-1 is FF:9F:79:03:07:93:D6:FA:4D:C3:5E:6E:0F:A6:DD:3C:75:1E:EA:93. The previous 1.x APK used a temporary SDK certificate (14:03:E0:A9:1D:7C:71:48:71:6C:DF:0F:0A:32:F5:75:3B:BB:E3:F3); its private key was not retained, so a direct update is impossible. Export/USB-backup existing data before uninstalling anything. No private signing key is committed or printed. These are personal test APKs, not Play Store releases.
 
@@ -35,3 +35,11 @@ CI requires the stable signing secret, uses an explicit keystore path and verifi
 PIN-protected JSON export includes work records, payments, rates, opening balance and widget transparency. Old JSON backups remain importable. Local photo bytes are not embedded: keep originals or upload them to Disk. Import validates payment periods and amounts before replacing data, and retains a pre-import data snapshot locally.
 
 GitHub Actions runs domain/ledger unit tests, APK build/lint and Android 15 acceptance tests for navigation, forms, travel, PIN switching, filters, wallet partial payments, backup round-trip and background-only opacity. R3-Gate-check-results contains synthetic emulator screenshots; R3-Gate-APK contains app-debug.apk and signing reports.
+
+## WorkMeter 2.1
+
+All confirmation, PIN and selection dialogs share the light/slate/coral theme. Object pickers include a city search (Polish diacritics optional), a magnifier action and numeric tag sorting. Arrival selection retains Shopping and New object; cancel keeps travel active. Object labels are Czas na obiekcie, Materiały and Zdjęcia. ONLINE is green in the widget.
+
+Tap a completed shift in Mój czas for its chronological object/travel/shopping intervals, their start/end timestamps and duration. Legacy missing intervals are explicitly marked; editing shift boundaries clips existing stage display, never invents history. Ring charts are deferred to a later version.
+
+Photo transfer runs in a persistent WorkManager queue with network constraints, foreground dataSync notification and automatic retry/backoff. Swiping the activity away or locking the phone does not own/cancel the job. Android force-stop, revoked photo access, or missing Google consent can require user action; no service bypasses those restrictions. Each run obtains a fresh token from Google Identity; no tokens are persisted. An account-email check prevents writing a resumed job to another account. Per-file IDs and Drive appProperties avoid re-uploading completed files after interruption. Upload progress and completion notifications have Dodaj zdjęcia; Google Disk settings can enable a reusable shortcut notification. The system notification permission is requested on Android 13+. No personal Google photos are used in CI.
