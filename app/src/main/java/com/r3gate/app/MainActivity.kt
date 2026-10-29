@@ -51,10 +51,7 @@ class MainActivity : Activity() {
     private val io = Executors.newSingleThreadExecutor()
     private var driveToken: String? = null
     private var pendingUpload = ""
-    companion object { private val uploadBusy = java.util.concurrent.atomic.AtomicBoolean(false) }
-    private var uploading: Boolean
-        get() = uploadBusy.get()
-        set(value) { uploadBusy.set(value) }
+    private val uploading:Boolean get()=prefs.all.any { it.key.startsWith("uploadQueued_") && it.value==true }
     private var homeVisible = false
     private var smsFrom: LocalDate? = null
     private var smsTo: LocalDate? = null
@@ -95,7 +92,7 @@ class MainActivity : Activity() {
     private fun hash(s: String): String = MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).joinToString("") { "%02x".format(it) }
     private fun setupPin() {
         val field = EditText(this).apply { hint="PIN (4–8 cyfr)"; inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD }
-        AlertDialog.Builder(this).setTitle("Ustaw PIN").setMessage("Kod chroni rozpoczęcie i zakończenie pracy.").setView(field).setCancelable(false).setPositiveButton("Zapisz") { _, _ ->
+        AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Ustaw PIN").setMessage("Kod chroni rozpoczęcie i zakończenie pracy.").setView(field).setCancelable(false).setPositiveButton("Zapisz") { _, _ ->
             val p=field.text.toString(); if (p.length in 4..8) {
                 val salt=UUID.randomUUID().toString(); prefs.edit().putString("salt",salt).putString("pin",hash(salt+p)).apply(); home()
             } else { toast("PIN musi mieć 4–8 cyfr"); setupPin() }
@@ -103,7 +100,7 @@ class MainActivity : Activity() {
     }
     private fun confirmPin(action: () -> Unit) {
         val field=EditText(this).apply { inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD; hint="PIN" }
-        AlertDialog.Builder(this).setTitle("Potwierdź PIN").setView(field).setNegativeButton("Anuluj",null).setPositiveButton("Potwierdź") { _, _ ->
+        AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Potwierdź PIN").setView(field).setNegativeButton("Anuluj",null).setPositiveButton("Potwierdź") { _, _ ->
             if (hash(prefs.getString("salt","")+field.text.toString()) == prefs.getString("pin","")) action() else toast("Nieprawidłowy PIN")
         }.show()
     }
@@ -114,7 +111,11 @@ class MainActivity : Activity() {
         val action=intent?.getStringExtra("widget_action")
         intent?.removeExtra("widget_action")
         home()
+        val uploadReference=intent?.getStringExtra("upload_retry")
+        intent?.removeExtra("upload_retry")
+        if(!uploadReference.isNullOrBlank()) { pendingUpload=uploadReference; authorizeDrive(); return }
         when(action) {
+            "photos" -> newForm("links")
             "start" -> confirmPin { startShift() }
             "stop" -> confirmPin { stopShift() }
             "switch" -> confirmPin { switchObject() }
@@ -181,23 +182,15 @@ class MainActivity : Activity() {
     }
     private fun chooseArrival() {
         if(active(data())?.optString("kind")!="Przejazd") return
-        val objects=rows(data(),"objects").filter { !it.optBoolean("archived") }
-        val choices=objects.map { objectName(it) }+listOf("🛒 Zakupy", "+ Nowy obiekt")
-        AlertDialog.Builder(this).setTitle("Dokąd przyjechałeś?")
-            .setMessage(null).setItems(choices.toTypedArray()) { _,index ->
-                when(index) {
-                    objects.size -> beginStage("Zakupy")
-                    objects.size+1 -> { screen="home"; newForm("objects") }
-                    else -> {
-                        val d=data(); val current=active(d) ?: return@setItems
-                        if(current.optString("kind")!="Przejazd") return@setItems
-                        val now=System.currentTimeMillis(); closeStage(current,now)
-                        val obj=objects[index]
-                        current.put("stageStart",now).put("kind","Obiekt").put("object",objectName(obj)).put("objectId",obj.optString("id"))
-                        save(d,"ARRIVAL",objectName(obj)); home()
-                    }
-                }
-            }.setNegativeButton("Anuluj — przejazd trwa",null).show()
+        objectPicker(false,true) { obj ->
+            if(obj!=null) {
+                val d=data(); val current=active(d) ?: return@objectPicker
+                if(current.optString("kind")!="Przejazd") return@objectPicker
+                val now=System.currentTimeMillis(); closeStage(current,now)
+                current.put("stageStart",now).put("kind","Obiekt").put("object",objectName(obj)).put("objectId",obj.optString("id"))
+                save(d,"ARRIVAL",objectName(obj)); home()
+            }
+        }
     }
     private fun weeklySms() {
         val today = LocalDate.now()
@@ -252,7 +245,7 @@ class MainActivity : Activity() {
         label(sms)
         button("KOPIUJ RAPORT") {
             (getSystemService(CLIPBOARD_SERVICE) as ClipboardManager)
-                .setPrimaryClip(ClipData.newPlainText("WT raport", sms))
+                .setPrimaryClip(ClipData.newPlainText("WorkMeter raport", sms))
             toast("Raport skopiowany")
         }
     }
@@ -267,7 +260,7 @@ class MainActivity : Activity() {
         val top=View(this); frame.addView(top,LinearLayout.LayoutParams(-1,0))
         val header=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; gravity=Gravity.CENTER_VERTICAL; setPadding(dp(16),0,dp(8),0); setBackgroundColor(0xFF37474F.toInt()) }
         header.addView(TextView(this).apply { text=title; textSize=27f; gravity=Gravity.CENTER_VERTICAL; setTextColor(Color.WHITE); setTypeface(null,android.graphics.Typeface.BOLD) },LinearLayout.LayoutParams(0,dp(56),1f).apply { gravity=Gravity.CENTER_VERTICAL })
-        if(title=="WT") header.addView(Button(this).apply {
+        if(title=="WorkMeter") header.addView(Button(this).apply {
             text="⚙"; textSize=27f; contentDescription="Ustawienia"; setTextColor(Color.WHITE)
             background=android.graphics.drawable.ColorDrawable(Color.TRANSPARENT); backgroundTintList=null; setPadding(0,0,0,0)
             setOnClickListener { settings() }
@@ -351,13 +344,14 @@ class MainActivity : Activity() {
             screen in listOf("drive","logs","about","widgetSettings","wallet") -> settings()
             screen == "payment" -> wallet()
             screen == "form" -> {
-                AlertDialog.Builder(this).setMessage("Zachować szkic i wrócić?")
+                AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setMessage("Zachować szkic i wrócić?")
                     .setNegativeButton("Zostań",null).setPositiveButton("Wróć") { _, _ ->
                         prefs.edit().putString("draft_$formKind",draft.toString()).apply()
                         openScreen(formReturn)
                     }.show()
             }
             screen.startsWith("detail:") -> openScreen(detailParent)
+            screen.startsWith("shift:") -> report()
             screen.startsWith("object:") -> openScreen("objects")
             screen.startsWith("list:") && screen.split(":").getOrNull(2)?.isNotBlank() == true ->
                 openScreen("object:" + screen.split(":")[2])
@@ -376,7 +370,7 @@ class MainActivity : Activity() {
     }
     private fun duration(ms:Long):String { val m=(ms.coerceAtLeast(0)/60000); return "%02d:%02d".format(m/60,m%60) }
     private fun home() {
-        base("WT")
+        base("WorkMeter")
         screen="home"; homeVisible=true
         val d=data(); val a=active(d)
         val recent=rows(d,"shifts").lastOrNull(); val shown=a?:recent
@@ -424,7 +418,7 @@ class MainActivity : Activity() {
     private fun about() {
         base("O aplikacji"); screen="about"; nav()
         val info=packageManager.getPackageInfo(packageName,0)
-        label("WT — Work Time")
+        label("WorkMeter")
         label("Wersja: "+info.versionName)
         label("Czas pracy, obiekty, materiały, zdjęcia, notatki i rozliczenia.")
         filters("aboutDiagnostics",caption="Szczegóły techniczne") { label("Pakiet: "+packageName+"\nSHA-1: "+signingFingerprint()) }
@@ -527,7 +521,7 @@ class MainActivity : Activity() {
         }
         walletInput("Kwota (zł)","amount",true)
         button("Sposób: "+if(walletDraft.optString("method")=="cash") "Gotówka" else "Karta") {
-            AlertDialog.Builder(this).setTitle("Sposób wypłaty").setItems(arrayOf("Gotówka","Karta")) { _,index -> walletDraft.put("method",if(index==0) "cash" else "card"); paymentForm() }.show()
+            AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Sposób wypłaty").setItems(arrayOf("Gotówka","Karta")) { _,index -> walletDraft.put("method",if(index==0) "cash" else "card"); paymentForm() }.show()
         }
         walletInput("Notatka (opcjonalnie)","note")
         button("Zapisz") {
@@ -543,14 +537,14 @@ class MainActivity : Activity() {
         }
         val id=walletDraft.optString("id")
         if(rows(data(),"payments").any { it.optString("id")==id }) button("Usuń wypłatę (PIN)") {
-            confirmPin { AlertDialog.Builder(this).setMessage("Usunąć tę wypłatę z rozliczenia?").setNegativeButton("Anuluj",null).setPositiveButton("Usuń") { _, _ ->
+            confirmPin { AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setMessage("Usunąć tę wypłatę z rozliczenia?").setNegativeButton("Anuluj",null).setPositiveButton("Usuń") { _, _ ->
                 val d=data(); val next=JSONArray(); rows(d,"payments").filter { it.optString("id")!=id }.forEach { next.put(it) }; d.put("payments",next); save(d,"PAYMENT_DELETE",id); wallet()
             }.show() }
         }
     }
     private fun rateDialog(existing:Boolean) {
         val input=EditText(this).apply { hint="Stawka zł/h"; setText(defaultRate().toPlainString()); inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL }
-        val dialog=AlertDialog.Builder(this).setTitle(if(existing) "Stawka za wybrany okres" else "Stawka dla nowych zmian")
+        val dialog=AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle(if(existing) "Stawka za wybrany okres" else "Stawka dla nowych zmian")
             .setMessage(if(existing) "Zmienisz stawkę zakończonych zmian rozpoczynających się w wybranym okresie." else "Zmiana dotyczy tylko nowych dni pracy. Starsze zmiany zachowają swoje stawki.")
             .setView(input).setNegativeButton("Anuluj",null).setPositiveButton("Zapisz",null).create()
         dialog.setOnShowListener { dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
@@ -564,7 +558,7 @@ class MainActivity : Activity() {
     }
     private fun openingDialog() {
         val field=EditText(this).apply { hint="Saldo początkowe zł"; setText(BigDecimal.valueOf(walletConfig(data()).optLong("openingCents"),2).toPlainString()); inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED }
-        val dialog=AlertDialog.Builder(this).setTitle("Saldo sprzed zapisanej historii").setMessage("Dodatnia kwota: zaległa wypłata. Ujemna: wcześniejsza nadpłata. Uwzględniana tylko w saldzie całej historii.").setView(field).setNegativeButton("Anuluj",null).setPositiveButton("Zapisz",null).create()
+        val dialog=AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Saldo sprzed zapisanej historii").setMessage("Dodatnia kwota: zaległa wypłata. Ujemna: wcześniejsza nadpłata. Uwzględniana tylko w saldzie całej historii.").setView(field).setNegativeButton("Anuluj",null).setPositiveButton("Zapisz",null).create()
         dialog.setOnShowListener { dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
             val amount=WalletRules.money(field.text.toString(),true)
             if(amount==null) { field.error="Nieprawidłowa kwota"; return@setOnClickListener }
@@ -577,14 +571,37 @@ class MainActivity : Activity() {
         label("Łączny czas: ${duration(total)}")
         for(i in list.length()-1 downTo 0) {
             val s=list.optJSONObject(i)?:continue
-            label("${fmt.format(Date(s.optLong("start")))} → ${fmt.format(Date(s.optLong("end")))}  (${duration(s.optLong("end")-s.optLong("start"))})")
+            button("${fmt.format(Date(s.optLong("start")))} → ${fmt.format(Date(s.optLong("end")))}  (${duration(s.optLong("end")-s.optLong("start"))})") { shiftDetails(s.optString("id")) }
             button("Edytuj czas") { confirmPin { editShift(s.optString("id")) } }
             button("Usuń zmianę (PIN)") { deleteShift(s.optString("id")) }
         }
     }
+    private fun shiftDetails(id:String) {
+        val shift=rows(data(),"shifts").find { it.optString("id")==id } ?: run { report(); return }
+        base("Szczegóły dnia"); screen="shift:"+id; nav()
+        val start=shift.optLong("start"); val end=shift.optLong("end")
+        label("Rozpoczęcie pracy: "+fmt.format(Date(start)))
+        val stages=rows(shift,"stages").sortedBy { it.optLong("start") }
+        if(stages.isEmpty()) label("Brak zapisanej historii etapów dla tej zmiany. Nie można odtworzyć obiektów ani przejazdów.")
+        var cursor=start
+        for(stage in stages) {
+            val from=maxOf(start,stage.optLong("start")); val to=minOf(end,stage.optLong("end"))
+            if(to<=from) continue
+            if(from>cursor) label("Brak przypisanego etapu: "+fmt.format(Date(cursor))+" → "+fmt.format(Date(from))+" · "+duration(from-cursor))
+            val kind=stage.optString("kind","Obiekt")
+            val name=if(kind=="Obiekt") stage.optString("object").ifBlank { objectById(stage.optString("objectId"))?.let { objectName(it) } ?: "Obiekt bez nazwy" } else kind
+            label(name+"\n"+fmt.format(Date(from))+" → "+fmt.format(Date(to))+"\nCzas: "+duration(to-from))
+            cursor=maxOf(cursor,to)
+        }
+        if(stages.isNotEmpty() && cursor<end) label("Brak przypisanego etapu: "+fmt.format(Date(cursor))+" → "+fmt.format(Date(end))+" · "+duration(end-cursor))
+        label("Zakończenie pracy: "+fmt.format(Date(end)))
+        label("Łączny czas: "+duration(end-start))
+        button("Edytuj czas") { confirmPin { editShift(id) } }
+        button("Usuń zmianę (PIN)") { deleteShift(id) }
+    }
     private fun deleteShift(id:String) {
         confirmPin {
-            AlertDialog.Builder(this).setTitle("Usunąć zmianę?")
+            AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Usunąć zmianę?")
                 .setMessage("Zniknie z raportu i zestawienia godzin obiektów. Materiały, zdjęcia i notatki pozostaną.")
                 .setNegativeButton("Anuluj",null).setPositiveButton("Usuń") { _, _ ->
                     val d=data(); val remaining=JSONArray()
@@ -614,7 +631,7 @@ class MainActivity : Activity() {
         timeStart.setOnClickListener { TimePickerDialog(this,{ _,h,m -> start=start.withHour(h).withMinute(m); refresh() },start.hour,start.minute,true).show() }
         timeEnd.setOnClickListener { TimePickerDialog(this,{ _,h,m -> end=end.withHour(h).withMinute(m); refresh() },end.hour,end.minute,true).show() }
         listOf(dateStart,dateEnd,timeStart,timeEnd).forEach { layout.addView(it) }; refresh()
-        val dialog=AlertDialog.Builder(this).setTitle("Edytuj zmianę").setView(layout)
+        val dialog=AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Edytuj zmianę").setView(layout)
             .setNegativeButton("Anuluj",null).setPositiveButton("Zapisz",null).create()
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
@@ -631,7 +648,7 @@ class MainActivity : Activity() {
     private fun logs() {
         base("Logi i kopia zapasowa"); screen = "logs"; nav()
         label("Kopia JSON zawiera dane i odnośniki. Zachowaj również zdjęcia na Google Disk; zdjęcia lokalne nie są dołączane do JSON.")
-        button("Eksportuj dziennik JSON") { confirmPin { startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type="application/json"; putExtra(Intent.EXTRA_TITLE,"WT-backup.json") },100) } }
+        button("Eksportuj dziennik JSON") { confirmPin { startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type="application/json"; putExtra(Intent.EXTRA_TITLE,"WorkMeter-backup.json") },100) } }
         button("Importuj dziennik JSON") { confirmPin { startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type="application/json" },101) } }
         val list=arr(data(),"logs"); for(i in list.length()-1 downTo 0) { val x=list.optJSONObject(i)?:continue; label("${x.optString("at")} | ${x.optString("type")} | ${x.optString("detail")}") }
     }
@@ -669,8 +686,9 @@ class MainActivity : Activity() {
         try {
             if(requestCode==100) { contentResolver.openOutputStream(uri)?.use { it.write(exportData().toString(2).toByteArray(Charsets.UTF_8)) }; toast("Kopia zapisana") }
             if(requestCode==101) {
+                if(uploading) { toast("Poczekaj na zakończenie przesyłania przed importem"); return }
                 val content=contentResolver.openInputStream(uri)!!.bufferedReader().use { it.readText() }; val imported=JSONObject(content); validateImport(imported)
-                AlertDialog.Builder(this).setTitle("Przywrócić kopię?").setMessage("Obecne dane zostaną zastąpione.").setNegativeButton("Anuluj",null).setPositiveButton("Importuj") { _, _ ->
+                AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Przywrócić kopię?").setMessage("Obecne dane zostaną zastąpione.").setNegativeButton("Anuluj",null).setPositiveButton("Importuj") { _, _ ->
                     prefs.edit().putString("preImportBackup",data().toString()).putString("data",imported.toString()).putInt("widgetTransparency",imported.optJSONObject("wtSettings")?.optInt("widgetTransparency",prefs.getInt("widgetTransparency",0))?.coerceIn(0,100) ?: prefs.getInt("widgetTransparency",0)).apply(); migrate(); migrateWallet(); GateWidget.refresh(this); logs()
                 }.show()
             }
@@ -729,12 +747,35 @@ class MainActivity : Activity() {
         prefs.edit().putString("data",d.toString()).apply()
     }
     private fun chooseObject(optional:Boolean, selected:(JSONObject?)->Unit) {
-        val options=rows(data(),"objects").filter { !it.optBoolean("archived") }.sortedBy { objectName(it) }
-        if(options.isEmpty() && !optional) { toast("Najpierw dodaj obiekt w sekcji OBIEKTY"); return }
-        val names=(if(optional) listOf("Bez obiektu") else emptyList()) + options.map { objectName(it) }
-        AlertDialog.Builder(this).setTitle("Wybierz obiekt").setItems(names.toTypedArray()) { _,index ->
-            selected(if(optional && index==0) null else options[index-(if(optional) 1 else 0)])
-        }.setNegativeButton("Anuluj",null).show()
+        objectPicker(optional,false,selected)
+    }
+    private fun objectPicker(optional:Boolean, arrival:Boolean, selected:(JSONObject?)->Unit) {
+        val options=rows(data(),"objects").filter { !it.optBoolean("archived") }
+        val layout=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(dp(20),dp(8),dp(20),dp(8)) }
+        val searchRow=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; gravity=Gravity.CENTER_VERTICAL }
+        val query=EditText(this).apply { hint="Szukaj miasta"; setSingleLine(); inputType=InputType.TYPE_CLASS_TEXT; imeOptions=android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH }
+        searchRow.addView(query,LinearLayout.LayoutParams(0,dp(48),1f))
+        val results=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL }
+        val dialog=AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle(if(arrival) "Dokąd przyjechałeś?" else "Wybierz obiekt")
+            .setView(layout).setNegativeButton(if(arrival) "Anuluj — przejazd trwa" else "Anuluj",null).create()
+        fun renderResults() {
+            results.removeAllViews()
+            val matches=options.filter { ObjectSearch.matches(it.optString("city"),query.text.toString()) }.sortedWith { x,y -> ObjectSearch.compareTags(x.optString("TAG"),y.optString("TAG")) }
+            for(obj in matches) results.addView(makeButton(objectName(obj)) { dialog.dismiss(); selected(obj) },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(6) })
+            if(matches.isEmpty()) results.addView(TextView(this).apply { text="Brak obiektów dla tego miasta"; setTextColor(0xFF37474F.toInt()); setPadding(0,dp(12),0,dp(12)) })
+        }
+        searchRow.addView(makeButton("⌕") { renderResults(); (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(query.windowToken,0) }.apply { contentDescription="Szukaj"; textSize=24f },LinearLayout.LayoutParams(dp(48),dp(48)))
+        query.setOnEditorActionListener { _,action,_ -> if(action==android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) { renderResults(); true } else false }
+        query.addTextChangedListener(object:TextWatcher { override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int) {} ; override fun onTextChanged(s:CharSequence?,start:Int,before:Int,count:Int) { renderResults() }; override fun afterTextChanged(s:Editable?) {} })
+        layout.addView(searchRow)
+        if(optional) layout.addView(makeButton("Bez obiektu") { dialog.dismiss(); selected(null) })
+        if(arrival) {
+            layout.addView(makeButton("🛒 Zakupy") { dialog.dismiss(); beginStage("Zakupy") })
+            layout.addView(makeButton("+ Nowy obiekt") { dialog.dismiss(); screen="home"; newForm("objects") })
+        }
+        layout.addView(ScrollView(this).apply { addView(results) },LinearLayout.LayoutParams(-1,dp(240)))
+        renderResults(); dialog.show()
+        dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
     }
     private fun openScreen(target:String) {
         screen=target
@@ -759,6 +800,7 @@ class MainActivity : Activity() {
             target=="notesActive" -> recordList("notes","",true)
             target=="notesLog" -> recordList("notes","")
             target=="report" -> report()
+            target.startsWith("shift:") -> shiftDetails(target.substringAfter(":"))
             target=="logs" -> logs()
             target=="form" -> renderForm()
             target=="drive" -> driveSettings()
@@ -769,10 +811,8 @@ class MainActivity : Activity() {
         base("Obiekty"); screen="objects"; nav()
         val all=rows(data(),"objects")
         val showArchived=prefs.getBoolean("archived_objects",false)
-        filters("objects",showArchived) {
-        button(if(showArchived) "Pokaż aktywne" else "Pokaż archiwalne") {
+        button(if(showArchived) "Pokaż aktywne" else "Archiwum obiektów") {
             prefs.edit().putBoolean("archived_objects",!showArchived).apply(); objects()
-        }
         }
         button("+ Dodaj obiekt") { newForm("objects") }
         for(o in all.filter { it.optBoolean("archived")==showArchived }.sortedBy { objectName(it) }) {
@@ -783,25 +823,14 @@ class MainActivity : Activity() {
     private fun objectDetails(id:String) {
         val obj=objectById(id) ?: run { objects(); return }
         base(obj.optString("TAG")); screen="object:"+id; nav()
-        val periodKey="objectPeriod_"+id
-        val period=JSONObject(prefs.getString(periodKey,"{}")!!)
-        fun periodRefresh() { prefs.edit().putString(periodKey,period.toString()).apply(); objectDetails(id) }
-        filters("object:"+id, period.optString("from").isNotBlank() || period.optString("to").isNotBlank()) {
-            button("Data od: "+period.optString("from").let { if(it.isBlank()) "wszystkie" else dateText(it) }) {
-                pickReportDate(LocalDate.now()) { period.put("from",it.toString()); periodRefresh() }
-            }
-            button("Data do: "+period.optString("to").let { if(it.isBlank()) "wszystkie" else dateText(it) }) {
-                pickReportDate(LocalDate.now()) { period.put("to",it.toString()); periodRefresh() }
-            }
-            button("Wyczyść okres") { prefs.edit().remove(periodKey).apply(); objectDetails(id) }
-        }
+        val period=JSONObject()
         label(objectName(obj)); label(obj.optString("notes",obj.optString("Opis")))
         button("Edytuj obiekt") { newForm("objects",id) }
         button("Otwórz w Google Maps") {
             val link=obj.optString("maps")
             openLink(if(link.isNotBlank()) link else "https://www.google.com/maps/search/?api=1&query="+URLEncoder.encode(obj.optString("city")+" "+obj.optString("Adres"),"UTF-8"))
         }
-        label("Czas na obiekcie (bez przejazdów i zakupów)")
+        label("Czas na obiekcie")
         val totals=sortedMapOf<String,Long>()
         val shifts=rows(data(),"shifts")+listOfNotNull(active(data()))
         var unassigned=0
@@ -821,8 +850,8 @@ class MainActivity : Activity() {
         label("Razem: "+duration(totals.values.sum()))
         for((day,ms) in totals.toSortedMap(reverseOrder())) label(dateText(day)+" · "+duration(ms))
         if(unassigned>0) label("Starsze zmiany bez etapów nie są przypisywane automatycznie do obiektu.")
-        button("Materiały — ilości i daty") { openScreen("list:materials:"+id) }
-        button("Zdjęcia według dat") { openScreen("list:links:"+id) }
+        button("Materiały") { openScreen("list:materials:"+id) }
+        button("Zdjęcia") { openScreen("list:links:"+id) }
         button("Notatki obiektu") { openScreen("list:notes:"+id) }
         button(if(obj.optBoolean("archived")) "Przywróć obiekt (PIN)" else "Usuń z listy aktywnych (PIN)") {
             confirmPin {
@@ -912,12 +941,12 @@ class MainActivity : Activity() {
         showPhotos(r)
         if(r.optString("Link Google Drive").isNotBlank()) button("Otwórz folder Google Disk") { openLink(r.optString("Link Google Drive")) }
         if(arr(r,"photos").length()>0) button(if(uploading) "Trwa przesyłanie…" else "Wyślij zdjęcia na Google Disk / ponów") {
-            if(!uploading) { pendingUpload=key+":"+id; authorizeDrive() }
+            if(!uploading) { pendingUpload=key+":"+id; authorizeDrive() } else toast("Przesyłanie trwa lub czeka na internet. Postęp jest w powiadomieniu.")
         }
         button("Edytuj") { screen=parent; newForm(key,id) }
         button("Usuń wpis (PIN)") {
             confirmPin {
-                AlertDialog.Builder(this).setMessage("Usunąć ten wpis z aplikacji? Pliki na Google Disk pozostaną.")
+                AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setMessage("Usunąć ten wpis z aplikacji? Pliki na Google Disk pozostaną.")
                     .setNegativeButton("Anuluj",null).setPositiveButton("Usuń") { _, _ ->
                         val d=data(); val newer=JSONArray()
                         rows(d,key).filter { it.optString("id")!=id }.forEach { newer.put(it) }
@@ -995,7 +1024,7 @@ class MainActivity : Activity() {
                 button("Dodaj zdjęcia z galerii") { pickPhotos() }; button("Zrób zdjęcie") { camera() }
                 field("Ilość","quantity",numeric=true)
                 button("Jednostka: "+draft.optString("unit","szt.")) {
-                    AlertDialog.Builder(this).setTitle("Jednostka").setItems(arrayOf("szt.","m")) { _,which ->
+                    AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Jednostka").setItems(arrayOf("szt.","m")) { _,which ->
                         draft.put("unit",if(which==0) "szt." else "m"); renderForm()
                     }.show()
                 }
@@ -1020,7 +1049,7 @@ class MainActivity : Activity() {
             showPhotos(draft)
             if(arr(draft,"photos").length()>0) button("Usuń zdjęcie ze szkicu") {
                 val photos=arr(draft,"photos")
-                AlertDialog.Builder(this).setTitle("Wybierz zdjęcie").setItems((0 until photos.length()).map { "Zdjęcie "+(it+1) }.toTypedArray()) { _,index ->
+                AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Wybierz zdjęcie").setItems((0 until photos.length()).map { "Zdjęcie "+(it+1) }.toTypedArray()) { _,index ->
                     photos.remove(index); renderForm()
                 }.show()
             }
@@ -1083,6 +1112,10 @@ class MainActivity : Activity() {
         label(if(prefs.getBoolean("driveConnected",false)) "Połączono: "+prefs.getString("driveEmail","Google Disk") else "Disk nie jest połączony")
         prefs.getString("driveError",null)?.takeIf { it.isNotBlank() }?.let { label(it) }
         label("Zdjęcia będą zapisane w folderze aplikacji, z podziałem na obiekty i daty. Dotychczasowy folder zostanie zachowany.")
+        button("Skrót zdjęć w powiadomieniach") {
+            if(Build.VERSION.SDK_INT>=33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED) requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),205)
+            else { UploadNotifications.shortcut(this); toast("Skrót dodany do powiadomień") }
+        }
         button("Połącz Google Disk") { pendingUpload=""; authorizeDrive() }
         if(prefs.getBoolean("driveConnected",false)) button("Odłącz Google Disk") {
             if(uploading) { toast("Poczekaj na zakończenie przesyłania"); return@button }
@@ -1094,6 +1127,13 @@ class MainActivity : Activity() {
         filters("driveDiagnostics",caption="Diagnostyka") {
             label("Dane do konfiguracji autoryzacji Google")
             label("Pakiet: "+packageName+"\nSHA-1: "+signingFingerprint())
+        }
+    }
+    override fun onRequestPermissionsResult(requestCode:Int,permissions:Array<out String>,grantResults:IntArray) {
+        super.onRequestPermissionsResult(requestCode,permissions,grantResults)
+        if(requestCode in listOf(204,205)) {
+            if(grantResults.firstOrNull()==android.content.pm.PackageManager.PERMISSION_GRANTED) UploadNotifications.shortcut(this)
+            else toast("Powiadomienia są wyłączone. Możesz włączyć je w ustawieniach telefonu.")
         }
     }
     private fun driveFailure(e:Exception) {
@@ -1153,93 +1193,10 @@ class MainActivity : Activity() {
             return JSONObject(c.inputStream.bufferedReader().use { it.readText() }.ifBlank { "{}" })
         } finally { c.disconnect() }
     }
-    private fun driveRoot(token:String):String {
-        val q="trashed = false and mimeType = 'application/vnd.google-apps.folder' and (name = 'WT' or name = 'R3 Gate') and 'root' in parents"
-        val list=driveJson("GET","https://www.googleapis.com/drive/v3/files?q="+URLEncoder.encode(q,"UTF-8")+"&fields=files(id,name)&pageSize=100",token).optJSONArray("files")
-        if(list!=null && list.length()>0) return list.getJSONObject(0).getString("id")
-        return driveFolder("WT",null,token)
-    }
-    private fun driveFolder(name:String,parent:String?,token:String):String {
-        val safeName=name.replace("\\","\\\\").replace("'","\\'")
-        val q="trashed = false and mimeType = 'application/vnd.google-apps.folder' and name = '"+safeName+"' and '"+(parent ?: "root")+"' in parents"
-        val found=driveJson("GET","https://www.googleapis.com/drive/v3/files?q="+URLEncoder.encode(q,"UTF-8")+"&fields=files(id)&pageSize=1",token).optJSONArray("files")
-        if(found!=null && found.length()>0) return found.getJSONObject(0).getString("id")
-        val meta=JSONObject().put("name",name).put("mimeType","application/vnd.google-apps.folder")
-        if(parent!=null) meta.put("parents",JSONArray().put(parent))
-        return driveJson("POST","https://www.googleapis.com/drive/v3/files?fields=id",token,meta).getString("id")
-    }
     private fun uploadPhotos(reference:String,token:String) {
-        if(uploading) return
-        val parts=reference.split(":"); if(parts.size!=2) return
-        val key=parts[0]; val id=parts[1]
-        val row=rows(data(),key).find { it.optString("id")==id } ?: return
-        if(key!="notes" && row.optString("objectId").isBlank()) { toast("Przed wysłaniem wybierz obiekt w edycji wpisu."); return }
-        val obj=objectById(row.optString("objectId"))
-        val photoList=(0 until arr(row,"photos").length()).map { arr(row,"photos").getString(it) }
-        val accountKey=hash(prefs.getString("driveEmail","") ?: "").take(24)+"|"
-        if(!uploadBusy.compareAndSet(false,true)) return
-        toast("Przesyłanie zdjęć. Pozostaw aplikację otwartą.")
-        io.execute {
-            try {
-                val rootId=driveRoot(token)
-                val objId=driveFolder(if(obj==null) "Bez obiektu" else obj.optString("TAG")+" "+obj.optString("organization"),rootId,token)
-                val dayId=driveFolder(dateText(recordDate(row)),objId,token)
-                for((index,photo) in photoList.withIndex()) {
-                    val already=runOnUiThreadValue { rows(data(),key).find { it.optString("id")==id }?.optJSONObject("driveFiles")?.optString(accountKey+photo).orEmpty() }
-                    if(already.isNotBlank()) continue
-                    // appProperties makes retries idempotent, even if a response was lost after upload.
-                    val uploadKey=id+"-"+hash(photo).take(24)
-                    val q="trashed = false and '"+dayId+"' in parents and appProperties has { key='r3Upload' and value='"+uploadKey+"' }"
-                    val matches=driveJson("GET","https://www.googleapis.com/drive/v3/files?q="+URLEncoder.encode(q,"UTF-8")+"&fields=files(id)&pageSize=1",token).optJSONArray("files")
-                    val remoteId=if(matches!=null && matches.length()>0) matches.getJSONObject(0).getString("id") else {
-                        val mime=contentResolver.getType(Uri.parse(photo)) ?: "image/jpeg"
-                        val ext=android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(mime) ?: "jpg"
-                        val meta=JSONObject().put("name",key+"-"+id+"-"+(index+1)+"."+ext)
-                            .put("parents",JSONArray().put(dayId)).put("appProperties",JSONObject().put("r3Upload",uploadKey))
-                        val c=URL("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id").openConnection() as HttpURLConnection
-                        val location:String
-                        try {
-                            c.requestMethod="POST"; c.connectTimeout=20000; c.readTimeout=30000; c.doOutput=true
-                            c.setRequestProperty("Authorization","Bearer "+token)
-                            c.setRequestProperty("Content-Type","application/json; charset=UTF-8")
-                            c.setRequestProperty("X-Upload-Content-Type",mime)
-                            c.outputStream.use { it.write(meta.toString().toByteArray(Charsets.UTF_8)) }
-                            if(c.responseCode !in 200..299) throw java.io.IOException("Drive HTTP "+c.responseCode)
-                            location=c.getHeaderField("Location") ?: throw java.io.IOException("Brak sesji przesyłania")
-                        } finally { c.disconnect() }
-                        val u=URL(location)
-                        if(u.protocol!="https" || !(u.host=="www.googleapis.com" || u.host.endsWith(".googleapis.com"))) throw java.io.IOException("Nieprawidłowa sesja Drive")
-                        val upload=u.openConnection() as HttpURLConnection
-                        try {
-                            upload.requestMethod="PUT"; upload.doOutput=true; upload.connectTimeout=20000; upload.readTimeout=120000
-                            upload.setRequestProperty("Authorization","Bearer "+token); upload.setRequestProperty("Content-Type",mime)
-                            upload.setChunkedStreamingMode(256*1024)
-                            val input=contentResolver.openInputStream(Uri.parse(photo)) ?: throw java.io.IOException("Zdjęcie niedostępne")
-                            input.use { source -> upload.outputStream.use { target -> source.copyTo(target) } }
-                            if(upload.responseCode !in 200..299) throw java.io.IOException("Drive HTTP "+upload.responseCode)
-                            JSONObject(upload.inputStream.bufferedReader().use { it.readText() }).getString("id")
-                        } finally { upload.disconnect() }
-                    }
-                    runOnUiThreadValue {
-                        val d=data(); val current=rows(d,key).find { it.optString("id")==id }
-                        if(current!=null) {
-                            val files=current.optJSONObject("driveFiles") ?: JSONObject().also { current.put("driveFiles",it) }
-                            files.put(accountKey+photo,remoteId); current.put("Link Google Drive","https://drive.google.com/drive/folders/"+dayId)
-                            save(d,"DRIVE_UPLOAD",id)
-                        }
-                        toast("Zdjęcie "+(index+1)+" / "+photoList.size+" zapisane")
-                    }
-                }
-                runOnUiThread { uploading=false; toast("Zdjęcia zapisane na Google Disk"); if(!isDestroyed && screen=="detail:"+key+":"+id) recordDetails(key,id,detailParent) }
-            } catch (_:Exception) {
-                runOnUiThread { uploading=false; toast("Przesyłanie przerwane. Sprawdź internet i ponów — zapisane zdjęcia nie będą wysyłane ponownie.") }
-            }
-        }
+        if(token.isBlank()) return
+        if(Build.VERSION.SDK_INT>=33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED) requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),204)
+        DriveUploadWorker.enqueue(this,reference,prefs.getString("driveEmail","").orEmpty())
+        toast("Zdjęcia w kolejce. Możesz zwinąć aplikację; postęp będzie w powiadomieniu.")
     }
-    private fun <T> runOnUiThreadValue(block:()->T):T {
-        val task=java.util.concurrent.FutureTask<T> { block() }
-        runOnUiThread(task)
-        return task.get()
-    }
-
 }
