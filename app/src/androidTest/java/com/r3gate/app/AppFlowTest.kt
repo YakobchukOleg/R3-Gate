@@ -212,6 +212,13 @@ class AppFlowTest {
                 assertEquals("ZMIEŃ OBIEKT",widgetView.findViewById<TextView>(R.id.wswitch).text.toString())
                 assertEquals(0xFF42D77D.toInt(),widgetView.findViewById<TextView>(R.id.wstatus).currentTextColor)
                 assertEquals("ZAKUPY",widgetView.findViewById<TextView>(R.id.wshopping).text.toString())
+                val widgetHeight=(160*a.resources.displayMetrics.density).toInt()
+                widgetView.measure(View.MeasureSpec.makeMeasureSpec(a.resources.displayMetrics.widthPixels,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(widgetHeight,View.MeasureSpec.EXACTLY))
+                widgetView.layout(0,0,a.resources.displayMetrics.widthPixels,widgetHeight)
+                val shoppingBounds=android.graphics.Rect()
+                widgetView.findViewById<View>(R.id.wshopping).getDrawingRect(shoppingBounds)
+                (widgetView as ViewGroup).offsetDescendantRectToMyCoords(widgetView.findViewById<View>(R.id.wshopping),shoppingBounds)
+                assertTrue("Shopping button must fit in the compact-height expanded widget",shoppingBounds.bottom<=widgetHeight)
                 val frame=android.widget.FrameLayout(a).apply { setBackgroundColor(android.graphics.Color.BLACK); setPadding(24,100,24,24) }
                 frame.addView(GateWidget.render(a).apply(a,frame),android.widget.FrameLayout.LayoutParams(-1,(160*a.resources.displayMetrics.density).toInt()))
                 a.setContentView(frame)
