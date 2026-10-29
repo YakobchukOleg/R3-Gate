@@ -1,0 +1,6 @@
+.gradle/
+**/build/
+local.properties
+# Publisher font binaries are embedded at build time under the accepted ITF license.
+app/src/main/res/font/*.otf
+app/src/main/assets/ClashGrotesk-FFL.txt
