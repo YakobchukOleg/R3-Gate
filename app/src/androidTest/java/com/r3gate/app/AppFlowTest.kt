@@ -350,6 +350,7 @@ class AppFlowTest {
                 a.onBackPressed(); click(a,"GENERUJ RAPORT SMS")
                 assertTrue(all(a).filterIsInstance<Button>().any { it.text.toString().startsWith("Data od:") })
                 a.onBackPressed(); assertTrue(has(a,"Ustawienia"))
+                a.onBackPressed();click(a,"MÓJ CZAS");click(a,"GENERUJ RAPORT SMS");a.onBackPressed();assertTrue(has(a,"Mój czas"))
             }
         }
     }
