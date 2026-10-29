@@ -767,7 +767,7 @@ class MainActivity : Activity() {
             for(obj in matches) results.addView(makeButton(objectName(obj)) { dialog.dismiss(); selected(obj) },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(6) })
             if(matches.isEmpty()) results.addView(TextView(this).apply { text="Brak obiektów dla tego miasta"; setTextColor(0xFF37474F.toInt()); setPadding(0,dp(12),0,dp(12)) })
         }
-        searchRow.addView(makeButton("⌕") { renderResults(); (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(query.windowToken,0) }.apply { contentDescription="Szukaj"; textSize=24f },LinearLayout.LayoutParams(dp(48),dp(48)))
+        searchRow.addView(makeButton("⌕") { renderResults(); (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(query.windowToken,0) }.apply { contentDescription="Szukaj"; textSize=24f; background=background(0xFF37474F.toInt()); setTextColor(Color.WHITE) },LinearLayout.LayoutParams(dp(48),dp(48)))
         query.setOnEditorActionListener { _,action,_ -> if(action==android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) { renderResults(); true } else false }
         query.addTextChangedListener(object:TextWatcher { override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int) {} ; override fun onTextChanged(s:CharSequence?,start:Int,before:Int,count:Int) { renderResults() }; override fun afterTextChanged(s:Editable?) {} })
         layout.addView(searchRow)
@@ -776,7 +776,11 @@ class MainActivity : Activity() {
             layout.addView(makeButton("🛒 Zakupy") { dialog.dismiss(); beginStage("Zakupy") })
             layout.addView(makeButton("+ Nowy obiekt") { dialog.dismiss(); screen="home"; newForm("objects") })
         }
-        layout.addView(ScrollView(this).apply { addView(results) },LinearLayout.LayoutParams(-1,dp(240)))
+        layout.addView(object:ScrollView(this) {
+            override fun onMeasure(widthMeasureSpec:Int,heightMeasureSpec:Int) {
+                super.onMeasure(widthMeasureSpec,View.MeasureSpec.makeMeasureSpec(dp(240),View.MeasureSpec.AT_MOST))
+            }
+        }.apply { addView(results) },LinearLayout.LayoutParams(-1,-2))
         renderResults(); dialog.show()
         dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
     }
