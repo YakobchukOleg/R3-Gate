@@ -45,6 +45,7 @@ class DriveUploadWorker(context:Context,params:WorkerParameters):Worker(context,
     private fun showProgress(message:String,done:Int,total:Int) { setForegroundAsync(UploadNotifications.foreground(applicationContext,reference,message,done,total)).get() }
     private fun finishJob(message:String,retry:Boolean):Result {
         prefs.edit().remove("uploadQueued_"+reference).apply()
+        if(retry) prefs.edit().putString("uploadError_"+reference,message).apply() else prefs.edit().remove("uploadError_"+reference).apply()
         UploadNotifications.result(applicationContext,reference,message,retry)
         return if(retry) Result.failure() else Result.success()
     }
@@ -56,7 +57,7 @@ class DriveUploadWorker(context:Context,params:WorkerParameters):Worker(context,
             if(key !in listOf("links","materials","notes","expenses")) return finishJob("Nieprawidłowy wpis zdjęć",true)
             val row=rows(data(),key).find { it.optString("id")==id } ?: return finishJob("Wpis został usunięty",true)
             val obj=rows(data(),"objects").find { it.optString("id")==row.optString("objectId") }
-            if(key !in listOf("notes","expenses") && obj==null) return finishJob("Wybierz obiekt przed wysłaniem zdjęć",true)
+            if(key !in listOf("notes","expenses") && obj==null && row.optString("storage")!="car") return finishJob("Wybierz obiekt przed wysłaniem zdjęć",true)
             val photoList=(0 until arr(row,"photos").length()).map { arr(row,"photos").getString(it) }
             val accountKey=hash(email).take(24)+"|"
             val authorization=Tasks.await(Identity.getAuthorizationClient(applicationContext).authorize(AuthorizationRequest.builder().setRequestedScopes(listOf(Scope(scope))).build()),60,TimeUnit.SECONDS)
@@ -65,8 +66,18 @@ class DriveUploadWorker(context:Context,params:WorkerParameters):Worker(context,
             val currentEmail=driveJson("GET","https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)",token).optJSONObject("user")?.optString("emailAddress")
             if(!email.equals(currentEmail,true)) return finishJob("Wybierz wcześniej połączone konto Google Disk",true)
             val rootId=driveRoot(token)
-            val objId=driveFolder(if(obj==null) "Bez obiektu" else obj.optString("TAG")+" "+obj.optString("organization"),rootId,token)
-            val dayId=driveFolder(dateText(recordDate(row)),objId,token)
+            val linked=PhotoQueue.folderId(row.optString("Link Google Drive"))
+            val dayId=if(linked!=null) {
+                val info=driveJson("GET","https://www.googleapis.com/drive/v3/files/"+linked+"?fields=id,mimeType,capabilities(canAddChildren)",token)
+                if(info.optString("mimeType")!="application/vnd.google-apps.folder" || info.optJSONObject("capabilities")?.optBoolean("canAddChildren")!=true) throw DriveHttpException(403)
+                linked
+            } else {
+                val date=LocalDate.parse(recordDate(row))
+                val year=driveFolder(date.year.toString(),rootId,token)
+                val month=driveFolder("%02d".format(date.monthValue),year,token)
+                val day=driveFolder(date.format(DateTimeFormatter.ofPattern("dd.MM.yyyy")),month,token)
+                driveFolder(if(obj==null) { if(row.optString("storage")=="car") "W samochodzie" else "Bez obiektu" } else obj.optString("TAG")+" "+obj.optString("organization"),day,token)
+            }
             for((index,photo) in photoList.withIndex()) {
                 if(isStopped) throw InterruptedException()
                 showProgress("Zdjęcie ${index+1} / ${photoList.size}",index,photoList.size)
@@ -121,6 +132,7 @@ class DriveUploadWorker(context:Context,params:WorkerParameters):Worker(context,
             if(isStopped) return Result.retry()
             if(e is java.io.FileNotFoundException || e is SecurityException) return finishJob("Brak dostępu do zdjęcia — wybierz je ponownie w aplikacji",true)
             if(e is DriveHttpException && e.status in listOf(400,403,404)) return finishJob("Google Disk odrzucił żądanie (${e.status}). Sprawdź dostęp i ponów",true)
+            prefs.edit().putString("uploadError_"+reference,"Ponowienie po odzyskaniu połączenia").apply()
             UploadNotifications.result(applicationContext,reference,"Oczekiwanie na ponowienie — zapisane zdjęcia pozostają na dysku",true)
             return Result.retry()
         }
@@ -131,7 +143,7 @@ class DriveUploadWorker(context:Context,params:WorkerParameters):Worker(context,
     private fun driveFolder(name:String,parent:String?,token:String)=drive.folder(name,parent,token)
     companion object {
         fun enqueue(context:Context,reference:String,email:String) {
-            context.getSharedPreferences("r3_gate",Context.MODE_PRIVATE).edit().putBoolean("uploadQueued_"+reference,true).apply()
+            context.getSharedPreferences("r3_gate",Context.MODE_PRIVATE).edit().putBoolean("uploadQueued_"+reference,true).remove("uploadError_"+reference).apply()
             val request=OneTimeWorkRequestBuilder<DriveUploadWorker>()
                 .setInputData(workDataOf("reference" to reference,"email" to email))
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
@@ -143,3 +155,4 @@ class DriveUploadWorker(context:Context,params:WorkerParameters):Worker(context,
 }
 
 internal class DriveHttpException(val status:Int):java.io.IOException("Drive HTTP $status")
+
