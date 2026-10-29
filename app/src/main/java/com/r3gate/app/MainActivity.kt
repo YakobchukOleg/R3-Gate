@@ -418,6 +418,7 @@ class MainActivity : Activity() {
             button("🔄 ZMIEŃ OBIEKT") { confirmAction("Zmienić obiekt?") { switchObject() } }
             button(if(a.optString("kind")=="Przejazd") "DOTARŁEM" else "🚗 PRZEJAZD") { toggleTravel() }
             button(if(a.optString("kind")=="Zakupy") "ZAKOŃCZ ZAKUPY" else "ZAKUPY") { toggleShopping() }
+            button("TRASA DO OBIEKTU") { chooseObject(false) { obj -> if(obj!=null) openLink("https://www.google.com/maps/dir/?api=1&destination="+URLEncoder.encode(obj.optString("city")+" "+obj.optString("Adres"),"UTF-8")) } }
             if(a.optString("kind")=="Zakupy") button("Dane zakupów / paragony") { shoppingRecord(a.optString("shoppingRecordId")) }
         }
         label("TWÓJ DZIEŃ")
@@ -1406,7 +1407,7 @@ class MainActivity : Activity() {
         root.addView(TimeChart(this,result,true),LinearLayout.LayoutParams(-1,dp(240)))
         val sum=result.totals.sum()
         result.totals.forEachIndexed { i,n ->
-            root.addView(TextView(this).apply { text="● "+TimeChart.names[i]+" — "+duration(n)+" · "+"%.1f%%".format(Locale("pl"),if(sum==0L) 0.0 else n*100.0/sum);textSize=16f;setTextColor(TimeChart.colors[i]);setPadding(0,dp(7),0,dp(7)) })
+            root.addView(TextView(this).apply { text="● "+TimeChart.names[i]+" — "+duration(n)+" · "+"%.1f%%".format(Locale("pl"),if(sum==0L) 0.0 else n*100.0/sum);textSize=16f;setTextColor(0xFF37474F.toInt());setPadding(0,dp(7),0,dp(7)) })
         }
         if(sum==0L) label("Brak czasu pracy w wybranym okresie.")
         label("Podział nie zmienia czasu płatnego. Cała zmiana jest czasem pracy.")
