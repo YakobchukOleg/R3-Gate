@@ -47,6 +47,7 @@ class MainActivity : Activity() {
     private var formKind = ""
     private var formReturn = "home"
     private var draft = JSONObject()
+    private var quickPhotoUpload=false
     private var cameraPath: String? = null
     private val io = Executors.newSingleThreadExecutor()
     private var driveToken: String? = null
@@ -71,6 +72,7 @@ class MainActivity : Activity() {
         migrateWallet()
         expandedFilters.addAll(savedInstanceState?.getStringArrayList("expandedFilters") ?: emptyList())
         walletDraft = JSONObject(savedInstanceState?.getString("walletDraft") ?: "{}")
+        quickPhotoUpload=savedInstanceState?.getBoolean("quickPhotoUpload") ?: false
         cameraPath = savedInstanceState?.getString("cameraPath")
         pendingUpload = savedInstanceState?.getString("pendingUpload") ?: ""
         if (savedInstanceState != null && prefs.contains("pin") && intent?.getStringExtra("widget_action")==null) {
@@ -115,7 +117,7 @@ class MainActivity : Activity() {
         intent?.removeExtra("upload_retry")
         if(!uploadReference.isNullOrBlank()) { pendingUpload=uploadReference; authorizeDrive(); return }
         when(action) {
-            "photos" -> newForm("links")
+            "photos" -> newForm("links",sendAfterSave=true)
             "start" -> confirmPin { startShift() }
             "stop" -> confirmPin { stopShift() }
             "switch" -> confirmPin { switchObject() }
@@ -363,6 +365,7 @@ class MainActivity : Activity() {
     override fun onBackPressed() { back() }
     override fun onSaveInstanceState(out: Bundle) {
         out.putString("smsFrom",smsFrom?.toString()); out.putString("smsTo",smsTo?.toString()); out.putString("detailParent",detailParent); out.putString("screen",screen); out.putString("formKind",formKind); out.putString("formReturn",formReturn)
+        out.putBoolean("quickPhotoUpload",quickPhotoUpload)
         out.putString("walletDraft",walletDraft.toString())
         out.putStringArrayList("expandedFilters",ArrayList(expandedFilters))
         out.putString("draft",draft.toString()); out.putString("cameraPath",cameraPath); out.putString("pendingUpload",pendingUpload)
@@ -977,7 +980,8 @@ class MainActivity : Activity() {
             label("Zdjęcie "+(i+1)+if(driveId.isBlank()) " · lokalne" else " · zapisane na Google Disk")
         }
     }
-    private fun newForm(key:String,id:String="",objectId:String="") {
+    private fun newForm(key:String,id:String="",objectId:String="",sendAfterSave:Boolean=false) {
+        quickPhotoUpload=sendAfterSave
         formReturn=screen; formKind=key
         draft=if(id.isNotBlank()) JSONObject(rows(data(),key).find { it.optString("id")==id }?.toString() ?: "{}")
             else try { JSONObject(prefs.getString("draft_"+key,"{}")!!) } catch (_:Exception) { JSONObject() }
@@ -1054,7 +1058,7 @@ class MainActivity : Activity() {
                 }.show()
             }
         }
-        button("Zapisz") { saveForm() }
+        button(if(quickPhotoUpload) "Zapisz i wyślij zdjęcia" else "Zapisz") { saveForm() }
     }
     private fun saveForm() {
         val d=data()
@@ -1085,7 +1089,11 @@ class MainActivity : Activity() {
         val list=arr(d,formKind); val index=(0 until list.length()).find { list.optJSONObject(it)?.optString("id")==draft.optString("id") }
         if(index==null) list.put(draft) else list.put(index,draft)
         save(d,"SAVE_"+formKind,draft.optString("id"))
+        val send=quickPhotoUpload && formKind=="links" && arr(draft,"photos").length()>0
+        val reference=formKind+":"+draft.optString("id")
+        quickPhotoUpload=false
         prefs.edit().remove("draft_"+formKind).apply(); openScreen(formReturn)
+        if(send) { pendingUpload=reference; authorizeDrive() }
     }
     private fun pickPhotos() {
         prefs.edit().putString("draft_"+formKind,draft.toString()).apply()
