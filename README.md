@@ -1,4 +1,16 @@
-# WorkMeter 2.2
+# WorkMeter 2.3
+
+## Update 2.3
+
+Materials can be received into car stock, partially transferred to objects and entered in editable batches sharing one date/object. Remaining stock is derived from receipt/transfer records; edits and deletion cannot overdraw or detach a transfer. The offline name catalogue searches substrings without case sensitivity and restores the unit. Object material history is grouped by date and object. Existing IDs and legacy material records are preserved.
+
+New objects accept an optional independent tag prefix after the city. A shared prefix sequence spans cities, skips used numbers and never rewrites saved tags. Home and the expanded widget expose shopping start/end; shopping notes accept an optional free-text store, target object and receipt. Trip intervals retain their origin and arrival object. Maps directions are optional.
+
+Photo selection copies originals to private durable storage. Closing a shift queues pending photos automatically; the manual queue can retry pending/error files. Account-scoped remote file IDs prevent duplicate sends. Cards report sent/waiting/error counts. New folders use year/month/date/object. Pasting an existing folder works only if the app's limited drive.file grant can access it; a folder URL alone does not grant access. Public link sharing is a separate explicit confirmation and can be prohibited by account policy. No wider Google scope is requested.
+
+Previews honor EXIF orientation, fit a 16:9 frame without cropping and open a pinch/double-tap zoom view. Preview decoding is sampled for memory; stored/uploaded originals remain unchanged. Charts partition time into object, shopping, travel and unassigned categories, resolve overlapping legacy stages without double counting, and handle midnight/DST. Last week/month means the previous completed calendar period. The language screen offers Polish only and is directly before About.
+
+SMS reports use inclusive chosen start-day ranges, closed shifts only, with dd.MM.yyyy in the copied report and no object or financial fields. The usual app date format remains dd-MM-yyyy. Existing local/cloud journal backups and wallet records remain available. Shift edits retain prior boundaries. Daily cloud copies remain optional and Android may defer them. Network upload/public-sharing integration requires the user's authorized Google account and cannot be verified by synthetic emulator tests alone.
 
 Personal Android work-time, object, materials, photos, notes and payment ledger. The existing applicationId com.r3gate.app and preferences r3_gate stay unchanged so an APK with the same signing certificate updates existing installations. The display name is WorkMeter.
 
@@ -12,7 +24,7 @@ Filtering/sorting is collapsed under Filtry on photo/material/note lists and act
 
 ## Work and records
 
-Back follows menu hierarchy. Start/stop and object switching require a PIN. Object switches close the previous time segment. PRZEJAZD highlights while running; the arrival dialog offers an object, Zakupy without a store database, or a new object. Cancel keeps travel running, including while creating a new object. Whole shifts count as paid time; object summaries exclude travel/shopping. Objects use generated city-prefix tags and archival with a PIN. Notes allow optional object association, photo-only records, active/done status and a shopping/receipt checkbox. Materials support pieces or metres and camera/gallery photos.
+Back follows menu hierarchy. Start/stop require a PIN; object switching uses confirmation. Object switches close the previous time segment. PRZEJAZD highlights while running; the arrival dialog offers an object, Zakupy without a store database, or a new object. Cancel keeps travel running, including while creating a new object. Whole shifts count as paid time; object summaries exclude travel/shopping. Objects use generated city-prefix tags and archival with confirmation. Notes allow optional object association, photo-only records, active/done status and a shopping/receipt checkbox. Materials support pieces or metres and camera/gallery photos.
 
 ## Wallet
 
@@ -22,29 +34,29 @@ Each payment has received date, allocated work period, amount, cash/card method 
 
 ## Widget
 
-The widget targets 4x2 cells with a 160dp minimum height and 140dp resize minimum. Existing launcher placements may need manual resizing. The object is shown by tag; actions remain PIN protected. Widget background transparency is adjustable from 0 to 100 percent. It affects only the separate background image: text, timer and buttons remain opaque. App UI opacity is unchanged.
+The widget targets 4x2 cells with a 160dp minimum height and 140dp resize minimum. Existing launcher placements may need manual resizing. The object is shown by tag; start/stop remain PIN protected; switching uses confirmation. Widget background transparency is adjustable from 0 to 100 percent. It affects only the separate background image: text, timer and buttons remain opaque. App UI opacity is unchanged.
 
 ## Google Disk and signing
 
-Google Identity requests only drive.file. Drive API and an Android OAuth client must match the actual package/certificate. Settings shows actionable authorization errors; package/SHA-1 diagnostics are collapsed. Photos use WorkMeter/object/date; existing WorkMeter, WT or R3 Gate roots are reused. Tokens stay in memory and are refreshed through authorization. Uploads use resumable requests and file mappings to avoid duplicate retries.
+Google Identity requests only drive.file. Drive API and an Android OAuth client must match the actual package/certificate. Settings shows actionable authorization errors; package/SHA-1 diagnostics are collapsed. New photos use WorkMeter/year/month/dd.MM.yyyy/object; existing WorkMeter, WT or R3 Gate roots are reused. Tokens stay in memory and are refreshed through authorization. Uploads use resumable requests and file mappings to avoid duplicate retries.
 
 CI requires the stable signing secret, uses an explicit keystore path and verifies the produced APK with apksigner. Stable SHA-1 is FF:9F:79:03:07:93:D6:FA:4D:C3:5E:6E:0F:A6:DD:3C:75:1E:EA:93. The previous 1.x APK used a temporary SDK certificate (14:03:E0:A9:1D:7C:71:48:71:6C:DF:0F:0A:32:F5:75:3B:BB:E3:F3); its private key was not retained, so a direct update is impossible. Export/USB-backup existing data before uninstalling anything. No private signing key is committed or printed. These are personal test APKs, not Play Store releases.
 
 ## Backups and checks
 
-PIN-protected JSON export includes work records, payments, rates, opening balance and widget transparency. Old JSON backups remain importable. Local photo bytes are not embedded: keep originals or upload them to Disk. Import validates payment periods and amounts before replacing data, and retains a pre-import data snapshot locally.
+Confirmed JSON export includes work records, payments, rates, opening balance and widget transparency. Old JSON backups remain importable. Local photo bytes are not embedded: keep originals or upload them to Disk. Import validates payment periods and amounts before replacing data, and retains a pre-import data snapshot locally.
 
 GitHub Actions runs domain/ledger unit tests, APK build/lint and Android 15 acceptance tests for navigation, forms, travel, PIN switching, filters, wallet partial payments, backup round-trip and background-only opacity. R3-Gate-check-results contains synthetic emulator screenshots; R3-Gate-APK contains app-debug.apk and signing reports.
 
-## WorkMeter 2.2
+## WorkMeter 2.3
 
 All confirmation, PIN and selection dialogs share the light/slate/coral theme. Object pickers include a city search (Polish diacritics optional), a magnifier action and numeric tag sorting. Arrival selection retains Shopping and New object; cancel keeps travel active. Object labels are Czas na obiekcie, Materiały and Zdjęcia. ONLINE is green in the widget.
 
-Tap a completed shift in Mój czas for its chronological object/travel/shopping intervals, their start/end timestamps and duration. Legacy missing intervals are explicitly marked; editing shift boundaries clips existing stage display, never invents history. Ring charts are deferred to a later version.
+Tap a completed shift in Mój czas for its chronological object/travel/shopping intervals, their start/end timestamps and duration. Legacy missing intervals are explicitly marked; editing shift boundaries clips existing stage display, never invents history. Charts summarize calendar-week/month totals and hourly category distributions.
 
 Photo transfer runs in a persistent WorkManager queue with network constraints, foreground dataSync notification and automatic retry/backoff. Swiping the activity away or locking the phone does not own/cancel the job. Android force-stop, revoked photo access, or missing Google consent can require user action; no service bypasses those restrictions. Each run obtains a fresh token from Google Identity; no tokens are persisted. An account-email check prevents writing a resumed job to another account. Per-file IDs and Drive appProperties avoid re-uploading completed files after interruption. Upload progress and completion notifications have Dodaj zdjęcia; Google Disk settings can enable a reusable shortcut notification. The system notification permission is requested on Android 13+. No personal Google photos are used in CI.
 
-## WorkMeter 2.2
+## WorkMeter 2.3
 
 Clash Grotesk (ITF FFL v2 accepted by the owner on 29 Oct 2026) is embedded unchanged from the publisher. CI downloads the official archive and verifies pinned hashes for Regular, Semibold and Bold. Font binaries are generated build inputs, not standalone redistributed repository files. The license is bundled in APK assets. Android uses fallback glyphs for characters absent from Clash Grotesk; system notification text remains controlled by Android.
 
