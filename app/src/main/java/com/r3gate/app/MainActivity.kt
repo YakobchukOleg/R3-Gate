@@ -57,6 +57,18 @@ class MainActivity : Activity() {
     private var smsFrom: LocalDate? = null
     private var smsTo: LocalDate? = null
     private val tick = object : Runnable { override fun run() { if (::root.isInitialized && homeVisible) home(); ticker.postDelayed(this, 60000) } }
+    private val refreshUploads=Runnable {
+        if(::root.isInitialized && (screen=="queue" || screen.startsWith("list:links:") || screen.startsWith("detail:links:"))) {
+            val oldY=(root.parent as? ScrollView)?.scrollY ?: 0
+            openScreen(screen)
+            (root.parent as? ScrollView)?.let { scroll -> scroll.post { scroll.scrollTo(0,oldY) } }
+        }
+    }
+    private val uploadChanges=android.content.SharedPreferences.OnSharedPreferenceChangeListener { _,key ->
+        if(key=="data" || key?.startsWith("uploadError_")==true || key?.startsWith("uploadFailedPhotos_")==true) {
+            ticker.removeCallbacks(refreshUploads);ticker.postDelayed(refreshUploads,150)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -88,8 +100,8 @@ class MainActivity : Activity() {
         }
         if (prefs.getString("pin", null) == null) setupPin() else handleLaunch()
     }
-    override fun onResume() { super.onResume(); ticker.removeCallbacks(tick); ticker.postDelayed(tick, 60000) }
-    override fun onPause() { ticker.removeCallbacks(tick); super.onPause() }
+    override fun onResume() { super.onResume(); prefs.registerOnSharedPreferenceChangeListener(uploadChanges); ticker.removeCallbacks(tick); ticker.postDelayed(tick, 60000) }
+    override fun onPause() { prefs.unregisterOnSharedPreferenceChangeListener(uploadChanges); ticker.removeCallbacks(refreshUploads); ticker.removeCallbacks(tick); super.onPause() }
     override fun onStop() { walletUnlocked=false; super.onStop() }
     override fun onRestart() { super.onRestart(); if(screen=="wallet" || screen=="payment" || screen=="expenses" || screen.startsWith("detail:expenses:")) settings() else if(screen!="form") openScreen(screen) }
     private fun hash(s: String): String = MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).joinToString("") { "%02x".format(it) }
@@ -166,7 +178,7 @@ class MainActivity : Activity() {
         if(a==null) { toast("Najpierw rozpocznij pracę"); return }
         val now=System.currentTimeMillis()
         closeStage(a,now)
-        val origin=a.optString("object"); val originId=a.optString("objectId")
+        val origin=if(a.optString("kind")=="Zakupy") "Zakupy" else a.optString("object"); val originId=a.optString("objectId")
         a.remove("stageMeta")
         a.put("stageStart",now).put("kind",kind)
         if(kind=="Przejazd") a.put("stageMeta",JSONObject().put("fromObject",origin).put("fromObjectId",originId))
@@ -313,7 +325,7 @@ class MainActivity : Activity() {
         text=displayLegacyDates(s); textSize=16f; setTextColor(0xFF37474F.toInt()); setPadding(dp(2),dp(8),dp(2),dp(8))
     }) }
     private fun makeButton(s:String, f:()->Unit):Button {
-        val accent=s.contains("ZAKOŃCZ") || s.startsWith("Usuń") || (s.startsWith("🚗") && active(data())?.optString("kind")=="Przejazd")
+        val accent=s.contains("ZAKOŃCZ") || s.startsWith("Usuń") || ((s.startsWith("🚗") || s=="DOTARŁEM") && active(data())?.optString("kind")=="Przejazd")
         val primary=s=="Zapisz" || s.contains("ROZPOCZNIJ") || s.startsWith("Wyślij zdjęcia")
         val fill=when { accent -> 0xFFFF5C5C.toInt(); primary -> 0xFF37474F.toInt(); else -> 0xFFECEFF1.toInt() }
         return Button(this).apply {
