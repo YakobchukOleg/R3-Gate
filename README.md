@@ -1,4 +1,4 @@
-# WorkMeter 2.1
+# WorkMeter 2.2
 
 Personal Android work-time, object, materials, photos, notes and payment ledger. The existing applicationId com.r3gate.app and preferences r3_gate stay unchanged so an APK with the same signing certificate updates existing installations. The display name is WorkMeter.
 
@@ -36,10 +36,22 @@ PIN-protected JSON export includes work records, payments, rates, opening balanc
 
 GitHub Actions runs domain/ledger unit tests, APK build/lint and Android 15 acceptance tests for navigation, forms, travel, PIN switching, filters, wallet partial payments, backup round-trip and background-only opacity. R3-Gate-check-results contains synthetic emulator screenshots; R3-Gate-APK contains app-debug.apk and signing reports.
 
-## WorkMeter 2.1
+## WorkMeter 2.2
 
 All confirmation, PIN and selection dialogs share the light/slate/coral theme. Object pickers include a city search (Polish diacritics optional), a magnifier action and numeric tag sorting. Arrival selection retains Shopping and New object; cancel keeps travel active. Object labels are Czas na obiekcie, Materiały and Zdjęcia. ONLINE is green in the widget.
 
 Tap a completed shift in Mój czas for its chronological object/travel/shopping intervals, their start/end timestamps and duration. Legacy missing intervals are explicitly marked; editing shift boundaries clips existing stage display, never invents history. Ring charts are deferred to a later version.
 
 Photo transfer runs in a persistent WorkManager queue with network constraints, foreground dataSync notification and automatic retry/backoff. Swiping the activity away or locking the phone does not own/cancel the job. Android force-stop, revoked photo access, or missing Google consent can require user action; no service bypasses those restrictions. Each run obtains a fresh token from Google Identity; no tokens are persisted. An account-email check prevents writing a resumed job to another account. Per-file IDs and Drive appProperties avoid re-uploading completed files after interruption. Upload progress and completion notifications have Dodaj zdjęcia; Google Disk settings can enable a reusable shortcut notification. The system notification permission is requested on Android 13+. No personal Google photos are used in CI.
+
+## WorkMeter 2.2
+
+Clash Grotesk (ITF FFL v2 accepted by the owner on 29 Oct 2026) is embedded unchanged from the publisher. CI downloads the official archive and verifies pinned hashes for Regular, Semibold and Bold. Font binaries are generated build inputs, not standalone redistributed repository files. The license is bundled in APK assets. Android uses fallback glyphs for characters absent from Clash Grotesk; system notification text remains controlled by Android.
+
+Outside day start, day end and wallet access/actions, old PIN challenges are replaced by Tak/Nie confirmation. Work history uses visually separate calendar-day cards, descending work-date order and a collapsed inclusive date filter. Overnight shifts are split for daily totals using the local timezone, including DST; opening a slice still shows the full shift.
+
+Photo previews have rounded corners and subtle shadows, no numbered/storage captions. Tap a photo to open its original; inaccessible originals show a gallery placeholder instead of caption text.
+
+Google Disk reuses and renames a legacy WT/R3 Gate root to WorkMeter, preserving folder IDs and photo links. Manual journal export and daily WorkManager backup write complete JSON records/settings to WorkMeter/Backup/WorkMeter-backup-dd-MM-yyyy.json. Same-day backups update that file. Photos remain referenced, not embedded in JSON. Periodic execution is network-constrained and may be delayed by Android; status/last success and an enable switch are in Google Disk settings. A reauthorization notification handles revoked consent without storing tokens. An existing local JSON export/import option remains available.
+
+The PIN-protected wallet has company purchases paid personally: date, amount, optional object/description and receipt photos. Unreimbursed purchases are shown separately from wages and included in the global combined settlement. Marking a purchase reimbursed records cash/card and date; it never creates a salary payment. Reopening and editing preserve the reimbursement invariant. Expenses and receipt references are included in JSON backups.
