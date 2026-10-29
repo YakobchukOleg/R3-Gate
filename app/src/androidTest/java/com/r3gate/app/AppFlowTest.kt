@@ -509,4 +509,23 @@ class AppFlowTest {
         }
     }
 
+    @Test fun exifPreviewPreservesOriginalAndQueueCountsPartialFailures() {
+        val context=instrumentation.targetContext
+        val photo=File(context.filesDir,"orientation-test.jpg")
+        val bitmap=Bitmap.createBitmap(40,20,Bitmap.Config.ARGB_8888)
+        photo.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG,95,it) };bitmap.recycle()
+        android.media.ExifInterface(photo.path).apply { setAttribute(android.media.ExifInterface.TAG_ORIENTATION,"6");saveAttributes() }
+        val original=photo.readBytes()
+        val preview=PhotoPreview.decode(context,android.net.Uri.fromFile(photo))
+        assertEquals(20,preview.width);assertEquals(40,preview.height);assertArrayEquals(original,photo.readBytes());preview.recycle()
+        val account=MessageDigest.getInstance("SHA-256").digest("test@example.com".toByteArray()).joinToString("") { "%02x".format(it) }.take(24)+"|"
+        val prefs=context.getSharedPreferences("r3_gate",0)
+        prefs.edit().putString("driveEmail","test@example.com").putString("uploadError_links:q","Network unavailable").putString("uploadFailedPhotos_links:q","[\"b\"]").commit()
+        val row=JSONObject().put("id","q").put("photos",JSONArray().put("a").put("b").put("c")).put("driveFiles",JSONObject().put(account+"a","remote-id"))
+        val status=PhotoQueue.status(context,"links",row)
+        assertEquals(1,status.sent);assertEquals(2,status.pending);assertEquals(1,status.failed);assertTrue(status.error)
+        PhotoQueue.markPending(context,"links",row)
+        assertEquals(0,PhotoQueue.status(context,"links",row).failed)
+    }
+
 }
