@@ -528,4 +528,40 @@ class AppFlowTest {
         assertEquals(0,PhotoQueue.status(context,"links",row).failed)
     }
 
+    @Test fun shoppingReceiptAndTripEndpointsRemainInTimeline() {
+        seedActive()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { a ->
+                click(a,"ZAKUPY")
+                val fields=all(a).filterIsInstance<EditText>()
+                fields.first { it.hint=="Sklep (opcjonalnie)" }.setText("Sklep testowy")
+                fields.first { it.hint.toString().startsWith("Treść") }.setText("Uchwyty i przewód")
+                click(a,"Zapisz");click(a,"ZAKOŃCZ ZAKUPY")
+            }
+            dialogClick("Tak");dialogClick("Przejazd")
+            assertEquals("Przejazd",stored().getJSONObject("active").getString("kind"))
+            scenario.onActivity { a -> click(a,"DOTARŁEM") }
+            dialogClick("Tak");dialogClick("KOP-01 · Test · Kopytkowo · 24")
+            val active=stored().getJSONObject("active");val stages=active.getJSONArray("stages")
+            val shopping=(0 until stages.length()).map { stages.getJSONObject(it) }.first { it.optString("kind")=="Zakupy" }
+            val receipt=stored().getJSONArray("notes").getJSONObject(0)
+            assertEquals(receipt.getString("id"),shopping.getString("shoppingRecordId"));assertEquals("Sklep testowy",receipt.getString("store"))
+            val trip=(0 until stages.length()).map { stages.getJSONObject(it) }.first { it.optString("kind")=="Przejazd" }
+            assertEquals("object-test",trip.getString("toObjectId"));assertTrue(trip.getLong("end")>=trip.getLong("start"))
+        }
+    }
+    @Test fun visiblePhotoQueueRefreshesAfterWorkerSavesCompletion() {
+        val prefs=instrumentation.targetContext.getSharedPreferences("r3_gate",0)
+        prefs.edit().putString("driveEmail","test@example.com").commit()
+        val d=stored();d.put("links",JSONArray().put(JSONObject().put("id","refresh").put("date",java.time.LocalDate.now().toString()).put("objectId","object-test").put("photos",JSONArray().put("file:///test.jpg"))));store(d)
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { a -> click(a,"ZDJĘCIA");click(a,"KOLEJKA WYSYŁANIA");assertFalse(has(a,"Brak zdjęć oczekujących na wysłanie.")) }
+            val completed=stored()
+            val account=MessageDigest.getInstance("SHA-256").digest("test@example.com".toByteArray()).joinToString("") { "%02x".format(it) }.take(24)+"|"
+            completed.getJSONArray("links").getJSONObject(0).put("driveFiles",JSONObject().put(account+"file:///test.jpg","remote-file"));store(completed)
+            android.os.SystemClock.sleep(350);instrumentation.waitForIdleSync()
+            scenario.onActivity { a -> assertTrue(has(a,"Brak zdjęć oczekujących na wysłanie.")) }
+        }
+    }
+
 }
