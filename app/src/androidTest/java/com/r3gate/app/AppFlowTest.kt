@@ -535,8 +535,9 @@ class AppFlowTest {
             scenario.onActivity { a ->
                 click(a,"ZAKUPY")
                 val fields=all(a).filterIsInstance<EditText>()
-                fields.first { it.hint=="Sklep (opcjonalnie)" }.setText("Sklep testowy")
-                fields.first { it.hint.toString().startsWith("Treść") }.setText("Uchwyty i przewód")
+                assertTrue(has(a,"Sklep (opcjonalnie)"));assertEquals(2,fields.size)
+                fields[0].setText("Sklep testowy")
+                fields[1].setText("Uchwyty i przewód")
                 click(a,"Zapisz");click(a,"ZAKOŃCZ ZAKUPY")
             }
             dialogClick("Tak");dialogClick("Przejazd")
