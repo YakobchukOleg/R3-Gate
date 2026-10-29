@@ -38,6 +38,8 @@ jobs:
           chmod 600 "$selected"
           echo "WT_KEYSTORE_PATH=$selected" >> "$GITHUB_ENV"
           keytool -list -v -keystore "$selected" -storepass android | sed -n '/SHA1:/p'
+      - name: Prepare licensed Clash Grotesk fonts from publisher
+        run: python3 .github/scripts/prepare-fonts.py
       - name: Test, build and lint
         run: gradle --no-daemon testDebugUnitTest assembleDebug lintDebug
       - name: Enable emulator acceleration
