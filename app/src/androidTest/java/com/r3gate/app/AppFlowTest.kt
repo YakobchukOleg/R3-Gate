@@ -170,40 +170,40 @@ class AppFlowTest {
             assertEquals(1,stored().getJSONObject("active").getJSONArray("stages").length())
             val departure=stored().getJSONObject("active").getLong("stageStart")
             scenario.onActivity { a -> click(a,"🚗 PRZEJAZD · W DRODZE — ZAKOŃCZ") }
-            pin(); dialogClick("Anuluj — przejazd trwa")
+            dialogClick("Tak"); dialogClick("Anuluj — przejazd trwa")
             assertEquals(departure,stored().getJSONObject("active").getLong("stageStart"))
             scenario.recreate()
             assertEquals(departure,stored().getJSONObject("active").getLong("stageStart"))
             shot("05-travel-active")
             scenario.onActivity { a -> click(a,"🚗 PRZEJAZD · W DRODZE — ZAKOŃCZ") }
-            pin(); dialogClick("+ Nowy obiekt")
+            dialogClick("Tak"); dialogClick("+ Nowy obiekt")
             scenario.onActivity { a ->
                 val inputs=all(a).filterIsInstance<EditText>()
                 inputs[0].setText("Kopytkowo"); inputs[1].setText("25"); inputs[2].setText("Nowy")
                 click(a,"Zapisz"); click(a,"🚗 PRZEJAZD · W DRODZE — ZAKOŃCZ")
             }
-            pin(); dialogClick("KOP-02 · Nowy · Kopytkowo · 25")
+            dialogClick("Tak"); dialogClick("KOP-02 · Nowy · Kopytkowo · 25")
             val current=stored().getJSONObject("active")
             assertEquals("Obiekt",current.getString("kind"))
             assertNotEquals("object-test",current.getString("objectId"))
             assertEquals("Przejazd",current.getJSONArray("stages").getJSONObject(1).getString("kind"))
             scenario.onActivity { a -> click(a,"🚗 PRZEJAZD"); click(a,"🚗 PRZEJAZD · W DRODZE — ZAKOŃCZ") }
-            pin(); dialogClick("🛒 Zakupy")
+            dialogClick("Tak"); dialogClick("🛒 Zakupy")
             assertEquals("Zakupy",stored().getJSONObject("active").getString("kind"))
             assertEquals("",stored().getJSONObject("active").getString("objectId"))
             assertEquals(2,stored().getJSONArray("objects").length())
         }
     }
-    @Test fun widgetSwitchRequiresPinAndSplitsTime() {
+    @Test fun widgetSwitchRequiresConfirmationAndSplitsTime() {
         seedActive()
         val d=stored(); d.getJSONArray("objects").put(JSONObject().put("id","second").put("TAG","GDA-01").put("city","Gdansk").put("Adres","2")); store(d)
         val context=instrumentation.targetContext
         val intent=android.content.Intent(context,MainActivity::class.java).putExtra("widget_action","switch")
         ActivityScenario.launch<MainActivity>(intent).use { scenario ->
-            pin("0000")
+            dialogClick("Nie")
             assertEquals("object-test",stored().getJSONObject("active").getString("objectId"))
             scenario.onActivity { a -> click(a,"🔄 ZMIEŃ OBIEKT") }
-            pin(); dialogClick("GDA-01 · Gdansk · 2")
+            dialogClick("Tak"); dialogClick("GDA-01 · Gdansk · 2")
             val active=stored().getJSONObject("active")
             assertEquals("second",active.getString("objectId"))
             assertEquals("object-test",active.getJSONArray("stages").getJSONObject(0).getString("objectId"))
@@ -226,12 +226,12 @@ class AppFlowTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { a -> click(a,"MÓJ CZAS")
                 assertTrue(all(a).filterIsInstance<TextView>().any { it.text.toString().startsWith("28-10-2026 08:00") })
-                click(a,"Usuń zmianę (PIN)")
+                click(a,"Usuń zmianę")
             }
-            pin(); dialogClick("Anuluj")
+            dialogClick("Nie")
             assertEquals(1,stored().getJSONArray("shifts").length())
-            scenario.onActivity { a -> click(a,"Usuń zmianę (PIN)") }
-            pin(); dialogClick("Usuń")
+            scenario.onActivity { a -> click(a,"Usuń zmianę") }
+            dialogClick("Tak")
             assertEquals(0,stored().getJSONArray("shifts").length())
             scenario.onActivity { a ->
                 a.onBackPressed(); click(a,"NOTATKI"); click(a,"+ Dodaj notatkę")
@@ -319,7 +319,7 @@ class AppFlowTest {
                 assertFalse(all(a).filterIsInstance<Button>().any { it.text=="GOOGLE DRIVE" || it.text=="ZAROBEK (pokaż)" })
                 settings(a); assertTrue(has(a,"Ustawienia"))
                 assertTrue(has(a,"GENERUJ RAPORT SMS")); assertTrue(has(a,"Logi / eksport / import")); assertTrue(has(a,"Google Disk"))
-                click(a,"O aplikacji"); assertTrue(has(a,"Wersja: 2.1")); a.onBackPressed()
+                click(a,"O aplikacji"); assertTrue(has(a,"Wersja: 2.2")); a.onBackPressed()
                 click(a,"Portfel / rozliczenia (PIN)")
                 assertFalse(has(a,"Portfel"))
             }
@@ -346,7 +346,7 @@ class AppFlowTest {
             dialogClick("Importuj")
             assertEquals(2,stored().getJSONArray("payments").length())
             scenario.onActivity { a ->
-                assertTrue(has(a,"Eksportuj dziennik JSON")); assertTrue(has(a,"Importuj dziennik JSON"))
+                assertTrue(has(a,"Eksportuj dziennik na Google Disk")); assertTrue(has(a,"Importuj dziennik JSON"))
                 a.onBackPressed(); click(a,"GENERUJ RAPORT SMS")
                 assertTrue(all(a).filterIsInstance<Button>().any { it.text.toString().startsWith("Data od:") })
                 a.onBackPressed(); assertTrue(has(a,"Ustawienia"))
@@ -416,6 +416,60 @@ class AppFlowTest {
             }
             scenario.onActivity { a -> all(a).filterIsInstance<Button>().first { it.text.toString().contains("→") }.performClick() }
             shot("13-timeline")
+        }
+    }
+
+    @Test fun historySortsByWorkDateAndFiltersCalendarDays() {
+        val day=java.time.LocalDate.of(2026,10,28)
+        fun start(d:java.time.LocalDate)=d.atTime(8,0).atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val data=stored();val list=JSONArray()
+        for((id,date) in listOf("new" to day.plusDays(1),"old" to day.minusDays(1),"middle" to day)) list.put(JSONObject().put("id",id).put("start",start(date)).put("end",start(date)+3600000))
+        data.put("shifts",list);store(data)
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { a ->
+                click(a,"MÓJ CZAS")
+                val rows=all(a).filterIsInstance<Button>().map { it.text.toString() }.filter { it.contains("→") }
+                assertTrue(rows[0].startsWith("29-10-2026"));assertTrue(rows[2].startsWith("27-10-2026"))
+                a.getSharedPreferences("r3_gate",0).edit().putString("reportFrom",day.toString()).putString("reportTo",day.toString()).commit()
+                a.onBackPressed();click(a,"MÓJ CZAS")
+                assertTrue(has(a,"Łączny czas: 01:00"))
+                assertEquals(1,all(a).filterIsInstance<Button>().count { it.text.toString().contains("→") })
+                clickFilters(a);assertTrue(has(a,"Data od: 28-10-2026"));assertTrue(has(a,"Data do: 28-10-2026"))
+            }
+            shot("14-history-days")
+        }
+    }
+    @Test fun expenseReceiptDoesNotBecomeSalaryPaymentAndBackupIncludesIt() {
+        val context=instrumentation.targetContext
+        val receipt=File(context.filesDir,"photos/test-receipt.png");receipt.parentFile!!.mkdirs()
+        val bitmap=Bitmap.createBitmap(400,240,Bitmap.Config.ARGB_8888)
+        val canvas=android.graphics.Canvas(bitmap);canvas.drawColor(android.graphics.Color.WHITE)
+        val paint=android.graphics.Paint().apply { color=android.graphics.Color.DKGRAY;textSize=28f }
+        canvas.drawText("TEST PARAGON",20f,50f,paint);canvas.drawText("Kabel 35,50 PLN",20f,110f,paint)
+        receipt.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG,100,it) };bitmap.recycle()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { a -> settings(a);click(a,"Portfel / rozliczenia (PIN)") }
+            pin()
+            scenario.onActivity { a ->
+                click(a,"Zakupy za własne pieniądze / paragony");click(a,"+ Dodaj zakup za własne pieniądze")
+                all(a).filterIsInstance<EditText>()[0].setText("35,50")
+                all(a).filterIsInstance<EditText>()[1].setText("Kabel do obiektu")
+                val cameraPath=MainActivity::class.java.getDeclaredField("cameraPath");cameraPath.isAccessible=true;cameraPath.set(a,receipt.absolutePath)
+                deliverDocumentResult(a,202,receipt)
+                click(a,"Zapisz")
+                all(a).filterIsInstance<Button>().first { it.text.toString().contains("35,50 zł") }.performClick()
+                assertTrue(has(a,"Do zwrotu: 35,50 zł"))
+                assertFalse(all(a).filterIsInstance<TextView>().any { it.text.toString().startsWith("Zdjęcie 1") })
+                assertEquals(1,stored().getJSONArray("expenses").getJSONObject(0).getJSONArray("photos").length())
+            }
+            shot("15-expense-receipt")
+            scenario.onActivity { a -> click(a,"Oznacz jako zwrócone") }
+            dialogClick("Gotówka");dialogClick("Tak")
+            assertEquals(3550L,stored().getJSONArray("expenses").getJSONObject(0).getLong("reimbursedCents"))
+            assertEquals(0,stored().getJSONArray("payments").length())
+            val exported=DriveBackupWorker.snapshot(context)
+            assertEquals(1,exported.getJSONArray("expenses").length())
+            assertTrue(exported.has("wtSettings"));assertFalse(exported.has("pin"))
         }
     }
 
