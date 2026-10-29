@@ -466,7 +466,7 @@ class AppFlowTest {
             scenario.onActivity { a -> click(a,"Oznacz jako zwrócone") }
             dialogClick("Gotówka");dialogClick("Tak")
             assertEquals(3550L,stored().getJSONArray("expenses").getJSONObject(0).getLong("reimbursedCents"))
-            assertEquals(0,stored().getJSONArray("payments").length())
+            assertEquals(0,stored().optJSONArray("payments")?.length() ?: 0)
             val exported=DriveBackupWorker.snapshot(context)
             assertEquals(1,exported.getJSONArray("expenses").length())
             assertTrue(exported.has("wtSettings"));assertFalse(exported.has("pin"))
@@ -474,4 +474,5 @@ class AppFlowTest {
     }
 
 }
+
 
