@@ -53,10 +53,10 @@ class DriveUploadWorker(context:Context,params:WorkerParameters):Worker(context,
             setForegroundAsync(getForegroundInfo()).get()
             val parts=reference.split(":"); if(parts.size!=2 || email.isBlank()) return finishJob("Wybierz konto Google Disk w aplikacji",true)
             val key=parts[0]; val id=parts[1]
-            if(key !in listOf("links","materials","notes")) return finishJob("Nieprawidłowy wpis zdjęć",true)
+            if(key !in listOf("links","materials","notes","expenses")) return finishJob("Nieprawidłowy wpis zdjęć",true)
             val row=rows(data(),key).find { it.optString("id")==id } ?: return finishJob("Wpis został usunięty",true)
             val obj=rows(data(),"objects").find { it.optString("id")==row.optString("objectId") }
-            if(key!="notes" && obj==null) return finishJob("Wybierz obiekt przed wysłaniem zdjęć",true)
+            if(key !in listOf("notes","expenses") && obj==null) return finishJob("Wybierz obiekt przed wysłaniem zdjęć",true)
             val photoList=(0 until arr(row,"photos").length()).map { arr(row,"photos").getString(it) }
             val accountKey=hash(email).take(24)+"|"
             val authorization=Tasks.await(Identity.getAuthorizationClient(applicationContext).authorize(AuthorizationRequest.builder().setRequestedScopes(listOf(Scope(scope))).build()),60,TimeUnit.SECONDS)
@@ -125,34 +125,10 @@ class DriveUploadWorker(context:Context,params:WorkerParameters):Worker(context,
             return Result.retry()
         }
     }
-    private fun driveJson(method:String,url:String,token:String,body:JSONObject?=null):JSONObject {
-        val c=URL(url).openConnection() as HttpURLConnection
-        try {
-            c.requestMethod=method; c.connectTimeout=20000; c.readTimeout=30000
-            c.setRequestProperty("Authorization","Bearer "+token)
-            if(body!=null) {
-                c.doOutput=true; c.setRequestProperty("Content-Type","application/json; charset=UTF-8")
-                c.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
-            }
-            if(c.responseCode !in 200..299) throw DriveHttpException(c.responseCode)
-            return JSONObject(c.inputStream.bufferedReader().use { it.readText() }.ifBlank { "{}" })
-        } finally { c.disconnect() }
-    }
-    private fun driveRoot(token:String):String {
-        val q="trashed = false and mimeType = 'application/vnd.google-apps.folder' and (name = 'WorkMeter' or name = 'WT' or name = 'R3 Gate') and 'root' in parents"
-        val list=driveJson("GET","https://www.googleapis.com/drive/v3/files?q="+URLEncoder.encode(q,"UTF-8")+"&fields=files(id,name)&pageSize=100",token).optJSONArray("files")
-        if(list!=null && list.length()>0) return list.getJSONObject(0).getString("id")
-        return driveFolder("WorkMeter",null,token)
-    }
-    private fun driveFolder(name:String,parent:String?,token:String):String {
-        val safeName=name.replace("\\","\\\\").replace("'","\\'")
-        val q="trashed = false and mimeType = 'application/vnd.google-apps.folder' and name = '"+safeName+"' and '"+(parent ?: "root")+"' in parents"
-        val found=driveJson("GET","https://www.googleapis.com/drive/v3/files?q="+URLEncoder.encode(q,"UTF-8")+"&fields=files(id)&pageSize=1",token).optJSONArray("files")
-        if(found!=null && found.length()>0) return found.getJSONObject(0).getString("id")
-        val meta=JSONObject().put("name",name).put("mimeType","application/vnd.google-apps.folder")
-        if(parent!=null) meta.put("parents",JSONArray().put(parent))
-        return driveJson("POST","https://www.googleapis.com/drive/v3/files?fields=id",token,meta).getString("id")
-    }
+    private val drive=DriveStore()
+    private fun driveJson(method:String,url:String,token:String,body:JSONObject?=null)=drive.json(method,url,token,body)
+    private fun driveRoot(token:String)=drive.root(token)
+    private fun driveFolder(name:String,parent:String?,token:String)=drive.folder(name,parent,token)
     companion object {
         fun enqueue(context:Context,reference:String,email:String) {
             context.getSharedPreferences("r3_gate",Context.MODE_PRIVATE).edit().putBoolean("uploadQueued_"+reference,true).apply()
