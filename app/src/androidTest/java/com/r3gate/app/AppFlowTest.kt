@@ -54,8 +54,8 @@ class AppFlowTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             instrumentation.waitForIdleSync()
             scenario.onActivity { a ->
-                assertTrue(has(a,"WT"))
-                val header=all(a).filterIsInstance<TextView>().first { it.text.toString()=="WT" }
+                assertTrue(has(a,"WorkMeter"))
+                val header=all(a).filterIsInstance<TextView>().first { it.text.toString()=="WorkMeter" }
                 val y=IntArray(2); header.getLocationOnScreen(y)
                 val inset=a.window.decorView.rootWindowInsets.getInsets(WindowInsets.Type.statusBars()).top
                 assertTrue("Header must be below status bar",y[1]>=inset)
@@ -63,7 +63,7 @@ class AppFlowTest {
             shot("01-home")
             scenario.onActivity { a -> click(a,"OBIEKTY"); assertTrue(has(a,"Obiekty")) }
             shot("02-objects")
-            scenario.onActivity { a -> a.onBackPressed(); assertTrue(has(a,"WT")); assertFalse(a.isFinishing) }
+            scenario.onActivity { a -> a.onBackPressed(); assertTrue(has(a,"WorkMeter")); assertFalse(a.isFinishing) }
             scenario.onActivity { a ->
                 click(a,"NOTATKI"); click(a,"+ Dodaj notatkę")
                 val inputs=all(a).filterIsInstance<EditText>()
@@ -79,7 +79,7 @@ class AppFlowTest {
                 assertFalse(all(a).filterIsInstance<Button>().any { it.text.toString().contains("Zabrać kabel") })
                 a.onBackPressed(); click(a,"Historia / Logi — wszystkie wpisy")
                 assertTrue(all(a).filterIsInstance<Button>().any { it.text.toString().contains("✓ Zabrać kabel") })
-                a.onBackPressed(); a.onBackPressed(); assertTrue(has(a,"WT"))
+                a.onBackPressed(); a.onBackPressed(); assertTrue(has(a,"WorkMeter"))
             }
         }
     }
@@ -287,14 +287,12 @@ class AppFlowTest {
                 assertTrue(all(a).filterIsInstance<Button>().any { it.isShown && it.text.toString().startsWith("Zakupy / paragony:") })
                 a.onBackPressed(); click(a,"Aktualne (1)"); assertCollapsed(a)
                 assertTrue(all(a).filterIsInstance<Button>().any { it.isShown && it.text.toString().contains("Aktywna uwaga") })
-                a.onBackPressed(); a.onBackPressed(); click(a,"OBIEKTY"); assertCollapsed(a,"+ Dodaj obiekt")
-                clickFilters(a); click(a,"Pokaż archiwalne")
-                assertTrue(all(a).filterIsInstance<Button>().any { it.isShown && it.text=="Pokaż aktywne" })
-                click(a,"Pokaż aktywne"); click(a,"KOP-01 · Test · Kopytkowo · 24")
-                assertFalse(all(a).filterIsInstance<Button>().any { it.isShown && it.text.toString().startsWith("Data od:") })
-                clickFilters(a)
-                assertTrue(all(a).filterIsInstance<Button>().any { it.isShown && it.text=="Wyczyść okres" })
-                click(a,"Zdjęcia według dat"); assertCollapsed(a)
+                a.onBackPressed(); a.onBackPressed(); click(a,"OBIEKTY")
+                assertFalse(all(a).filterIsInstance<Button>().any { it.isShown && it.text.toString().startsWith("Filtry") })
+                click(a,"Archiwum obiektów"); click(a,"Pokaż aktywne"); click(a,"KOP-01 · Test · Kopytkowo · 24")
+                assertFalse(all(a).filterIsInstance<Button>().any { it.isShown && it.text.toString().startsWith("Filtry") })
+                assertTrue(has(a,"Czas na obiekcie")); assertTrue(has(a,"Materiały")); assertTrue(has(a,"Zdjęcia"))
+                click(a,"Zdjęcia"); assertCollapsed(a)
                 clickFilters(a)
                 assertFalse(all(a).filterIsInstance<Button>().any { it.isShown && it.text.toString().startsWith("Obiekt:") })
             }
@@ -320,7 +318,7 @@ class AppFlowTest {
                 assertFalse(all(a).filterIsInstance<Button>().any { it.text=="GOOGLE DRIVE" || it.text=="ZAROBEK (pokaż)" })
                 settings(a); assertTrue(has(a,"Ustawienia"))
                 assertTrue(has(a,"GENERUJ RAPORT SMS")); assertTrue(has(a,"Logi / eksport / import")); assertTrue(has(a,"Google Disk"))
-                click(a,"O aplikacji"); assertTrue(has(a,"Wersja: 2.0")); a.onBackPressed()
+                click(a,"O aplikacji"); assertTrue(has(a,"Wersja: 2.1")); a.onBackPressed()
                 click(a,"Portfel / rozliczenia (PIN)")
                 assertFalse(has(a,"Portfel"))
             }
@@ -373,10 +371,50 @@ class AppFlowTest {
             scenario.onActivity { a -> assertEquals(100,all(a).filterIsInstance<android.widget.SeekBar>().first().progress) }
             shot("11-widget-settings")
             scenario.onActivity { a ->
-                a.onBackPressed(); assertTrue(has(a,"Ustawienia")); a.onBackPressed(); assertTrue(has(a,"WT"))
+                a.onBackPressed(); assertTrue(has(a,"Ustawienia")); a.onBackPressed(); assertTrue(has(a,"WorkMeter"))
                 settings(a); click(a,"Google Disk"); assertFalse(all(a).filterIsInstance<TextView>().any { it.isShown && it.text.toString().startsWith("Pakiet:") })
                 a.onBackPressed(); assertTrue(has(a,"Ustawienia"))
             }
+        }
+    }
+
+    @Test fun objectSearchByCityAndStyledPopup() {
+        val d=stored()
+        d.getJSONArray("objects").put(JSONObject().put("id","lodz").put("TAG","LOD-02").put("city","Łódź").put("Adres","1"))
+        store(d)
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { a -> click(a,"🟢 ROZPOCZNIJ PRACĘ") }
+            pin()
+            androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.withHint("Szukaj miasta"))
+                .inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog())
+                .perform(androidx.test.espresso.action.ViewActions.typeText("lodz"),androidx.test.espresso.action.ViewActions.closeSoftKeyboard())
+            shot("12-object-search")
+            dialogClick("LOD-02 · Łódź · 1")
+            assertEquals("lodz",stored().getJSONObject("active").getString("objectId"))
+        }
+    }
+    @Test fun dayTimelineShowsEveryIntervalAndNotificationHasPhotoAction() {
+        val d=stored(); val start=java.time.LocalDate.now().atTime(8,0).atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val stages=JSONArray().put(JSONObject().put("start",start).put("end",start+3600000).put("kind","Obiekt").put("object","KOP-01 · Test").put("objectId","object-test"))
+            .put(JSONObject().put("start",start+3600000).put("end",start+5400000).put("kind","Przejazd"))
+            .put(JSONObject().put("start",start+5400000).put("end",start+7200000).put("kind","Zakupy"))
+        d.put("shifts",JSONArray().put(JSONObject().put("id","timeline").put("start",start).put("end",start+7200000).put("stages",stages)));store(d)
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { a ->
+                click(a,"MÓJ CZAS")
+                all(a).filterIsInstance<Button>().first { it.text.toString().contains("→") }.performClick()
+                assertTrue(has(a,"Szczegóły dnia"))
+                val text=all(a).filterIsInstance<TextView>().joinToString("\n") { it.text.toString() }
+                assertTrue(text.contains("KOP-01 · Test")); assertTrue(text.contains("Przejazd")); assertTrue(text.contains("Zakupy"))
+                assertTrue(text.contains("09:00")); assertTrue(text.contains("09:30"));assertTrue(text.contains("10:00"))
+                assertTrue(has(a,"Łączny czas: 02:00"))
+                val fg=UploadNotifications.foreground(a,"links:test","Zdjęcie 1 / 2",0,2)
+                assertTrue(fg.notification.actions.any { it.title=="Dodaj zdjęcia" })
+                assertEquals(android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,fg.foregroundServiceType)
+                a.onBackPressed();assertTrue(has(a,"Mój czas"))
+            }
+            scenario.onActivity { a -> all(a).filterIsInstance<Button>().first { it.text.toString().contains("→") }.performClick() }
+            shot("13-timeline")
         }
     }
 
