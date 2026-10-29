@@ -36,7 +36,7 @@ class GateWidget : AppWidgetProvider() {
             v.setInt(R.id.wbackground,"setImageAlpha",255*(100-prefs.getInt("widgetTransparency",0).coerceIn(0,100))/100)
             val travel=a?.optString("kind")=="Przejazd"
             v.setTextViewText(R.id.wobject,when { a==null -> "Gotowy do pracy"; travel -> "W drodze"; a.optString("kind")=="Zakupy" -> "Zakupy"; else -> a.optString("object").substringBefore(" · ") })
-            v.setTextViewText(R.id.wtravel,if(travel) "PRZEJAZD ●" else "PRZEJAZD")
+            v.setTextViewText(R.id.wtravel,if(travel) "DOTARŁEM" else "PRZEJAZD")
             v.setInt(R.id.wtravel,"setBackgroundResource",if(travel) R.drawable.widget_active else R.drawable.widget_button)
             v.setTextColor(R.id.wtravel,if(travel) 0xFFFFFFFF.toInt() else 0xFF37474F.toInt())
             v.setViewVisibility(R.id.wstartbutton,if(a==null) android.view.View.VISIBLE else android.view.View.GONE)
@@ -46,6 +46,8 @@ class GateWidget : AppWidgetProvider() {
             val compact=options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH,250)<220
             v.setTextViewText(R.id.wswitch,if(compact) "OBIEKT ↔" else "ZMIEŃ OBIEKT")
             v.setTextViewText(R.id.wtitle,"WorkMeter")
+            v.setTextViewText(R.id.wshopping,if(a?.optString("kind")=="Zakupy") "ZAKOŃCZ ZAKUPY" else "ZAKUPY")
+            v.setViewVisibility(R.id.wshopping,if(a!=null && !compact) android.view.View.VISIBLE else android.view.View.GONE)
             v.setViewVisibility(R.id.wstage,if(travel) android.view.View.VISIBLE else android.view.View.GONE)
             if(travel) v.setChronometer(R.id.wstage,SystemClock.elapsedRealtime()-(System.currentTimeMillis()-a!!.optLong("stageStart")),"W drodze: %s",true)
             v.setTextViewText(R.id.wstatus,if(a!=null) "● ONLINE" else "● OFFLINE")
@@ -60,7 +62,7 @@ class GateWidget : AppWidgetProvider() {
                     v.setChronometer(R.id.wduration,SystemClock.elapsedRealtime()-ms,null,false)
                 }
             } else v.setChronometer(R.id.wduration,SystemClock.elapsedRealtime(),null,false)
-            for((view,action,code) in listOf(Triple(R.id.wstartbutton,"start",1),Triple(R.id.wstopbutton,"stop",2),Triple(R.id.wswitch,"switch",3),Triple(R.id.wtravel,"travel",4))) {
+            for((view,action,code) in listOf(Triple(R.id.wstartbutton,"start",1),Triple(R.id.wstopbutton,"stop",2),Triple(R.id.wswitch,"switch",3),Triple(R.id.wtravel,"travel",4),Triple(R.id.wshopping,"shopping",5))) {
                 val intent=Intent(context,MainActivity::class.java).apply { putExtra("widget_action",action); flags=Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP }
                 val pi=PendingIntent.getActivity(context,code,intent,PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
                 v.setOnClickPendingIntent(view,pi)
