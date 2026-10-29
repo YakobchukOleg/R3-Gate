@@ -13,6 +13,11 @@ object DomainRules {
 
     fun nextTag(city:String,counter:Int,used:Collection<String>):Pair<String,Int> {
         val prefix=cityPrefix(city)
+        return nextPrefixTag(prefix,counter,used)
+    }
+    fun customPrefix(tag:String):String = Normalizer.normalize(tag.trim().uppercase(Locale.ROOT).replace("Ł","L"),Normalizer.Form.NFD)
+        .replace(Regex("\\p{M}"),"").filter { it in 'A'..'Z' || it in '0'..'9' }.take(20)
+    fun nextPrefixTag(prefix:String,counter:Int,used:Collection<String>):Pair<String,Int> {
         val highest=used.mapNotNull { tag ->
             if(tag.startsWith(prefix+"-")) tag.substringAfterLast("-").toIntOrNull() else null
         }.maxOrNull() ?: 0
