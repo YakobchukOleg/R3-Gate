@@ -70,6 +70,7 @@ class MainActivity : Activity() {
         }
         migrate()
         migrateWallet()
+        DriveBackupWorker.schedule(this)
         expandedFilters.addAll(savedInstanceState?.getStringArrayList("expandedFilters") ?: emptyList())
         walletDraft = JSONObject(savedInstanceState?.getString("walletDraft") ?: "{}")
         quickPhotoUpload=savedInstanceState?.getBoolean("quickPhotoUpload") ?: false
@@ -90,7 +91,7 @@ class MainActivity : Activity() {
     override fun onResume() { super.onResume(); ticker.removeCallbacks(tick); ticker.postDelayed(tick, 60000) }
     override fun onPause() { ticker.removeCallbacks(tick); super.onPause() }
     override fun onStop() { walletUnlocked=false; super.onStop() }
-    override fun onRestart() { super.onRestart(); if(screen=="wallet" || screen=="payment") settings() else if(screen!="form") openScreen(screen) }
+    override fun onRestart() { super.onRestart(); if(screen=="wallet" || screen=="payment" || screen=="expenses" || screen.startsWith("detail:expenses:")) settings() else if(screen!="form") openScreen(screen) }
     private fun hash(s: String): String = MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).joinToString("") { "%02x".format(it) }
     private fun setupPin() {
         val field = EditText(ContextThemeWrapper(this,R.style.WorkMeterDialogTheme)).apply { hint="PIN (4–8 cyfr)"; inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD }
@@ -106,6 +107,10 @@ class MainActivity : Activity() {
             if (hash(prefs.getString("salt","")+field.text.toString()) == prefs.getString("pin","")) action() else toast("Nieprawidłowy PIN")
         }.show()
     }
+    private fun confirmAction(message:String="Wykonać tę czynność?",action:()->Unit) {
+        AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Potwierdzenie").setMessage(message)
+            .setNegativeButton("Nie",null).setPositiveButton("Tak") { _,_ -> action() }.show()
+    }
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent); setIntent(intent); handleLaunch()
     }
@@ -120,7 +125,7 @@ class MainActivity : Activity() {
             "photos" -> newForm("links",sendAfterSave=true)
             "start" -> confirmPin { startShift() }
             "stop" -> confirmPin { stopShift() }
-            "switch" -> confirmPin { switchObject() }
+            "switch" -> confirmAction("Zmienić obiekt?") { switchObject() }
             "travel", "shopping" -> toggleTravel()
         }
     }
@@ -180,7 +185,7 @@ class MainActivity : Activity() {
     private fun toggleTravel() {
         val a=active(data()) ?: run { toast("Najpierw rozpocznij pracę"); return }
         if(a.optString("kind")!="Przejazd") { beginStage("Przejazd"); return }
-        confirmPin { chooseArrival() }
+        confirmAction("Zakończyć przejazd i wybrać miejsce przyjazdu?") { chooseArrival() }
     }
     private fun chooseArrival() {
         if(active(data())?.optString("kind")!="Przejazd") return
@@ -261,7 +266,7 @@ class MainActivity : Activity() {
         val frame=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setBackgroundColor(Color.BLACK) }
         val top=View(this); frame.addView(top,LinearLayout.LayoutParams(-1,0))
         val header=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; gravity=Gravity.CENTER_VERTICAL; setPadding(dp(16),0,dp(8),0); setBackgroundColor(0xFF37474F.toInt()) }
-        header.addView(TextView(this).apply { text=title; textSize=27f; gravity=Gravity.CENTER_VERTICAL; setTextColor(Color.WHITE); setTypeface(null,android.graphics.Typeface.BOLD) },LinearLayout.LayoutParams(0,dp(56),1f).apply { gravity=Gravity.CENTER_VERTICAL })
+        header.addView(TextView(this).apply { text=title; textSize=27f; gravity=Gravity.CENTER_VERTICAL; setTextColor(Color.WHITE); setTypeface(resources.getFont(R.font.clash_grotesk),android.graphics.Typeface.BOLD) },LinearLayout.LayoutParams(0,dp(56),1f).apply { gravity=Gravity.CENTER_VERTICAL })
         if(title=="WorkMeter") header.addView(Button(this).apply {
             text="⚙"; textSize=27f; contentDescription="Ustawienia"; setTextColor(Color.WHITE)
             background=android.graphics.drawable.ColorDrawable(Color.TRANSPARENT); backgroundTintList=null; setPadding(0,0,0,0)
@@ -344,7 +349,7 @@ class MainActivity : Activity() {
             screen == "home" -> finish()
             screen == "sms" -> settings()
             screen in listOf("drive","logs","about","widgetSettings","wallet") -> settings()
-            screen == "payment" -> wallet()
+            screen == "payment" || screen=="expenses" -> wallet()
             screen == "form" -> {
                 AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setMessage("Zachować szkic i wrócić?")
                     .setNegativeButton("Zostań",null).setPositiveButton("Wróć") { _, _ ->
@@ -397,7 +402,7 @@ class MainActivity : Activity() {
         if(a==null) button("🟢 ROZPOCZNIJ PRACĘ") { confirmPin { startShift() } }
         else {
             button("🔴 ZAKOŃCZ PRACĘ") { confirmPin { stopShift() } }
-            button("🔄 ZMIEŃ OBIEKT") { confirmPin { switchObject() } }
+            button("🔄 ZMIEŃ OBIEKT") { confirmAction("Zmienić obiekt?") { switchObject() } }
             button(if(a.optString("kind")=="Przejazd") "🚗 PRZEJAZD · W DRODZE — ZAKOŃCZ" else "🚗 PRZEJAZD") { toggleTravel() }
         }
         label("TWÓJ DZIEŃ")
@@ -487,6 +492,11 @@ class MainActivity : Activity() {
         val global=WalletRules.earned(shifts)+config.optLong("openingCents")-payments.sumOf { it.cents }
         label((if(global>=0) "Łącznie do wypłaty (cała historia): " else "Łączna nadpłata (cała historia): ")+money(kotlin.math.abs(global)))
         label("Naliczanie obejmuje zakończone zmiany, także przejazdy i zakupy. Otwarty dzień zostanie rozliczony po zakończeniu.")
+        val expenses=rows(d,"expenses")
+        val expensesDue=expenses.sumOf { (it.optLong("cents")-it.optLong("reimbursedCents")).coerceAtLeast(0) }
+        label("Zakupy firmowe do zwrotu (cała historia): "+money(expensesDue))
+        label((if(global+expensesDue>=0) "Razem do rozliczenia (wynagrodzenie i zakupy): " else "Łączna nadpłata (wynagrodzenie i zakupy): ")+money(kotlin.math.abs(global+expensesDue)))
+        button("Zakupy za własne pieniądze / paragony") { expenseList() }
         button("+ Dodaj wypłatę") { walletDraft=JSONObject().put("id",UUID.randomUUID().toString()).put("date",LocalDate.now().toString()).put("periodFrom",from.toString()).put("periodTo",to.toString()).put("method","cash"); paymentForm() }
         filters("walletRates",caption="Stawka i saldo początkowe") {
             button("Domyślna stawka: "+defaultRate().toPlainString()+" zł/h") { rateDialog(false) }
@@ -501,6 +511,17 @@ class MainActivity : Activity() {
                 walletDraft=JSONObject(payment.toString()).put("amount",BigDecimal.valueOf(payment.optLong("cents"),2).toPlainString()); paymentForm()
             }
             label("Za okres: "+dateText(payment.optString("periodFrom"))+" – "+dateText(payment.optString("periodTo")))
+        }
+    }
+    private fun expenseList() {
+        if(!walletUnlocked) { settings(); confirmPin { walletUnlocked=true; expenseList() }; return }
+        base("Zakupy do zwrotu"); screen="expenses"; nav()
+        label("Zakupy opłacone z własnych pieniędzy. Zwroty są rozliczane oddzielnie od wynagrodzenia.")
+        val list=rows(data(),"expenses").sortedByDescending { recordDate(it) }
+        label("Do zwrotu: "+money(list.sumOf { (it.optLong("cents")-it.optLong("reimbursedCents")).coerceAtLeast(0) }))
+        button("+ Dodaj zakup za własne pieniądze") { newForm("expenses") }
+        for(item in list) button(dateText(recordDate(item))+" · "+money(item.optLong("cents"))+" · "+if(item.optLong("reimbursedCents")>=item.optLong("cents")) "Zwrócono" else "Do zwrotu") {
+            recordDetails("expenses",item.optString("id"),"expenses")
         }
     }
     private fun walletInput(caption:String,key:String,numeric:Boolean=false) {
@@ -569,14 +590,45 @@ class MainActivity : Activity() {
         } }; dialog.show()
     }
     private fun report() {
-        base("Mój czas"); screen = "report"; nav(); val d=data(); val list=arr(d,"shifts")
-        var total=0L; for(i in 0 until list.length()) { val x=list.optJSONObject(i)?:continue; total+=(x.optLong("end")-x.optLong("start")).coerceAtLeast(0) }
-        label("Łączny czas: ${duration(total)}")
-        for(i in list.length()-1 downTo 0) {
-            val s=list.optJSONObject(i)?:continue
-            button("${fmt.format(Date(s.optLong("start")))} → ${fmt.format(Date(s.optLong("end")))}  (${duration(s.optLong("end")-s.optLong("start"))})") { shiftDetails(s.optString("id")) }
-            button("Edytuj czas") { confirmPin { editShift(s.optString("id")) } }
-            button("Usuń zmianę (PIN)") { deleteShift(s.optString("id")) }
+        base("Mój czas"); screen="report"; nav()
+        val from=prefs.getString("reportFrom","").orEmpty(); val to=prefs.getString("reportTo","").orEmpty()
+        fun setPeriod(key:String,date:LocalDate) {
+            val f=if(key=="reportFrom") date.toString() else from
+            val t=if(key=="reportTo") date.toString() else to
+            if(f.isNotBlank() && t.isNotBlank() && f>t) { toast("Data do nie może być wcześniejsza niż data od"); return }
+            prefs.edit().putString(key,date.toString()).apply(); report()
+        }
+        filters("report",from.isNotBlank() || to.isNotBlank()) {
+            button("Data od: "+if(from.isBlank()) "wszystkie" else dateText(from)) {
+                pickReportDate(if(from.isBlank()) LocalDate.now() else LocalDate.parse(from)) { setPeriod("reportFrom",it) }
+            }
+            button("Data do: "+if(to.isBlank()) "wszystkie" else dateText(to)) {
+                pickReportDate(if(to.isBlank()) LocalDate.now() else LocalDate.parse(to)) { setPeriod("reportTo",it) }
+            }
+            button("Wyczyść filtry") { prefs.edit().remove("reportFrom").remove("reportTo").apply(); report() }
+        }
+        val shifts=rows(data(),"shifts")
+        val entries=shifts.flatMap { shift -> HistoryRules.slices(shift.optLong("start"),shift.optLong("end"),ZoneId.systemDefault()).map { shift to it } }
+            .filter { DomainRules.inRange(it.second.day,from,to) }
+        label("Łączny czas: "+duration(entries.sumOf { it.second.end-it.second.start }))
+        if(entries.isEmpty()) label("Brak zmian w wybranym okresie")
+        for((day,items) in entries.groupBy { it.second.day }.toSortedMap(reverseOrder())) {
+            val parent=root
+            val card=LinearLayout(this).apply {
+                orientation=LinearLayout.VERTICAL; setPadding(dp(12),dp(10),dp(12),dp(6))
+                background=background(0xFFF5F7F8.toInt()).apply { setStroke(dp(1),0xFFCFD8DC.toInt()) }
+            }
+            parent.addView(card,LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(8); bottomMargin=dp(12) })
+            root=card
+            try {
+                label(dateText(day)+" · "+LocalDate.parse(day).dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL,Locale.forLanguageTag("pl")))
+                label("Czas dnia: "+duration(items.sumOf { it.second.end-it.second.start }))
+                for((shift,slice) in items.sortedByDescending { it.second.start }) {
+                    button(fmt.format(Date(slice.start))+" → "+fmt.format(Date(slice.end))+"  ("+duration(slice.end-slice.start)+")") { shiftDetails(shift.optString("id")) }
+                    button("Edytuj czas") { confirmAction("Edytować godziny tej zmiany?") { editShift(shift.optString("id")) } }
+                    button("Usuń zmianę") { deleteShift(shift.optString("id")) }
+                }
+            } finally { root=parent }
         }
     }
     private fun shiftDetails(id:String) {
@@ -599,18 +651,14 @@ class MainActivity : Activity() {
         if(stages.isNotEmpty() && cursor<end) label("Brak przypisanego etapu: "+fmt.format(Date(cursor))+" → "+fmt.format(Date(end))+" · "+duration(end-cursor))
         label("Zakończenie pracy: "+fmt.format(Date(end)))
         label("Łączny czas: "+duration(end-start))
-        button("Edytuj czas") { confirmPin { editShift(id) } }
-        button("Usuń zmianę (PIN)") { deleteShift(id) }
+        button("Edytuj czas") { confirmAction { editShift(id) } }
+        button("Usuń zmianę") { deleteShift(id) }
     }
     private fun deleteShift(id:String) {
-        confirmPin {
-            AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Usunąć zmianę?")
-                .setMessage("Zniknie z raportu i zestawienia godzin obiektów. Materiały, zdjęcia i notatki pozostaną.")
-                .setNegativeButton("Anuluj",null).setPositiveButton("Usuń") { _, _ ->
-                    val d=data(); val remaining=JSONArray()
-                    rows(d,"shifts").filter { it.optString("id")!=id }.forEach { remaining.put(it) }
-                    d.put("shifts",remaining); save(d,"DELETE_SHIFT",id); report()
-                }.show()
+        confirmAction("Usunąć zmianę z raportu i zestawienia godzin? Materiały, zdjęcia i notatki pozostaną.") {
+            val d=data(); val remaining=JSONArray()
+            rows(d,"shifts").filter { it.optString("id")!=id }.forEach { remaining.put(it) }
+            d.put("shifts",remaining); save(d,"DELETE_SHIFT",id); report()
         }
     }
     private fun editShift(id:String) {
@@ -651,8 +699,10 @@ class MainActivity : Activity() {
     private fun logs() {
         base("Logi i kopia zapasowa"); screen = "logs"; nav()
         label("Kopia JSON zawiera dane i odnośniki. Zachowaj również zdjęcia na Google Disk; zdjęcia lokalne nie są dołączane do JSON.")
-        button("Eksportuj dziennik JSON") { confirmPin { startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type="application/json"; putExtra(Intent.EXTRA_TITLE,"WorkMeter-backup.json") },100) } }
-        button("Importuj dziennik JSON") { confirmPin { startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type="application/json" },101) } }
+        label(prefs.getString("backupStatus","Kopia Google Disk nie została jeszcze wykonana").orEmpty())
+        button("Eksportuj dziennik na Google Disk") { confirmAction("Zapisać kopię dziennika w WorkMeter / Backup na osobistym Google Disk?") { pendingUpload="backup"; authorizeDrive() } }
+        button("Zapisz kopię lokalną JSON") { confirmAction { startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type="application/json"; putExtra(Intent.EXTRA_TITLE,"WorkMeter-backup.json") },100) } }
+        button("Importuj dziennik JSON") { confirmAction { startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type="application/json" },101) } }
         val list=arr(data(),"logs"); for(i in list.length()-1 downTo 0) { val x=list.optJSONObject(i)?:continue; label("${x.optString("at")} | ${x.optString("type")} | ${x.optString("detail")}") }
     }
     @Deprecated("Legacy activity result")
@@ -698,10 +748,14 @@ class MainActivity : Activity() {
         } catch (_:Exception) { toast("Błąd pliku JSON") }
     }
 
-    private fun exportData():JSONObject = JSONObject(data().toString()).put("wtBackupVersion",1).put("wtSettings",JSONObject().put("widgetTransparency",prefs.getInt("widgetTransparency",0)))
+    private fun exportData():JSONObject = DriveBackupWorker.snapshot(this)
     private fun validateImport(d:JSONObject) {
-        for(key in listOf("objects","shifts","links","materials","notes","payments","logs")) if(d.has(key) && d.optJSONArray(key)==null) throw IllegalArgumentException("Nieprawidłowa lista: "+key)
+        for(key in listOf("objects","shifts","links","materials","notes","payments","expenses","logs")) if(d.has(key) && d.optJSONArray(key)==null) throw IllegalArgumentException("Nieprawidłowa lista: "+key)
         if(!listOf("objects","shifts","links","materials","notes","payments").any { d.has(it) }) throw IllegalArgumentException("Brak danych WT")
+        for(e in rows(d,"expenses")) {
+            require(e.optLong("cents")>0 && e.optLong("reimbursedCents") in 0..e.optLong("cents"))
+            require(runCatching { LocalDate.parse(e.optString("date")) }.isSuccess)
+        }
         for(p in rows(d,"payments")) {
             require(p.optLong("cents")>0 && p.optString("method") in listOf("cash","card"))
             val from=LocalDate.parse(p.optString("periodFrom")); val to=LocalDate.parse(p.optString("periodTo")); LocalDate.parse(p.optString("date")); require(!to.isBefore(from))
@@ -793,6 +847,7 @@ class MainActivity : Activity() {
             target=="widgetSettings" -> widgetSettings()
             target=="wallet" -> wallet()
             target=="payment" -> paymentForm()
+            target=="expenses" -> expenseList()
             target=="sms" -> weeklySms()
             target=="objects" -> objects()
             target.startsWith("object:") -> objectDetails(target.substringAfter(":"))
@@ -860,9 +915,9 @@ class MainActivity : Activity() {
         button("Materiały") { openScreen("list:materials:"+id) }
         button("Zdjęcia") { openScreen("list:links:"+id) }
         button("Notatki obiektu") { openScreen("list:notes:"+id) }
-        button(if(obj.optBoolean("archived")) "Przywróć obiekt (PIN)" else "Usuń z listy aktywnych (PIN)") {
-            confirmPin {
-                val d=data(); val o=rows(d,"objects").find { it.optString("id")==id } ?: return@confirmPin
+        button(if(obj.optBoolean("archived")) "Przywróć obiekt" else "Usuń z listy aktywnych") {
+            confirmAction {
+                val d=data(); val o=rows(d,"objects").find { it.optString("id")==id } ?: return@confirmAction
                 o.put("archived",!o.optBoolean("archived"))
                 save(d,"OBJECT_ARCHIVE",id); objects()
             }
@@ -928,11 +983,29 @@ class MainActivity : Activity() {
     }
     private var detailParent="home"
     private fun recordDetails(key:String,id:String,parent:String) {
+        if(key=="expenses" && !walletUnlocked) { settings(); confirmPin { walletUnlocked=true; recordDetails(key,id,parent) }; return }
         val r=rows(data(),key).find { it.optString("id")==id } ?: return
         base("Szczegóły"); screen="detail:"+key+":"+id; detailParent=parent
         button("← Wstecz") { openScreen(parent) }
         label(dateText(recordDate(r)))
         label(objectById(r.optString("objectId"))?.let { objectName(it) } ?: r.optString("Obiekt").ifBlank { "Bez obiektu" })
+        if(key=="expenses") {
+            label(r.optString("text")); label("Kwota zakupu: "+money(r.optLong("cents")))
+            label("Do zwrotu: "+money((r.optLong("cents")-r.optLong("reimbursedCents")).coerceAtLeast(0)))
+            if(r.optLong("reimbursedCents")>0) label("Zwrot: "+r.optString("reimbursedDate")+" · "+r.optString("reimbursedMethod"))
+            button(if(r.optLong("reimbursedCents")>=r.optLong("cents")) "Cofnij oznaczenie zwrotu" else "Oznacz jako zwrócone") {
+                val paid=r.optLong("reimbursedCents")>=r.optLong("cents")
+                if(paid) confirmAction("Cofnąć oznaczenie zwrotu? Kwota znów będzie należna.") {
+                    val d=data(); val current=rows(d,key).find { it.optString("id")==id } ?: return@confirmAction
+                    current.put("reimbursedCents",0).remove("reimbursedDate"); current.remove("reimbursedMethod"); save(d,"EXPENSE_REOPEN",id); recordDetails(key,id,parent)
+                } else AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Jak otrzymałeś zwrot?")
+                    .setItems(arrayOf("Gotówka","Karta")) { _,which -> confirmAction("Potwierdzić zwrot kosztu zakupu? Nie zmienia to rozliczenia wynagrodzenia.") {
+                        val d=data(); val current=rows(d,key).find { it.optString("id")==id } ?: return@confirmAction
+                        current.put("reimbursedCents",current.optLong("cents")).put("reimbursedDate",fmt.format(Date())).put("reimbursedMethod",if(which==0) "Gotówka" else "Karta")
+                        save(d,"EXPENSE_REIMBURSE",id); recordDetails(key,id,parent)
+                    } }.setNegativeButton("Anuluj",null).show()
+            }
+        }
         if(key=="materials") label(r.optString("name")+" · "+r.optString("quantity")+" "+r.optString("unit","szt."))
         if(key=="notes") {
             if(r.optBoolean("shopping")) label("🛒 Zakupy / paragon")
@@ -951,14 +1024,11 @@ class MainActivity : Activity() {
             if(!uploading) { pendingUpload=key+":"+id; authorizeDrive() } else toast("Przesyłanie trwa lub czeka na internet. Postęp jest w powiadomieniu.")
         }
         button("Edytuj") { screen=parent; newForm(key,id) }
-        button("Usuń wpis (PIN)") {
-            confirmPin {
-                AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setMessage("Usunąć ten wpis z aplikacji? Pliki na Google Disk pozostaną.")
-                    .setNegativeButton("Anuluj",null).setPositiveButton("Usuń") { _, _ ->
-                        val d=data(); val newer=JSONArray()
-                        rows(d,key).filter { it.optString("id")!=id }.forEach { newer.put(it) }
-                        d.put(key,newer); save(d,"DELETE_"+key,id); openScreen(parent)
-                    }.show()
+        button("Usuń wpis") {
+            confirmAction("Usunąć wpis z aplikacji? Pliki na Google Disk pozostaną.") {
+                val d=data(); val newer=JSONArray()
+                rows(d,key).filter { it.optString("id")!=id }.forEach { newer.put(it) }
+                d.put(key,newer); save(d,"DELETE_"+key,id); openScreen(parent)
             }
         }
     }
@@ -970,18 +1040,29 @@ class MainActivity : Activity() {
     private fun showPhotos(r:JSONObject) {
         for(i in 0 until arr(r,"photos").length()) {
             val uri=arr(r,"photos").optString(i)
-            val thumb=ImageView(this).apply { adjustViewBounds=true; maxHeight=dp(200); contentDescription="Zdjęcie "+(i+1) }
+            val card=FrameLayout(this).apply {
+                background=background(0xFFECEFF1.toInt()); clipToOutline=true; elevation=dp(2).toFloat()
+            }
+            val thumb=ImageView(this).apply { scaleType=ImageView.ScaleType.CENTER_CROP; contentDescription="Zdjęcie "+(i+1); adjustViewBounds=true }
             try {
                 val bounds=android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds=true }
                 contentResolver.openInputStream(Uri.parse(uri))?.use { android.graphics.BitmapFactory.decodeStream(it,null,bounds) }
                 var sample=1
-                while(bounds.outWidth/sample>900 || bounds.outHeight/sample>900) sample*=2
+                while(bounds.outWidth/sample>1200 || bounds.outHeight/sample>1200) sample*=2
                 val options=android.graphics.BitmapFactory.Options().apply { inSampleSize=sample }
-                contentResolver.openInputStream(Uri.parse(uri))?.use { thumb.setImageBitmap(android.graphics.BitmapFactory.decodeStream(it,null,options)) }
-                root.addView(thumb,LinearLayout.LayoutParams(-1,dp(200)))
-            } catch (_:Exception) { label("Zdjęcie "+(i+1)+": plik niedostępny na tym urządzeniu") }
-            val driveId=r.optJSONObject("driveFiles")?.optString(hash(prefs.getString("driveEmail","") ?: "").take(24)+"|"+uri).orEmpty()
-            label("Zdjęcie "+(i+1)+if(driveId.isBlank()) " · lokalne" else " · zapisane na Google Disk")
+                val bitmap=contentResolver.openInputStream(Uri.parse(uri))?.use { android.graphics.BitmapFactory.decodeStream(it,null,options) }
+                if(bitmap==null) throw java.io.FileNotFoundException()
+                thumb.setImageBitmap(bitmap)
+                val width=resources.displayMetrics.widthPixels-dp(32)
+                val height=(width.toFloat()*bitmap.height/bitmap.width).toInt().coerceIn(dp(160),dp(360))
+                card.addView(thumb,FrameLayout.LayoutParams(-1,height))
+                thumb.setOnClickListener { try { val u=Uri.parse(uri); val share=if(u.scheme=="file") FileProvider.getUriForFile(this,packageName+".photos",File(u.path!!)) else u; startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(share,"image/*").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)) } catch(_:Exception) { toast("Nie można otworzyć zdjęcia") } }
+                root.addView(card,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(16); topMargin=dp(4) })
+            } catch(_:Exception) {
+                val placeholder=ImageView(this).apply { setImageResource(android.R.drawable.ic_menu_gallery); contentDescription="Zdjęcie niedostępne"; setPadding(dp(32),dp(32),dp(32),dp(32)); setOnClickListener { toast("Oryginał zdjęcia nie jest dostępny na tym urządzeniu") } }
+                card.addView(placeholder,FrameLayout.LayoutParams(-1,dp(120)))
+                root.addView(card,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(16) })
+            }
         }
     }
     private fun newForm(key:String,id:String="",objectId:String="",sendAfterSave:Boolean=false) {
@@ -1012,7 +1093,8 @@ class MainActivity : Activity() {
         root.addView(e,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
     }
     private fun renderForm() {
-        base(when(formKind) { "objects" -> "Obiekt"; "materials" -> "Zużyty materiał"; "links" -> "Dodaj zdjęcia"; else -> "Notatka" })
+        if(formKind=="expenses" && !walletUnlocked) { settings(); confirmPin { walletUnlocked=true; renderForm() }; return }
+        base(when(formKind) { "objects" -> "Obiekt"; "expenses" -> "Zakup za własne pieniądze"; "materials" -> "Zużyty materiał"; "links" -> "Dodaj zdjęcia"; else -> "Notatka" })
         screen="form"; nav()
         if(formKind=="objects") {
             label("TAG: "+draft.optString("TAG").ifBlank { "automatycznie po zapisaniu miasta" })
@@ -1024,8 +1106,13 @@ class MainActivity : Activity() {
                     draft.put("date",it.toString()); renderForm()
                 }
             }
-            button("Obiekt: "+(objectById(draft.optString("objectId"))?.let { objectName(it) } ?: if(formKind=="notes") "Bez obiektu" else "Wybierz")) {
-                chooseObject(formKind=="notes") { draft.put("objectId",it?.optString("id") ?: ""); draft.remove("Obiekt"); renderForm() }
+            button("Obiekt: "+(objectById(draft.optString("objectId"))?.let { objectName(it) } ?: if(formKind in listOf("notes","expenses")) "Bez obiektu" else "Wybierz")) {
+                chooseObject(formKind in listOf("notes","expenses")) { draft.put("objectId",it?.optString("id") ?: ""); draft.remove("Obiekt"); renderForm() }
+            }
+            if(formKind=="expenses") {
+                if(!draft.has("amount") && draft.has("cents")) draft.put("amount",BigDecimal.valueOf(draft.optLong("cents"),2).toPlainString())
+                field("Kwota zakupu (zł)","amount",numeric=true)
+                field("Co kupiłeś? (opcjonalnie)","text",true)
             }
             if(formKind=="materials") {
                 field("Nazwa materiału","name")
@@ -1077,13 +1164,18 @@ class MainActivity : Activity() {
             }
         } else {
             if(recordDate(draft).isBlank()) { toast("Wybierz datę"); return }
-            if(formKind!="notes" && draft.optString("objectId").isBlank()) { toast("Wybierz obiekt"); return }
+            if(formKind !in listOf("notes","expenses") && draft.optString("objectId").isBlank()) { toast("Wybierz obiekt"); return }
             if(formKind=="materials") {
                 val qty=DomainRules.quantity(draft.optString("quantity"),draft.optString("unit","szt."))
                 if(draft.optString("name").isBlank() || qty==null || qty<=BigDecimal.ZERO) { toast("Podaj nazwę i ilość większą od zera"); return }
                 if(draft.optString("unit","szt.")=="szt." && qty.stripTrailingZeros().scale()>0) { toast("Liczba sztuk musi być całkowita"); return }
                 draft.put("quantity",qty.stripTrailingZeros().toPlainString())
                 if(!draft.has("unit")) draft.put("unit","szt.")
+            }
+            if(formKind=="expenses") {
+                val cents=WalletRules.money(draft.optString("amount"))
+                if(cents==null || cents<=0 || cents<draft.optLong("reimbursedCents")) { toast("Podaj poprawną kwotę, nie mniejszą niż zapisany zwrot"); return }
+                draft.put("cents",cents); draft.remove("amount")
             }
             if(formKind=="notes" && !DomainRules.validNote(draft.optString("text"),arr(draft,"photos").length())) { toast("Dodaj tekst lub zdjęcie"); return }
             if(formKind=="links" && arr(draft,"photos").length()==0 && draft.optString("Link Google Drive").isBlank()) { toast("Dodaj zdjęcie lub link"); return }
@@ -1124,6 +1216,14 @@ class MainActivity : Activity() {
         label(if(prefs.getBoolean("driveConnected",false)) "Połączono: "+prefs.getString("driveEmail","Google Disk") else "Disk nie jest połączony")
         prefs.getString("driveError",null)?.takeIf { it.isNotBlank() }?.let { label(it) }
         label("Zdjęcia będą zapisane w folderze aplikacji, z podziałem na obiekty i daty. Dotychczasowy folder zostanie zachowany.")
+        label("Kopie dziennika: WorkMeter / Backup")
+        label(prefs.getString("backupStatus","Automatyczna kopia raz dziennie po połączeniu Google Disk").orEmpty())
+        button("Kopia dzienna: "+if(prefs.getBoolean("dailyBackupEnabled",true)) "włączona" else "wyłączona") {
+            val enabled=!prefs.getBoolean("dailyBackupEnabled",true)
+            prefs.edit().putBoolean("dailyBackupEnabled",enabled).apply()
+            if(enabled) DriveBackupWorker.schedule(this) else androidx.work.WorkManager.getInstance(this).cancelUniqueWork("workmeter-daily-backup")
+            driveSettings()
+        }
         button("Skrót zdjęć w powiadomieniach") {
             if(Build.VERSION.SDK_INT>=33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED) requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),205)
             else { UploadNotifications.shortcut(this); toast("Skrót dodany do powiadomień") }
@@ -1133,6 +1233,7 @@ class MainActivity : Activity() {
             if(uploading) { toast("Poczekaj na zakończenie przesyłania"); return@button }
             val request=com.google.android.gms.auth.api.identity.RevokeAccessRequest.builder().setScopes(listOf(Scope(driveScope))).build()
             Identity.getAuthorizationClient(this).revokeAccess(request).addOnSuccessListener {
+                androidx.work.WorkManager.getInstance(this).cancelAllWorkByTag("driveBackup")
                 driveToken=null; prefs.edit().remove("driveEmail").remove("driveError").putBoolean("driveConnected",false).apply(); driveSettings()
             }.addOnFailureListener { driveFailure(it) }
         }
@@ -1187,7 +1288,8 @@ class MainActivity : Activity() {
                 val about=driveJson("GET","https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)",token)
                 runOnUiThread {
                     prefs.edit().remove("driveError").putBoolean("driveConnected",true).putString("driveEmail",about.optJSONObject("user")?.optString("emailAddress") ?: "Google Drive").apply()
-                    if(upload.isBlank()) driveSettings() else uploadPhotos(upload,token)
+                    DriveBackupWorker.schedule(this)
+                    if(upload.isBlank()) driveSettings() else if(upload=="backup") { DriveBackupWorker.manual(this); toast("Kopia w kolejce: WorkMeter / Backup"); logs() } else uploadPhotos(upload,token)
                 }
             } catch (_:Exception) { runOnUiThread { prefs.edit().putString("driveError","Google Disk nie odpowiada. Sprawdź, czy Drive API jest włączone i konto ma dostęp.").apply(); toast("Nie udało się połączyć z Google Disk"); } }
         }
@@ -1212,3 +1314,4 @@ class MainActivity : Activity() {
         toast("Zdjęcia w kolejce. Możesz zwinąć aplikację; postęp będzie w powiadomieniu.")
     }
 }
+
