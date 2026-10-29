@@ -43,9 +43,22 @@ class DriveUploadWorker(context:Context,params:WorkerParameters):Worker(context,
     }
     override fun getForegroundInfo():ForegroundInfo=UploadNotifications.foreground(applicationContext,reference,"Przygotowanie zdjęć",0,0)
     private fun showProgress(message:String,done:Int,total:Int) { setForegroundAsync(UploadNotifications.foreground(applicationContext,reference,message,done,total)).get() }
+    private var currentPhoto:String?=null
+    private fun rememberError(message:String) {
+        val parts=reference.split(":",limit=2)
+        val row=if(parts.size==2) rows(data(),parts[0]).find { it.optString("id")==parts[1] } else null
+        val accountKey=hash(email).take(24)+"|"
+        val photos=row?.optJSONArray("photos") ?: JSONArray()
+        val failed=JSONArray()
+        for(i in 0 until photos.length()) {
+            val uri=photos.optString(i)
+            if((currentPhoto==null || currentPhoto==uri) && row?.optJSONObject("driveFiles")?.optString(accountKey+uri).isNullOrBlank()) failed.put(uri)
+        }
+        prefs.edit().putString("uploadError_"+reference,message).putString("uploadFailedPhotos_"+reference,failed.toString()).apply()
+    }
     private fun finishJob(message:String,retry:Boolean):Result {
         prefs.edit().remove("uploadQueued_"+reference).apply()
-        if(retry) prefs.edit().putString("uploadError_"+reference,message).apply() else prefs.edit().remove("uploadError_"+reference).apply()
+        if(retry) rememberError(message) else prefs.edit().remove("uploadError_"+reference).remove("uploadFailedPhotos_"+reference).apply()
         UploadNotifications.result(applicationContext,reference,message,retry)
         return if(retry) Result.failure() else Result.success()
     }
@@ -79,6 +92,7 @@ class DriveUploadWorker(context:Context,params:WorkerParameters):Worker(context,
                 driveFolder(if(obj==null) { if(row.optString("storage")=="car") "W samochodzie" else "Bez obiektu" } else obj.optString("TAG")+" "+obj.optString("organization"),day,token)
             }
             for((index,photo) in photoList.withIndex()) {
+                currentPhoto=photo
                 if(isStopped) throw InterruptedException()
                 showProgress("Zdjęcie ${index+1} / ${photoList.size}",index,photoList.size)
                 val already=onMain { rows(data(),key).find { it.optString("id")==id }?.optJSONObject("driveFiles")?.optString(accountKey+photo).orEmpty() }
@@ -88,7 +102,7 @@ class DriveUploadWorker(context:Context,params:WorkerParameters):Worker(context,
                 val q="trashed = false and '"+dayId+"' in parents and appProperties has { key='r3Upload' and value='"+uploadKey+"' }"
                 val matches=driveJson("GET","https://www.googleapis.com/drive/v3/files?q="+URLEncoder.encode(q,"UTF-8")+"&fields=files(id)&pageSize=1",token).optJSONArray("files")
                 val remoteId=if(matches!=null && matches.length()>0) matches.getJSONObject(0).getString("id") else {
-                    val mime=contentResolver.getType(Uri.parse(photo)) ?: "image/jpeg"
+                    val mime=contentResolver.getType(Uri.parse(photo)) ?: android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(Uri.parse(photo).lastPathSegment.orEmpty().substringAfterLast(".").lowercase()) ?: "image/jpeg"
                     val ext=android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(mime) ?: "jpg"
                     val meta=JSONObject().put("name",key+"-"+id+"-"+(index+1)+"."+ext)
                         .put("parents",JSONArray().put(dayId)).put("appProperties",JSONObject().put("r3Upload",uploadKey))
@@ -132,7 +146,7 @@ class DriveUploadWorker(context:Context,params:WorkerParameters):Worker(context,
             if(isStopped) return Result.retry()
             if(e is java.io.FileNotFoundException || e is SecurityException) return finishJob("Brak dostępu do zdjęcia — wybierz je ponownie w aplikacji",true)
             if(e is DriveHttpException && e.status in listOf(400,403,404)) return finishJob("Google Disk odrzucił żądanie (${e.status}). Sprawdź dostęp i ponów",true)
-            prefs.edit().putString("uploadError_"+reference,"Ponowienie po odzyskaniu połączenia").apply()
+            rememberError("Ponowienie po odzyskaniu połączenia")
             UploadNotifications.result(applicationContext,reference,"Oczekiwanie na ponowienie — zapisane zdjęcia pozostają na dysku",true)
             return Result.retry()
         }
@@ -143,7 +157,7 @@ class DriveUploadWorker(context:Context,params:WorkerParameters):Worker(context,
     private fun driveFolder(name:String,parent:String?,token:String)=drive.folder(name,parent,token)
     companion object {
         fun enqueue(context:Context,reference:String,email:String) {
-            context.getSharedPreferences("r3_gate",Context.MODE_PRIVATE).edit().putBoolean("uploadQueued_"+reference,true).remove("uploadError_"+reference).apply()
+            context.getSharedPreferences("r3_gate",Context.MODE_PRIVATE).edit().putBoolean("uploadQueued_"+reference,true).remove("uploadError_"+reference).remove("uploadFailedPhotos_"+reference).apply()
             val request=OneTimeWorkRequestBuilder<DriveUploadWorker>()
                 .setInputData(workDataOf("reference" to reference,"email" to email))
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
