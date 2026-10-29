@@ -211,7 +211,7 @@ class AppFlowTest {
                 val widgetView=GateWidget.render(a).apply(a,android.widget.FrameLayout(a))
                 assertEquals("ZMIEŃ OBIEKT",widgetView.findViewById<TextView>(R.id.wswitch).text.toString())
                 assertEquals(0xFF42D77D.toInt(),widgetView.findViewById<TextView>(R.id.wstatus).currentTextColor)
-                assertFalse(views(widgetView).filterIsInstance<TextView>().any { it.text=="ZAKUPY" })
+                assertEquals("ZAKUPY",widgetView.findViewById<TextView>(R.id.wshopping).text.toString())
                 val frame=android.widget.FrameLayout(a).apply { setBackgroundColor(android.graphics.Color.BLACK); setPadding(24,100,24,24) }
                 frame.addView(GateWidget.render(a).apply(a,frame),android.widget.FrameLayout.LayoutParams(-1,(160*a.resources.displayMetrics.density).toInt()))
                 a.setContentView(frame)
@@ -319,7 +319,7 @@ class AppFlowTest {
                 assertFalse(all(a).filterIsInstance<Button>().any { it.text=="GOOGLE DRIVE" || it.text=="ZAROBEK (pokaż)" })
                 settings(a); assertTrue(has(a,"Ustawienia"))
                 assertTrue(has(a,"GENERUJ RAPORT SMS")); assertTrue(has(a,"Logi / eksport / import")); assertTrue(has(a,"Google Disk"))
-                click(a,"O aplikacji"); assertTrue(has(a,"Wersja: 2.2")); a.onBackPressed()
+                click(a,"O aplikacji"); assertTrue(has(a,"Wersja: 2.3")); a.onBackPressed()
                 click(a,"Portfel / rozliczenia (PIN)")
                 assertFalse(has(a,"Portfel"))
             }
