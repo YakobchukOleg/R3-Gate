@@ -1,1 +1,28 @@
-<?xml version="1.0" encoding="utf-8"?><resources><string name="widget_description">WT — czas pracy i szybkie sterowanie</string><style name="WTTheme" parent="android:style/Theme.Material.Light.NoActionBar"><item name="android:fontFamily">sans</item><item name="android:colorAccent">#FF5C5C</item><item name="android:windowLightStatusBar">false</item><item name="android:statusBarColor">#000000</item><item name="android:navigationBarColor">#000000</item><item name="android:windowBackground">#FFFFFF</item></style></resources>
+<resources>
+    <string name="widget_description">WorkMeter — czas pracy i szybkie sterowanie</string>
+    <style name="WTTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item><item name="android:colorAccent">#FF5C5C</item>
+        <item name="android:windowLightStatusBar">false</item><item name="android:statusBarColor">#000000</item>
+        <item name="android:navigationBarColor">#000000</item><item name="android:windowBackground">#FFFFFF</item>
+        <item name="android:alertDialogTheme">@style/WorkMeterDialogTheme</item>
+        <item name="android:datePickerDialogTheme">@style/WorkMeterDialogTheme</item>
+        <item name="android:timePickerDialogTheme">@style/WorkMeterDialogTheme</item>
+    </style>
+    <style name="WorkMeterDialogTheme" parent="android:style/Theme.Material.Light.Dialog.Alert">
+        <item name="android:colorAccent">#FF5C5C</item><item name="android:fontFamily">sans</item>
+        <item name="android:windowBackground">@drawable/dialog_bg</item><item name="android:colorBackground">#FFFFFF</item>
+        <item name="android:textColorPrimary">#37474F</item><item name="android:textColorSecondary">#607D8B</item>
+        <item name="android:editTextStyle">@style/WorkMeterDialogField</item>
+        <item name="android:buttonBarPositiveButtonStyle">@style/WorkMeterDialogButton</item>
+        <item name="android:buttonBarNegativeButtonStyle">@style/WorkMeterDialogButton</item>
+        <item name="android:buttonBarNeutralButtonStyle">@style/WorkMeterDialogButton</item>
+    </style>
+    <style name="WorkMeterDialogField" parent="android:style/Widget.Material.Light.EditText">
+        <item name="android:background">@drawable/dialog_field</item><item name="android:textColor">#37474F</item>
+        <item name="android:textColorHint">#607D8B</item><item name="android:textSize">16sp</item>
+    </style>
+    <style name="WorkMeterDialogButton" parent="android:style/Widget.Material.Light.Button.Borderless">
+        <item name="android:textColor">#FF5C5C</item><item name="android:textAllCaps">false</item>
+        <item name="android:textSize">14sp</item><item name="android:minHeight">36dp</item>
+    </style>
+</resources>
