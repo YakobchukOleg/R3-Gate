@@ -45,11 +45,11 @@ class GateWidget : AppWidgetProvider() {
             v.setViewVisibility(R.id.wend,if(a==null) android.view.View.VISIBLE else android.view.View.GONE)
             val compact=options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH,250)<220
             v.setTextViewText(R.id.wswitch,if(compact) "OBIEKT ↔" else "ZMIEŃ OBIEKT")
-            v.setTextViewText(R.id.wtitle,"WT")
+            v.setTextViewText(R.id.wtitle,"WorkMeter")
             v.setViewVisibility(R.id.wstage,if(travel) android.view.View.VISIBLE else android.view.View.GONE)
             if(travel) v.setChronometer(R.id.wstage,SystemClock.elapsedRealtime()-(System.currentTimeMillis()-a!!.optLong("stageStart")),"W drodze: %s",true)
             v.setTextViewText(R.id.wstatus,if(a!=null) "● ONLINE" else "● OFFLINE")
-            v.setTextColor(R.id.wstatus,if(a!=null) 0xFFFF9898.toInt() else 0xFFCFD8DC.toInt())
+            v.setTextColor(R.id.wstatus,if(a!=null) 0xFF42D77D.toInt() else 0xFFCFD8DC.toInt())
             v.setTextViewText(R.id.wstart,"Rozpoczęcie: "+if(start>0) time.format(Date(start)) else "—")
             v.setTextViewText(R.id.wend,"Zakończenie: "+if(a!=null || end<=0) "— Offline" else time.format(Date(end)))
             if(start>0) {
