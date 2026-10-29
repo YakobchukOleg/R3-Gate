@@ -126,7 +126,8 @@ class MainActivity : Activity() {
             "start" -> confirmPin { startShift() }
             "stop" -> confirmPin { stopShift() }
             "switch" -> confirmAction("Zmienić obiekt?") { switchObject() }
-            "travel", "shopping" -> toggleTravel()
+            "travel" -> toggleTravel()
+            "shopping" -> toggleShopping()
         }
     }
     private fun data(): JSONObject = try { JSONObject(prefs.getString("data","{}")!!) } catch (_: Exception) { JSONObject() }
@@ -148,7 +149,7 @@ class MainActivity : Activity() {
     }
     private fun stopShift() {
         val d=data(); val a=active(d); if(a==null) { toast("Brak rozpoczętej pracy"); home(); return }
-        val end=System.currentTimeMillis(); closeStage(a,end); a.put("end",end); arr(d,"shifts").put(a); d.remove("active"); save(d,"STOP",fmt.format(Date(end))); home()
+        val end=System.currentTimeMillis(); closeStage(a,end); a.put("end",end); arr(d,"shifts").put(a); d.remove("active"); save(d,"STOP",fmt.format(Date(end))); PhotoQueue.enqueueAll(this); home()
     }
     private fun closeStage(a:JSONObject, end:Long) {
         val st=a.optLong("stageStart",a.optLong("start"))
@@ -156,6 +157,7 @@ class MainActivity : Activity() {
             val segments=arr(a,"stages")
             segments.put(JSONObject().put("start",st).put("end",end)
                 .put("kind",a.optString("kind","Obiekt")).put("object",a.optString("object","")).put("objectId",a.optString("objectId")))
+            a.optJSONObject("stageMeta")?.let { meta -> meta.keys().forEach { key -> segments.getJSONObject(segments.length()-1).put(key,meta.get(key)) } }
             a.put("stages",segments)
         }
     }
@@ -164,7 +166,10 @@ class MainActivity : Activity() {
         if(a==null) { toast("Najpierw rozpocznij pracę"); return }
         val now=System.currentTimeMillis()
         closeStage(a,now)
+        val origin=a.optString("object"); val originId=a.optString("objectId")
+        a.remove("stageMeta")
         a.put("stageStart",now).put("kind",kind)
+        if(kind=="Przejazd") a.put("stageMeta",JSONObject().put("fromObject",origin).put("fromObjectId",originId))
         if(kind!="Obiekt") { a.put("object",""); a.put("objectId","") }
         if(target.isNotEmpty()) a.put("object",target)
         save(d,"STAGE","$kind: "+a.optString("object")); home()
@@ -175,7 +180,9 @@ class MainActivity : Activity() {
             if (obj != null) {
                 val d = data(); val a = active(d) ?: return@chooseObject
                 val now = System.currentTimeMillis()
+                if(a.optString("kind")=="Przejazd") a.optJSONObject("stageMeta")?.put("toObject",objectName(obj))?.put("toObjectId",obj.optString("id"))
                 closeStage(a,now)
+                a.remove("stageMeta")
                 a.put("stageStart",now).put("kind","Obiekt")
                     .put("object",objectName(obj)).put("objectId",obj.optString("id"))
                 save(d,"STAGE",objectName(obj)); home()
@@ -193,7 +200,9 @@ class MainActivity : Activity() {
             if(obj!=null) {
                 val d=data(); val current=active(d) ?: return@objectPicker
                 if(current.optString("kind")!="Przejazd") return@objectPicker
-                val now=System.currentTimeMillis(); closeStage(current,now)
+                val now=System.currentTimeMillis()
+                current.optJSONObject("stageMeta")?.put("toObject",objectName(obj))?.put("toObjectId",obj.optString("id"))
+                closeStage(current,now); current.remove("stageMeta")
                 current.put("stageStart",now).put("kind","Obiekt").put("object",objectName(obj)).put("objectId",obj.optString("id"))
                 save(d,"ARRIVAL",objectName(obj)); home()
             }
@@ -201,8 +210,8 @@ class MainActivity : Activity() {
     }
     private fun weeklySms() {
         val today = LocalDate.now()
-        if (smsFrom == null) smsFrom = today.minusDays(((today.dayOfWeek.value + 4) % 7).toLong())
-        if (smsTo == null) smsTo = smsFrom!!.plusDays(6)
+        if (smsFrom == null) smsFrom = today.withDayOfMonth(1)
+        if (smsTo == null) smsTo = today
         smsReport()
     }
     private fun pickReportDate(initial: LocalDate, selected: (LocalDate) -> Unit) {
@@ -215,7 +224,7 @@ class MainActivity : Activity() {
     private fun smsReport() {
         val from = smsFrom ?: return
         val to = smsTo ?: return
-        val df = DateTimeFormatter.ofPattern("dd-MM-yyyy")
+        val df = DateTimeFormatter.ofPattern("dd.MM.yyyy")
         base("Raport SMS"); screen = "sms"; nav()
         button("Data od: ${from.format(displayDate)}") {
             pickReportDate(from) { smsFrom = it; smsReport() }
@@ -227,7 +236,9 @@ class MainActivity : Activity() {
             label("Data do nie może być wcześniejsza niż Data od.")
             return
         }
+        button("GENERUJ RAPORT SMS") { smsReport() }
         label("Okres: ${from.format(df)} – ${to.format(df)} (włącznie)")
+        active(data())?.let { if(!localDate(it.optLong("start")).isAfter(to)) label("Uwaga: otwarta zmiana nie jest uwzględniona w raporcie ani w sumie.") }
         val list = arr(data(), "shifts")
         val pl = listOf("Poniedziałek", "Wtorek", "Środa", "Czwartek", "Piątek", "Sobota", "Niedziela")
         val shifts = (0 until list.length()).mapNotNull { list.optJSONObject(it) }
@@ -348,8 +359,10 @@ class MainActivity : Activity() {
         when {
             screen == "home" -> finish()
             screen == "sms" -> settings()
-            screen in listOf("drive","logs","about","widgetSettings","wallet") -> settings()
+            screen in listOf("drive","logs","about","widgetSettings","wallet","language") -> settings()
             screen == "payment" || screen=="expenses" -> wallet()
+            screen=="car" || screen.startsWith("materialGroup:") -> openScreen("list:materials:")
+            screen=="queue" -> openScreen("list:links:")
             screen == "form" -> {
                 AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setMessage("Zachować szkic i wrócić?")
                     .setNegativeButton("Zostań",null).setPositiveButton("Wróć") { _, _ ->
@@ -389,7 +402,7 @@ class MainActivity : Activity() {
         fun line(text:String,size:Float,color:Int) { card.addView(TextView(this).apply {
             this.text=text; textSize=size; setTextColor(color); setPadding(0,dp(4),0,dp(4))
         }) }
-        line(if(a!=null) "● ONLINE" else "● OFFLINE",16f,if(a!=null) 0xFFFF9898.toInt() else 0xFFCFD8DC.toInt())
+        line(if(a!=null) "● ONLINE" else "● OFFLINE",16f,if(a!=null) 0xFF42D77D.toInt() else 0xFFCFD8DC.toInt())
         line(shown?.let { duration((if(a!=null) System.currentTimeMillis() else it.optLong("end"))-it.optLong("start")) } ?: "00:00",32f,Color.WHITE)
         line("Rozpoczęcie: "+(shown?.let { fmt.format(Date(it.optLong("start"))) } ?: "—"),14f,0xFFDBEAF7.toInt())
         if(a==null) line("Zakończenie: "+(recent?.let { fmt.format(Date(it.optLong("end"))) } ?: "—"),14f,0xFFDBEAF7.toInt())
@@ -403,7 +416,9 @@ class MainActivity : Activity() {
         else {
             button("🔴 ZAKOŃCZ PRACĘ") { confirmPin { stopShift() } }
             button("🔄 ZMIEŃ OBIEKT") { confirmAction("Zmienić obiekt?") { switchObject() } }
-            button(if(a.optString("kind")=="Przejazd") "🚗 PRZEJAZD · W DRODZE — ZAKOŃCZ" else "🚗 PRZEJAZD") { toggleTravel() }
+            button(if(a.optString("kind")=="Przejazd") "DOTARŁEM" else "🚗 PRZEJAZD") { toggleTravel() }
+            button(if(a.optString("kind")=="Zakupy") "ZAKOŃCZ ZAKUPY" else "ZAKUPY") { toggleShopping() }
+            if(a.optString("kind")=="Zakupy") button("Dane zakupów / paragony") { shoppingRecord(a.optString("shoppingRecordId")) }
         }
         label("TWÓJ DZIEŃ")
         tiles(listOf(
@@ -411,7 +426,8 @@ class MainActivity : Activity() {
             "MATERIAŁY" to { openScreen("list:materials:") },
             "NOTATKI" to { openScreen("notes") },
             "OBIEKTY" to { openScreen("objects") },
-            "MÓJ CZAS" to { report() }
+            "MÓJ CZAS" to { report() },
+            "GRAFIKI" to { charts() }
         ))
     }
     private fun settings() {
@@ -421,6 +437,7 @@ class MainActivity : Activity() {
         button("Google Disk") { driveSettings() }
         button("Logi / eksport / import") { logs() }
         button("Wygląd widżetu") { widgetSettings() }
+        button("Język aplikacji") { language() }
         button("O aplikacji") { about() }
     }
     private fun about() {
@@ -645,6 +662,8 @@ class MainActivity : Activity() {
             if(from>cursor) label("Brak przypisanego etapu: "+fmt.format(Date(cursor))+" → "+fmt.format(Date(from))+" · "+duration(from-cursor))
             val kind=stage.optString("kind","Obiekt")
             val name=if(kind=="Obiekt") stage.optString("object").ifBlank { objectById(stage.optString("objectId"))?.let { objectName(it) } ?: "Obiekt bez nazwy" } else kind
+            if(kind=="Przejazd") label("Z: "+stage.optString("fromObject","—")+"\nDo: "+stage.optString("toObject","—"))
+            if(kind=="Zakupy" && stage.optString("shoppingRecordId").isNotBlank()) button("Zakupy / paragony") { recordDetails("notes",stage.optString("shoppingRecordId"),screen) }
             label(name+"\n"+fmt.format(Date(from))+" → "+fmt.format(Date(to))+"\nCzas: "+duration(to-from))
             cursor=maxOf(cursor,to)
         }
@@ -691,6 +710,7 @@ class MainActivity : Activity() {
                 if(en<=st) { toast("Koniec musi być po rozpoczęciu"); return@setOnClickListener }
                 val current=data()
                 val row=rows(current,"shifts").find { it.optString("id")==id } ?: return@setOnClickListener
+                arr(row,"edits").put(JSONObject().put("at",System.currentTimeMillis()).put("start",row.optLong("start")).put("end",row.optLong("end")))
                 row.put("start",st).put("end",en); save(current,"EDIT_SHIFT",id); dialog.dismiss(); report()
             }
         }
@@ -724,7 +744,13 @@ class MainActivity : Activity() {
                     dataIntent?.clipData?.let { clips -> for (i in 0 until clips.itemCount) uris.add(clips.getItemAt(i).uri) }
                     if (uris.isEmpty()) dataIntent?.data?.let { uris.add(it) }
                     for (u in uris) {
-                        try { contentResolver.takePersistableUriPermission(u,Intent.FLAG_GRANT_READ_URI_PERMISSION); arr(draft,"photos").put(u.toString()) }
+                        try {
+                            val folder=File(filesDir,"photos").apply { mkdirs() }
+                            val ext=android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(contentResolver.getType(u).orEmpty()) ?: "jpg"
+                            val local=File(folder,UUID.randomUUID().toString()+"."+ext)
+                            try { contentResolver.openInputStream(u)!!.use { input -> local.outputStream().use { input.copyTo(it) } }; arr(draft,"photos").put(Uri.fromFile(local).toString()) }
+                            catch(e:Exception) { local.delete(); throw e }
+                        }
                         catch (_:Exception) { toast("Nie można zachować dostępu do zdjęcia. Wybierz inny plik.") }
                     }
                 } else cameraPath?.let { arr(draft,"photos").put(Uri.fromFile(File(it)).toString()) }
@@ -760,6 +786,7 @@ class MainActivity : Activity() {
             require(p.optLong("cents")>0 && p.optString("method") in listOf("cash","card"))
             val from=LocalDate.parse(p.optString("periodFrom")); val to=LocalDate.parse(p.optString("periodTo")); LocalDate.parse(p.optString("date")); require(!to.isBefore(from))
         }
+        require(validStock(d)) { "Nieprawidłowe stany materiałów" }
         d.optJSONObject("walletSettings")?.let { require(WalletRules.rate(it.optString("defaultRate","30.00"))!=null) }
     }
     private val displayDate = DateTimeFormatter.ofPattern("dd-MM-yyyy")
@@ -827,7 +854,7 @@ class MainActivity : Activity() {
         layout.addView(searchRow)
         if(optional) layout.addView(makeButton("Bez obiektu") { dialog.dismiss(); selected(null) })
         if(arrival) {
-            layout.addView(makeButton("🛒 Zakupy") { dialog.dismiss(); beginStage("Zakupy") })
+            layout.addView(makeButton("🛒 Zakupy") { dialog.dismiss(); startShopping() })
             layout.addView(makeButton("+ Nowy obiekt") { dialog.dismiss(); screen="home"; newForm("objects") })
         }
         layout.addView(object:ScrollView(this) {
@@ -843,6 +870,11 @@ class MainActivity : Activity() {
         when {
             target=="home" -> home()
             target=="settings" -> settings()
+            target=="language" -> language()
+            target=="charts" -> charts()
+            target=="queue" -> uploadQueue()
+            target=="car" -> carStock()
+            target.startsWith("materialGroup:") -> { val p=target.split(":"); materialGroup(p[1],p.getOrElse(2){""}) }
             target=="about" -> about()
             target=="widgetSettings" -> widgetSettings()
             target=="wallet" -> wallet()
@@ -948,6 +980,8 @@ class MainActivity : Activity() {
             button(if(f.optBoolean("nameSort")) "Sortowanie: nazwa" else "Sortowanie: data, najnowsze") { f.put("nameSort",!f.optBoolean("nameSort")); refresh() }
         }
         button("+ Dodaj") { newForm(key,objectId=objectId) }
+        if(key=="links") { button("KOLEJKA WYSYŁANIA") { uploadQueue() }; button("WYŚLIJ TERAZ") { sendQueue() } }
+        if(key=="materials" && objectId.isBlank()) button("W SAMOCHODZIE") { carStock() }
         if(f.optString("from").isNotBlank() && f.optString("to").isNotBlank() && f.optString("from")>f.optString("to")) { label("Data do musi być po dacie od."); return }
         val selected=objectId.ifBlank { f.optString("objectId") }
         val list=rows(data(),key).filter {
@@ -959,14 +993,21 @@ class MainActivity : Activity() {
         }.let { list -> if(f.optBoolean("nameSort")) list.sortedBy { it.optString("name",it.optString("text")).lowercase(Locale.ROOT) } else list.sortedByDescending { recordDate(it)+it.optString("created") } }
         if(list.isEmpty()) label("Brak wpisów dla wybranych filtrów.")
         if(key=="materials") {
+            val used=list.filter { it.optString("storage")!="car" }
             label("Podsumowanie materiałów dla wybranego zakresu")
-            val sums=linkedMapOf<String,BigDecimal>()
-            for(r in list) {
+            val sums=linkedMapOf<Pair<String,String>,BigDecimal>()
+            for(r in used) {
                 val q=r.optString("quantity").replace(",",".").toBigDecimalOrNull() ?: continue
-                val group=r.optString("name")+" · "+r.optString("unit","szt.")
+                val group=r.optString("name") to r.optString("unit","szt.")
                 sums[group]=(sums[group] ?: BigDecimal.ZERO)+q
             }
-            sums.forEach { (name,q) -> label(name+": "+q.stripTrailingZeros().toPlainString()) }
+            sums.forEach { (group,q) -> label(group.first+" — "+q.stripTrailingZeros().toPlainString()+" "+group.second) }
+            for((group,items) in used.groupBy { recordDate(it) to it.optString("objectId") }) {
+                label("── "+dateText(group.first)+" ──")
+                val obj=objectById(group.second)?.let { objectName(it) } ?: "Bez obiektu"
+                button(obj+"\n"+items.joinToString("\n") { materialLine(it) }) { materialGroup(group.first,group.second) }
+            }
+            return
         }
         var lastDate=""
         for(r in list) {
@@ -978,7 +1019,10 @@ class MainActivity : Activity() {
                 "notes" -> (if(r.optBoolean("shopping")) "🛒 " else "")+(if(r.optBoolean("done")) "✓ " else if(r.optBoolean("aktualne")) "● " else "")+r.optString("text").ifBlank { "Notatka ze zdjęciem" }.take(100)
                 else -> "Zdjęcia: "+arr(r,"photos").length()+" · "+r.optString("Link Google Drive")
             }
-            button(summary+"\n"+obj) { recordDetails(key,r.optString("id"),target) }
+            if(key=="links" && arr(r,"photos").length()>0) {
+                val status=PhotoQueue.status(this,key,r)
+                root.addView(makeButton(summary+"\n"+obj+"\n"+status.caption) { recordDetails(key,r.optString("id"),target) }.apply { background=background(status.color) },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
+            } else button(summary+"\n"+obj) { recordDetails(key,r.optString("id"),target) }
         }
     }
     private var detailParent="home"
@@ -1006,8 +1050,9 @@ class MainActivity : Activity() {
                     } }.setNegativeButton("Anuluj",null).show()
             }
         }
-        if(key=="materials") label(r.optString("name")+" · "+r.optString("quantity")+" "+r.optString("unit","szt."))
+        if(key=="materials") label(materialLine(r))
         if(key=="notes") {
+            if(r.optString("store").isNotBlank()) label("Sklep: "+r.optString("store"))
             if(r.optBoolean("shopping")) label("🛒 Zakupy / paragon")
             label(r.optString("text"))
             label(if(r.optBoolean("done")) "Wykonano: "+r.optString("completedAt") else if(r.optBoolean("aktualne")) "Aktualna" else "Zwykła notatka")
@@ -1023,12 +1068,19 @@ class MainActivity : Activity() {
         if(arr(r,"photos").length()>0) button(if(uploading) "Trwa przesyłanie…" else "Wyślij zdjęcia na Google Disk / ponów") {
             if(!uploading) { pendingUpload=key+":"+id; authorizeDrive() } else toast("Przesyłanie trwa lub czeka na internet. Postęp jest w powiadomieniu.")
         }
+        if(key=="links") button("Udostępnij folder przez link") {
+            confirmAction("Każda osoba mająca link będzie mogła przeglądać wszystkie pliki w tym folderze. Otworzyć dostęp?") {
+                prefs.edit().putBoolean("shareConfirmed_"+id,true).apply(); pendingUpload="share:"+id; authorizeDrive()
+            }
+        }
         button("Edytuj") { screen=parent; newForm(key,id) }
         button("Usuń wpis") {
             confirmAction("Usunąć wpis z aplikacji? Pliki na Google Disk pozostaną.") {
                 val d=data(); val newer=JSONArray()
                 rows(d,key).filter { it.optString("id")!=id }.forEach { newer.put(it) }
-                d.put(key,newer); save(d,"DELETE_"+key,id); openScreen(parent)
+                d.put(key,newer)
+                if(key=="materials" && !validStock(d)) { toast("Najpierw usuń lub popraw powiązane przeniesienia z samochodu"); return@confirmAction }
+                save(d,"DELETE_"+key,id); openScreen(parent)
             }
         }
     }
@@ -1045,18 +1097,12 @@ class MainActivity : Activity() {
             }
             val thumb=ImageView(this).apply { scaleType=ImageView.ScaleType.CENTER_CROP; contentDescription="Zdjęcie "+(i+1); adjustViewBounds=true }
             try {
-                val bounds=android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds=true }
-                contentResolver.openInputStream(Uri.parse(uri))?.use { android.graphics.BitmapFactory.decodeStream(it,null,bounds) }
-                var sample=1
-                while(bounds.outWidth/sample>1200 || bounds.outHeight/sample>1200) sample*=2
-                val options=android.graphics.BitmapFactory.Options().apply { inSampleSize=sample }
-                val bitmap=contentResolver.openInputStream(Uri.parse(uri))?.use { android.graphics.BitmapFactory.decodeStream(it,null,options) }
-                if(bitmap==null) throw java.io.FileNotFoundException()
+                val bitmap=PhotoPreview.decode(this,Uri.parse(uri))
+                thumb.scaleType=ImageView.ScaleType.FIT_CENTER
                 thumb.setImageBitmap(bitmap)
                 val width=resources.displayMetrics.widthPixels-dp(32)
-                val height=(width.toFloat()*bitmap.height/bitmap.width).toInt().coerceIn(dp(160),dp(360))
-                card.addView(thumb,FrameLayout.LayoutParams(-1,height))
-                thumb.setOnClickListener { try { val u=Uri.parse(uri); val share=if(u.scheme=="file") FileProvider.getUriForFile(this,packageName+".photos",File(u.path!!)) else u; startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(share,"image/*").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)) } catch(_:Exception) { toast("Nie można otworzyć zdjęcia") } }
+                card.addView(thumb,FrameLayout.LayoutParams(-1,width*9/16))
+                thumb.setOnClickListener { openPhoto(uri) }
                 root.addView(card,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(16); topMargin=dp(4) })
             } catch(_:Exception) {
                 val placeholder=ImageView(this).apply { setImageResource(android.R.drawable.ic_menu_gallery); contentDescription="Zdjęcie niedostępne"; setPadding(dp(32),dp(32),dp(32),dp(32)); setOnClickListener { toast("Oryginał zdjęcia nie jest dostępny na tym urządzeniu") } }
@@ -1098,7 +1144,9 @@ class MainActivity : Activity() {
         screen="form"; nav()
         if(formKind=="objects") {
             label("TAG: "+draft.optString("TAG").ifBlank { "automatycznie po zapisaniu miasta" })
-            field("Miasto","city"); field("Adres","Adres"); field("Nazwa organizacji","organization")
+            field("Miasto","city")
+            if(draft.optString("TAG").isBlank()) field("Tag (opcjonalnie)","tagPrefix") else label("Tag (stały): "+draft.optString("TAG"))
+            field("Adres","Adres"); field("Nazwa organizacji","organization")
             field("Notatki / kontakt","notes",true); field("Link Google Maps (opcjonalnie)","maps")
         } else {
             button("Data: "+recordDate(draft).let { if(it.isBlank()) "Wybierz datę" else dateText(it) }) {
@@ -1106,8 +1154,11 @@ class MainActivity : Activity() {
                     draft.put("date",it.toString()); renderForm()
                 }
             }
+            if(formKind=="materials" && draft.optString("sourceId").isBlank()) button("Miejsce: "+if(draft.optString("storage")=="car") "W samochodzie" else "Na obiekcie") {
+                AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Miejsce").setItems(arrayOf("Na obiekcie","W samochodzie")) { _,i -> draft.put("storage",if(i==1) "car" else "object"); renderForm() }.show()
+            }
             button("Obiekt: "+(objectById(draft.optString("objectId"))?.let { objectName(it) } ?: if(formKind in listOf("notes","expenses")) "Bez obiektu" else "Wybierz")) {
-                chooseObject(formKind in listOf("notes","expenses")) { draft.put("objectId",it?.optString("id") ?: ""); draft.remove("Obiekt"); renderForm() }
+                chooseObject(formKind in listOf("notes","expenses") || (formKind=="materials" && draft.optString("storage")=="car")) { draft.put("objectId",it?.optString("id") ?: ""); draft.remove("Obiekt"); renderForm() }
             }
             if(formKind=="expenses") {
                 if(!draft.has("amount") && draft.has("cents")) draft.put("amount",BigDecimal.valueOf(draft.optLong("cents"),2).toPlainString())
@@ -1115,7 +1166,7 @@ class MainActivity : Activity() {
                 field("Co kupiłeś? (opcjonalnie)","text",true)
             }
             if(formKind=="materials") {
-                field("Nazwa materiału","name")
+                materialNameField()
                 button("Dodaj zdjęcia z galerii") { pickPhotos() }; button("Zrób zdjęcie") { camera() }
                 field("Ilość","quantity",numeric=true)
                 button("Jednostka: "+draft.optString("unit","szt.")) {
@@ -1125,6 +1176,7 @@ class MainActivity : Activity() {
                 }
             } else {
                 if(formKind=="notes") {
+                    if(draft.optBoolean("shopping")) field("Sklep (opcjonalnie)","store")
                     field("Treść (opcjonalnie, gdy dodajesz zdjęcie)","text",true)
                     root.addView(CheckBox(this).apply {
                         text="Zakupy / paragon"; setTextColor(0xFF37474F.toInt())
@@ -1149,17 +1201,28 @@ class MainActivity : Activity() {
                 }.show()
             }
         }
+        if(formKind=="materials" && rows(data(),"materials").none { it.optString("id")==draft.optString("id") }) button("+ DODAJ MATERIAŁ") { addBatchLine() }
         button(if(quickPhotoUpload) "Zapisz i wyślij zdjęcia" else "Zapisz") { saveForm() }
+        if(formKind=="materials") for((i,row) in rows(draft,"batch").withIndex()) {
+            label(materialLine(row))
+            button("EDYTUJ · "+row.optString("name")) {
+                if(draft.optString("name").isNotBlank() || draft.optString("quantity").isNotBlank()) { toast("Najpierw dodaj bieżący materiał do listy"); return@button }
+                listOf("name","quantity","unit","photos").forEach { k -> if(row.has(k)) draft.put(k,row.get(k)) }
+                arr(draft,"batch").remove(i); renderForm()
+            }
+        }
     }
     private fun saveForm() {
+        if(formKind=="materials") { saveMaterials(); return }
         val d=data()
         if(formKind=="objects") {
             val city=draft.optString("city").trim()
             if(city.isBlank() || draft.optString("Adres").isBlank()) { toast("Podaj miasto i adres"); return }
             if(draft.optString("TAG").isBlank()) {
-                val prefix=DomainRules.cityPrefix(city)
+                val prefix=if(draft.optString("tagPrefix").isBlank()) DomainRules.cityPrefix(city) else DomainRules.customPrefix(draft.optString("tagPrefix"))
+                if(prefix.isBlank()) { toast("Tag musi zawierać litery lub cyfry"); return }
                 val counters=d.optJSONObject("tagCounters") ?: JSONObject().also { d.put("tagCounters",it) }
-                val (tag,n)=DomainRules.nextTag(city,counters.optInt(prefix),rows(d,"objects").map { it.optString("TAG") })
+                val (tag,n)=DomainRules.nextPrefixTag(prefix,counters.optInt(prefix),rows(d,"objects").map { it.optString("TAG") })
                 draft.put("TAG",tag); counters.put(prefix,n)
             }
         } else {
@@ -1185,6 +1248,7 @@ class MainActivity : Activity() {
         val list=arr(d,formKind); val index=(0 until list.length()).find { list.optJSONObject(it)?.optString("id")==draft.optString("id") }
         if(index==null) list.put(draft) else list.put(index,draft)
         save(d,"SAVE_"+formKind,draft.optString("id"))
+        PhotoQueue.markPending(this,formKind,draft)
         val send=quickPhotoUpload && formKind=="links" && arr(draft,"photos").length()>0
         val reference=formKind+":"+draft.optString("id")
         quickPhotoUpload=false
@@ -1289,7 +1353,7 @@ class MainActivity : Activity() {
                 runOnUiThread {
                     prefs.edit().remove("driveError").putBoolean("driveConnected",true).putString("driveEmail",about.optJSONObject("user")?.optString("emailAddress") ?: "Google Drive").apply()
                     DriveBackupWorker.schedule(this)
-                    if(upload.isBlank()) driveSettings() else if(upload=="backup") { DriveBackupWorker.manual(this); toast("Kopia w kolejce: WorkMeter / Backup"); logs() } else uploadPhotos(upload,token)
+                    if(upload=="queue") { PhotoQueue.enqueueAll(this); uploadQueue() } else if(upload.isBlank()) driveSettings() else if(upload=="backup") { DriveBackupWorker.manual(this); toast("Kopia w kolejce: WorkMeter / Backup"); logs() } else if(upload.startsWith("share:")) shareFolder(upload.substringAfter(":"),token) else uploadPhotos(upload,token)
                 }
             } catch (_:Exception) { runOnUiThread { prefs.edit().putString("driveError","Google Disk nie odpowiada. Sprawdź, czy Drive API jest włączone i konto ma dostęp.").apply(); toast("Nie udało się połączyć z Google Disk"); } }
         }
@@ -1313,5 +1377,213 @@ class MainActivity : Activity() {
         DriveUploadWorker.enqueue(this,reference,prefs.getString("driveEmail","").orEmpty())
         toast("Zdjęcia w kolejce. Możesz zwinąć aplikację; postęp będzie w powiadomieniu.")
     }
-}
+    private fun language() {
+        base("Język aplikacji"); screen="language"; nav()
+        button("Polski ✓") { prefs.edit().putString("appLanguage","pl").apply(); toast("Wybrano język polski") }
+    }
+    private fun charts() {
+        base("Grafiki");screen="charts";nav()
+        val range=if(prefs.getString("chartPeriod","week")=="month") TimeAnalytics.previousMonth(LocalDate.now()) else TimeAnalytics.previousWeek(LocalDate.now())
+        filters("charts") {
+            button("Ostatni tydzień") { prefs.edit().putString("chartPeriod","week").apply();charts() }
+            button("Ostatni miesiąc") { prefs.edit().putString("chartPeriod","month").apply();charts() }
+        }
+        label("Wybrany okres: "+dateText(range.first.toString())+" — "+dateText(range.second.toString()))
+        val shifts=(rows(data(),"shifts")+listOfNotNull(active(data()))).map { sh ->
+            val end=sh.optLong("end",System.currentTimeMillis())
+            val stages=rows(sh,"stages").toMutableList()
+            if(!sh.has("end")) stages.add(JSONObject().put("start",sh.optLong("stageStart",sh.optLong("start"))).put("end",end).put("kind",sh.optString("kind","Obiekt")).put("objectId",sh.optString("objectId")))
+            TimeAnalytics.Shift(sh.optLong("start"),end,stages.map { st -> TimeAnalytics.Stage(st.optLong("start"),st.optLong("end"),when(st.optString("kind")) { "Obiekt" -> if(st.optString("objectId").isNotBlank() || st.optString("object").isNotBlank()) 0 else 3; "Zakupy" -> 1; "Przejazd" -> 2; else -> 3 }) })
+        }
+        val result=TimeAnalytics.calculate(shifts,range.first,range.second,ZoneId.systemDefault())
+        label("Statystyka czasu pracy")
+        root.addView(TimeChart(this,result,false),LinearLayout.LayoutParams(-1,dp(230)))
+        label("Suma czasu w każdej godzinie doby, ze wszystkich dni wybranego okresu.")
+        filters("chartHours",caption="Szczegóły godzinowe") {
+            result.hours.forEachIndexed { hour,values -> if(values.sum()>0) label("%02d:00".format(hour)+" · "+values.mapIndexed { i,n -> TimeChart.names[i]+": "+duration(n) }.joinToString(" · ")) }
+        }
+        label("Podział czasu pracy")
+        root.addView(TimeChart(this,result,true),LinearLayout.LayoutParams(-1,dp(240)))
+        val sum=result.totals.sum()
+        result.totals.forEachIndexed { i,n ->
+            root.addView(TextView(this).apply { text="● "+TimeChart.names[i]+" — "+duration(n)+" · "+"%.1f%%".format(Locale("pl"),if(sum==0L) 0.0 else n*100.0/sum);textSize=16f;setTextColor(TimeChart.colors[i]);setPadding(0,dp(7),0,dp(7)) })
+        }
+        if(sum==0L) label("Brak czasu pracy w wybranym okresie.")
+        label("Podział nie zmienia czasu płatnego. Cała zmiana jest czasem pracy.")
+    }
+    private fun toggleShopping() {
+        val a=active(data()) ?: run { toast("Najpierw rozpocznij pracę");return }
+        if(a.optString("kind")=="Zakupy") {
+            confirmAction("Zakończyć zakupy? Wybierz obiekt lub rozpocznij przejazd.") {
+                AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Co dalej?").setItems(arrayOf("Na obiekt","Przejazd","Bez przypisania")) { _,i ->
+                    when(i) { 0 -> switchObject();1 -> beginStage("Przejazd");else -> beginStage("Nieprzypisane") }
+                }.setNegativeButton("Anuluj",null).show()
+            }
+        } else startShopping()
+    }
+    private fun startShopping() {
+        val d=data();val a=active(d) ?: return
+        val now=System.currentTimeMillis();val id=UUID.randomUUID().toString()
+        if(a.optString("kind")=="Przejazd") a.optJSONObject("stageMeta")?.put("toObject","Zakupy")
+        closeStage(a,now)
+        val note=JSONObject().put("id",id).put("date",localDate(now).toString()).put("created",fmt.format(Date(now))).put("shopping",true).put("text","").put("photos",JSONArray()).put("objectId",a.optString("objectId"))
+        arr(d,"notes").put(note)
+        a.put("stageStart",now).put("kind","Zakupy").put("object","").put("objectId","").put("shoppingRecordId",id).put("stageMeta",JSONObject().put("shoppingRecordId",id))
+        save(d,"SHOPPING_START",id);home();shoppingRecord(id)
+    }
+    private fun shoppingRecord(id:String) { if(id.isNotBlank()) newForm("notes",id) }
+    private fun openPhoto(uri:String) {
+        try {
+            val bitmap=PhotoPreview.decode(this,Uri.parse(uri),4096)
+            val dialog=Dialog(this,android.R.style.Theme_Material_Light_NoActionBar_Fullscreen)
+            val frame=FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
+            frame.addView(ZoomPhoto(this,bitmap),FrameLayout.LayoutParams(-1,-1))
+            frame.addView(makeButton("Zamknij") { dialog.dismiss() },FrameLayout.LayoutParams(-2,dp(48),Gravity.TOP or Gravity.END))
+            dialog.setContentView(frame);dialog.show()
+        } catch(_:Exception) { toast("Nie można otworzyć zdjęcia") }
+    }
+    private fun uploadQueue() {
+        base("Kolejka wysyłania");screen="queue";nav()
+        button("WYŚLIJ TERAZ") { sendQueue() }
+        button("PONÓW WYSYŁANIE") { sendQueue() }
+        var count=0
+        for(key in listOf("links","materials","notes","expenses")) for(row in rows(data(),key)) {
+            if(arr(row,"photos").length()==0) continue
+            val status=PhotoQueue.status(this,key,row)
+            if(status.pending==0) continue
+            count++
+            label(dateText(recordDate(row))+" · "+status.caption)
+            button(if(key=="expenses") "Paragon — otwórz portfel" else "Otwórz wpis") { recordDetails(key,row.optString("id"),"queue") }
+        }
+        if(count==0) label("Brak zdjęć oczekujących na wysłanie.")
+        label("Zdjęcia pozostają na telefonie. Kolejka jest wznawiana po odzyskaniu internetu.")
+    }
+    private fun sendQueue() {
+        if(prefs.getBoolean("driveConnected",false)) { PhotoQueue.enqueueAll(this);uploadQueue() }
+        else { pendingUpload="queue";authorizeDrive() }
+    }
+    private fun shareFolder(id:String,token:String) {
+        if(!prefs.getBoolean("shareConfirmed_"+id,false)) return
+        prefs.edit().remove("shareConfirmed_"+id).apply()
+        val row=rows(data(),"links").find { it.optString("id")==id } ?: return
+        val folder=PhotoQueue.folderId(row.optString("Link Google Drive"))
+        if(folder==null) { toast("Najpierw wyślij zdjęcia lub wpisz poprawny link folderu Google Disk");return }
+        io.execute {
+            try {
+                driveJson("POST","https://www.googleapis.com/drive/v3/files/"+folder+"/permissions",token,JSONObject().put("type","anyone").put("role","reader"))
+                runOnUiThread { toast("Folder: każda osoba mająca link — przeglądający") }
+            } catch(_:Exception) { runOnUiThread { toast("Nie można udostępnić folderu. Sprawdź uprawnienia Google Disk.") } }
+        }
+    }
+    private fun materialLine(r:JSONObject)=r.optString("name")+" — "+r.optString("quantity")+" "+r.optString("unit","szt.")
+    private fun stockEntries(d:JSONObject):List<MaterialStock.Entry> = rows(d,"materials").map { MaterialStock.Entry(it.optString("id"),it.optString("name"),it.optString("unit","szt."),it.optString("quantity").replace(",",".").toBigDecimalOrNull() ?: BigDecimal.ZERO,it.optString("storage")=="car",it.optString("sourceId")) }
+    private fun validStock(d:JSONObject):Boolean {
+        // Legacy unstructured materials remain untouched; only stock-linked entries require the new invariants.
+        val entries=stockEntries(d)
+        return MaterialStock.valid(entries.filter { it.car || it.sourceId.isNotBlank() })
+    }
+    private fun rememberMaterial(d:JSONObject,row:JSONObject) {
+        val catalog=arr(d,"materialCatalog");val name=row.optString("name").trim()
+        val old=rows(d,"materialCatalog").find { it.optString("name").trim().equals(name,true) }
+        if(old==null) catalog.put(JSONObject().put("name",name).put("unit",row.optString("unit","szt.")))
+        else old.put("unit",row.optString("unit","szt."))
+    }
+    private fun materialNameField() {
+        label("Nazwa materiału")
+        val choices=(rows(data(),"materialCatalog")+rows(data(),"materials")).filter { it.optString("name").isNotBlank() }.distinctBy { it.optString("name").trim().lowercase(Locale.ROOT) }
+        val input=AutoCompleteTextView(ContextThemeWrapper(this,R.style.WorkMeterDialogTheme)).apply {
+            setText(draft.optString("name"));threshold=1;textSize=17f;setSingleLine();setPadding(dp(10),dp(8),dp(10),dp(8));background=background(0xFFECEFF1.toInt())
+        }
+        val names=choices.map { it.optString("name") }
+        val adapter=object:ArrayAdapter<String>(this,android.R.layout.simple_dropdown_item_1line,ArrayList(names)) {
+            override fun getFilter():Filter=object:Filter() {
+                override fun performFiltering(query:CharSequence?):FilterResults {
+                    val found=names.filter { it.contains(query?.toString().orEmpty(),true) }
+                    return FilterResults().apply { values=found;count=found.size }
+                }
+                override fun publishResults(query:CharSequence?,result:FilterResults?) {
+                    setNotifyOnChange(false);clear()
+                    @Suppress("UNCHECKED_CAST") val values=result?.values as? List<String> ?: emptyList()
+                    addAll(values);notifyDataSetChanged()
+                }
+            }
+        }
+        input.setAdapter(adapter)
+        input.addTextChangedListener(object:TextWatcher {
+            override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int) {}
+            override fun afterTextChanged(s:Editable?) {}
+            override fun onTextChanged(s:CharSequence?,start:Int,before:Int,count:Int) { draft.put("name",s.toString()) }
+        })
+        input.setOnItemClickListener { parent,_,position,_ ->
+            val name=parent.getItemAtPosition(position).toString()
+            draft.put("name",name);choices.find { it.optString("name")==name }?.let { draft.put("unit",it.optString("unit","szt.")) };renderForm()
+        }
+        if(draft.optString("sourceId").isNotBlank()) input.isEnabled=false
+        root.addView(input,LinearLayout.LayoutParams(-1,dp(48)))
+    }
+    private fun pendingMaterial():JSONObject? {
+        val qty=DomainRules.quantity(draft.optString("quantity"),draft.optString("unit","szt."))
+        if(draft.optString("name").isBlank() || qty==null) { toast("Podaj nazwę i poprawną ilość większą od zera");return null }
+        return JSONObject().put("name",draft.optString("name").trim()).put("quantity",qty.toPlainString()).put("unit",draft.optString("unit","szt.")).put("photos",JSONArray(arr(draft,"photos").toString()))
+    }
+    private fun addBatchLine() {
+        val row=pendingMaterial() ?: return
+        arr(draft,"batch").put(row)
+        listOf("name","quantity","unit","photos").forEach { draft.remove(it) }
+        prefs.edit().putString("draft_materials",draft.toString()).apply();renderForm()
+    }
+    private fun saveMaterials() {
+        if(recordDate(draft).isBlank()) { toast("Wybierz datę");return }
+        if(draft.optString("storage")!="car" && draft.optString("objectId").isBlank()) { toast("Wybierz obiekt");return }
+        val batch=rows(draft,"batch").map { JSONObject(it.toString()) }.toMutableList()
+        val d=data();val existing=rows(d,"materials").find { it.optString("id")==draft.optString("id") }
+        if(draft.optString("name").isNotBlank() || draft.optString("quantity").isNotBlank() || batch.isEmpty()) batch.add(pendingMaterial() ?: return)
+        if(existing!=null && batch.size!=1) { toast("Edytuj jeden zapis naraz");return }
+        val list=arr(d,"materials");val saved=mutableListOf<JSONObject>()
+        for((i,line) in batch.withIndex()) {
+            val row=JSONObject(draft.toString());row.remove("batch")
+            listOf("name","quantity","unit","photos").forEach { row.put(it,line.get(it)) }
+            row.put("id",if(i==0) draft.optString("id") else UUID.randomUUID().toString())
+            if(row.optString("sourceId").isNotBlank()) row.put("storage","object")
+            val index=(0 until list.length()).find { list.getJSONObject(it).optString("id")==row.optString("id") }
+            if(index==null) list.put(row) else list.put(index,row)
+            saved.add(row);rememberMaterial(d,row)
+        }
+        if(!validStock(d)) { toast("Niewystarczający stan w samochodzie lub zmiana powiązanego materiału");return }
+        save(d,"MATERIALS_SAVE",saved.joinToString { it.toString() })
+        saved.forEach { PhotoQueue.markPending(this,"materials",it) }
+        prefs.edit().remove("draft_materials").apply();openScreen(formReturn)
+    }
+    private fun materialGroup(date:String,objectId:String) {
+        base("Materiały obiektu");screen="materialGroup:"+date+":"+objectId;nav()
+        label(dateText(date));label(objectById(objectId)?.let { objectName(it) } ?: "Bez obiektu")
+        button("+ Dodaj materiał") { newForm("materials",objectId=objectId);draft.put("date",date);renderForm() }
+        rows(data(),"materials").filter { recordDate(it)==date && it.optString("objectId")==objectId && it.optString("storage")!="car" }.forEach { r ->
+            button(materialLine(r)) { recordDetails("materials",r.optString("id"),screen) }
+        }
+    }
+    private fun carStock() {
+        base("Materiały w samochodzie");screen="car";nav()
+        button("+ Dodaj materiał") { newForm("materials");draft.put("storage","car");renderForm() }
+        val entries=stockEntries(data())
+        for(source in entries.filter { it.car }) {
+            label(source.name+" — "+MaterialStock.remaining(source,entries).stripTrailingZeros().toPlainString()+" "+source.unit)
+            button("PRZENIEŚ NA OBIEKT · "+source.name) { transferMaterial(source.id) }
+            button("Historia / edytuj · "+source.name) {
+                val rows=rows(data(),"materials").filter { it.optString("id")==source.id || it.optString("sourceId")==source.id }
+                AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Poprawienia / przeniesienia").setItems(rows.map { dateText(recordDate(it))+" · "+materialLine(it) }.toTypedArray()) { _,i -> recordDetails("materials",rows[i].optString("id"),"car") }.setNegativeButton("Zamknij",null).show()
+            }
+        }
+        if(entries.none { it.car }) label("Brak materiałów w samochodzie.")
+    }
+    private fun transferMaterial(sourceId:String) {
+        chooseObject(false) { obj ->
+            if(obj==null) return@chooseObject
+            val source=rows(data(),"materials").find { it.optString("id")==sourceId } ?: return@chooseObject
+            newForm("materials",objectId=obj.optString("id"))
+            draft=JSONObject().put("id",UUID.randomUUID().toString()).put("sourceId",sourceId).put("storage","object").put("objectId",obj.optString("id")).put("date",LocalDate.now().toString()).put("name",source.optString("name")).put("unit",source.optString("unit","szt."))
+            renderForm()
+        }
+    }
 
+}
