@@ -54,6 +54,7 @@ class MainActivity : Activity() {
     private var pendingUpload = ""
     private val uploading:Boolean get()=prefs.all.any { it.key.startsWith("uploadQueued_") && it.value==true }
     private var homeVisible = false
+    private var smsParent="settings"
     private var smsFrom: LocalDate? = null
     private var smsTo: LocalDate? = null
     private val tick = object : Runnable { override fun run() { if (::root.isInitialized && homeVisible) home(); ticker.postDelayed(this, 60000) } }
@@ -89,6 +90,7 @@ class MainActivity : Activity() {
         cameraPath = savedInstanceState?.getString("cameraPath")
         pendingUpload = savedInstanceState?.getString("pendingUpload") ?: ""
         if (savedInstanceState != null && prefs.contains("pin") && intent?.getStringExtra("widget_action")==null) {
+            smsParent = savedInstanceState.getString("smsParent") ?: "settings"
             smsFrom = savedInstanceState.getString("smsFrom")?.let { LocalDate.parse(it) }
             smsTo = savedInstanceState.getString("smsTo")?.let { LocalDate.parse(it) }
             detailParent = savedInstanceState.getString("detailParent") ?: "home"
@@ -220,7 +222,8 @@ class MainActivity : Activity() {
             }
         }
     }
-    private fun weeklySms() {
+    private fun weeklySms(parent:String="settings") {
+        smsParent=parent
         val today = LocalDate.now()
         if (smsFrom == null) smsFrom = today.withDayOfMonth(1)
         if (smsTo == null) smsTo = today
@@ -370,7 +373,7 @@ class MainActivity : Activity() {
     private fun back() {
         when {
             screen == "home" -> finish()
-            screen == "sms" -> settings()
+            screen == "sms" -> openScreen(smsParent)
             screen in listOf("drive","logs","about","widgetSettings","wallet","language") -> settings()
             screen == "payment" || screen=="expenses" -> wallet()
             screen=="car" || screen.startsWith("materialGroup:") -> openScreen("list:materials:")
@@ -394,7 +397,7 @@ class MainActivity : Activity() {
     @Deprecated("Legacy back dispatcher")
     override fun onBackPressed() { back() }
     override fun onSaveInstanceState(out: Bundle) {
-        out.putString("smsFrom",smsFrom?.toString()); out.putString("smsTo",smsTo?.toString()); out.putString("detailParent",detailParent); out.putString("screen",screen); out.putString("formKind",formKind); out.putString("formReturn",formReturn)
+        out.putString("smsParent",smsParent); out.putString("smsFrom",smsFrom?.toString()); out.putString("smsTo",smsTo?.toString()); out.putString("detailParent",detailParent); out.putString("screen",screen); out.putString("formKind",formKind); out.putString("formReturn",formReturn)
         out.putBoolean("quickPhotoUpload",quickPhotoUpload)
         out.putString("walletDraft",walletDraft.toString())
         out.putStringArrayList("expandedFilters",ArrayList(expandedFilters))
@@ -621,6 +624,7 @@ class MainActivity : Activity() {
     }
     private fun report() {
         base("Mój czas"); screen="report"; nav()
+        button("GENERUJ RAPORT SMS") { weeklySms("report") }
         val from=prefs.getString("reportFrom","").orEmpty(); val to=prefs.getString("reportTo","").orEmpty()
         fun setPeriod(key:String,date:LocalDate) {
             val f=if(key=="reportFrom") date.toString() else from
@@ -893,7 +897,7 @@ class MainActivity : Activity() {
             target=="wallet" -> wallet()
             target=="payment" -> paymentForm()
             target=="expenses" -> expenseList()
-            target=="sms" -> weeklySms()
+            target=="sms" -> weeklySms(smsParent)
             target=="objects" -> objects()
             target.startsWith("object:") -> objectDetails(target.substringAfter(":"))
             target.startsWith("detail:") -> { val p=target.split(":"); recordDetails(p[1],p[2],detailParent) }
