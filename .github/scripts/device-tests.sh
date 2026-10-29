@@ -6,7 +6,7 @@ mkdir -p device-screenshots
 adb pull /sdcard/Download/. device-screenshots/ || true
 find app/build/outputs/androidTest-results/connected -name '*.xml' -exec cat {} \;
 # Synthetic emulator UI only: keep two previews available for visual review.
-for preview in r3-01-home r3-06-widget r3-10-wallet r3-11-widget-settings r3-08-filters-closed r3-12-object-search r3-13-timeline r3-14-history-days r3-15-expense-receipt; do
+for preview in r3-01-home r3-06-widget r3-10-wallet r3-11-widget-settings r3-08-filters-closed r3-12-object-search r3-13-timeline r3-14-history-days r3-15-expense-receipt r3-16-car-stock r3-17-charts r3-18-queue; do
   image="device-screenshots/$preview.png"
   if [ -f "$image" ]; then
     echo "R3_PREVIEW_BEGIN:$preview"
