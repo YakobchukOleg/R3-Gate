@@ -1,7 +1,7 @@
 <resources>
     <string name="widget_description">WorkMeter — czas pracy i szybkie sterowanie</string>
     <style name="WTTheme" parent="android:style/Theme.Material.Light.NoActionBar">
-        <item name="android:fontFamily">sans</item><item name="android:colorAccent">#FF5C5C</item>
+        <item name="android:fontFamily">@font/clash_grotesk</item><item name="android:colorAccent">#FF5C5C</item>
         <item name="android:windowLightStatusBar">false</item><item name="android:statusBarColor">#000000</item>
         <item name="android:navigationBarColor">#000000</item><item name="android:windowBackground">#FFFFFF</item>
         <item name="android:alertDialogTheme">@style/WorkMeterDialogTheme</item>
@@ -9,7 +9,7 @@
         <item name="android:timePickerDialogTheme">@style/WorkMeterDialogTheme</item>
     </style>
     <style name="WorkMeterDialogTheme" parent="android:style/Theme.Material.Light.Dialog.Alert">
-        <item name="android:colorAccent">#FF5C5C</item><item name="android:fontFamily">sans</item>
+        <item name="android:colorAccent">#FF5C5C</item><item name="android:fontFamily">@font/clash_grotesk</item>
         <item name="android:windowBackground">@drawable/dialog_bg</item><item name="android:colorBackground">#FFFFFF</item>
         <item name="android:textColorPrimary">#37474F</item><item name="android:textColorSecondary">#607D8B</item>
         <item name="android:editTextStyle">@style/WorkMeterDialogField</item>
