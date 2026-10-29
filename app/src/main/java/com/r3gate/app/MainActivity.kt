@@ -1132,7 +1132,11 @@ class MainActivity : Activity() {
         quickPhotoUpload=sendAfterSave
         formReturn=screen; formKind=key
         draft=if(id.isNotBlank()) JSONObject(rows(data(),key).find { it.optString("id")==id }?.toString() ?: "{}")
-            else try { JSONObject(prefs.getString("draft_"+key,"{}")!!) } catch (_:Exception) { JSONObject() }
+            else if(key=="objects") {
+                // Adding an object must never restore a draft from editing another object.
+                prefs.edit().remove("draft_objects").apply()
+                JSONObject()
+            } else try { JSONObject(prefs.getString("draft_"+key,"{}")!!) } catch (_:Exception) { JSONObject() }
         if(!draft.has("id")) draft.put("id",UUID.randomUUID().toString())
         if(!draft.has("created")) draft.put("created",fmt.format(Date()))
         if(key!="objects" && !draft.has("date")) draft.put("date",active(data())?.let { localDate(it.optLong("start")).toString() } ?: if(key=="materials") "" else LocalDate.now().toString())
