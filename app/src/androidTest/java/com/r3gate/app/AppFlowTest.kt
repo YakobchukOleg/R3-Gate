@@ -88,8 +88,8 @@ class AppFlowTest {
             scenario.onActivity { a ->
                 click(a,"OBIEKTY"); click(a,"+ Dodaj obiekt")
                 val inputs=all(a).filterIsInstance<EditText>()
-                assertEquals(5,inputs.size)
-                inputs[0].setText("Kopytkowo"); inputs[1].setText("25"); inputs[2].setText("Nowy obiekt")
+                assertEquals(6,inputs.size)
+                inputs[0].setText("Kopytkowo"); inputs[2].setText("25"); inputs[3].setText("Nowy obiekt")
                 click(a,"Zapisz")
                 assertTrue("Expected second city tag",all(a).filterIsInstance<Button>().any { it.text.toString().startsWith("KOP-02") })
                 click(a,"KOP-01 · Test · Kopytkowo · 24"); click(a,"Materiały"); click(a,"+ Dodaj")
@@ -111,7 +111,7 @@ class AppFlowTest {
             instrumentation.waitForIdleSync()
             scenario.onActivity { a ->
                 click(a,"Zapisz")
-                assertTrue("Material total missing: "+all(a).filterIsInstance<TextView>().joinToString(" | ") { it.text },has(a,"Kabel · m: 12.5"))
+                assertTrue("Material total missing: "+all(a).filterIsInstance<TextView>().joinToString(" | ") { it.text },has(a,"Kabel — 12.5 m"))
                 a.onBackPressed(); assertTrue(has(a,"KOP-01"))
             }
             shot("04-object-details")
@@ -169,25 +169,25 @@ class AppFlowTest {
             assertEquals("Przejazd",stored().getJSONObject("active").getString("kind"))
             assertEquals(1,stored().getJSONObject("active").getJSONArray("stages").length())
             val departure=stored().getJSONObject("active").getLong("stageStart")
-            scenario.onActivity { a -> click(a,"🚗 PRZEJAZD · W DRODZE — ZAKOŃCZ") }
+            scenario.onActivity { a -> click(a,"DOTARŁEM") }
             dialogClick("Tak"); dialogClick("Anuluj — przejazd trwa")
             assertEquals(departure,stored().getJSONObject("active").getLong("stageStart"))
             scenario.recreate()
             assertEquals(departure,stored().getJSONObject("active").getLong("stageStart"))
             shot("05-travel-active")
-            scenario.onActivity { a -> click(a,"🚗 PRZEJAZD · W DRODZE — ZAKOŃCZ") }
+            scenario.onActivity { a -> click(a,"DOTARŁEM") }
             dialogClick("Tak"); dialogClick("+ Nowy obiekt")
             scenario.onActivity { a ->
                 val inputs=all(a).filterIsInstance<EditText>()
-                inputs[0].setText("Kopytkowo"); inputs[1].setText("25"); inputs[2].setText("Nowy")
-                click(a,"Zapisz"); click(a,"🚗 PRZEJAZD · W DRODZE — ZAKOŃCZ")
+                inputs[0].setText("Kopytkowo"); inputs[2].setText("25"); inputs[3].setText("Nowy")
+                click(a,"Zapisz"); click(a,"DOTARŁEM")
             }
             dialogClick("Tak"); dialogClick("KOP-02 · Nowy · Kopytkowo · 25")
             val current=stored().getJSONObject("active")
             assertEquals("Obiekt",current.getString("kind"))
             assertNotEquals("object-test",current.getString("objectId"))
             assertEquals("Przejazd",current.getJSONArray("stages").getJSONObject(1).getString("kind"))
-            scenario.onActivity { a -> click(a,"🚗 PRZEJAZD"); click(a,"🚗 PRZEJAZD · W DRODZE — ZAKOŃCZ") }
+            scenario.onActivity { a -> click(a,"🚗 PRZEJAZD"); click(a,"DOTARŁEM") }
             dialogClick("Tak"); dialogClick("🛒 Zakupy")
             assertEquals("Zakupy",stored().getJSONObject("active").getString("kind"))
             assertEquals("",stored().getJSONObject("active").getString("objectId"))
@@ -473,6 +473,40 @@ class AppFlowTest {
         }
     }
 
+    @Test fun batchMaterialsAndCarTransfersKeepBalances() {
+        seedActive()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { a -> click(a,"MATERIAŁY");click(a,"W SAMOCHODZIE");click(a,"+ Dodaj materiał")
+                val fields=all(a).filterIsInstance<EditText>();fields[0].setText("Przewód");fields[1].setText("10")
+                click(a,"+ DODAJ MATERIAŁ")
+                val next=all(a).filterIsInstance<EditText>();next[0].setText("Uchwyt");next[1].setText("20")
+                click(a,"Zapisz")
+                assertTrue(has(a,"Przewód — 10 szt."));assertTrue(has(a,"Uchwyt — 20 szt."))
+                click(a,"PRZENIEŚ NA OBIEKT · Przewód")
+            }
+            dialogClick("KOP-01 · Test · Kopytkowo · 24")
+            scenario.onActivity { a -> all(a).filterIsInstance<EditText>()[1].setText("4");click(a,"Zapisz");assertTrue(has(a,"Przewód — 6 szt.")) }
+            val rows=stored().getJSONArray("materials")
+            assertEquals(3,rows.length());assertEquals(rows.getJSONObject(0).getString("id"),rows.getJSONObject(2).getString("sourceId"))
+            assertEquals(2,stored().getJSONArray("materialCatalog").length())
+            shot("16-car-stock")
+        }
+    }
+    @Test fun chartsAndLanguageAndPhotoQueue() {
+        val d=stored();val range=TimeAnalytics.previousWeek(java.time.LocalDate.now());val start=range.first.atTime(8,0).atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+        d.put("shifts",JSONArray().put(JSONObject().put("id","graph-test").put("start",start).put("end",start+10800000).put("stages",JSONArray()
+            .put(JSONObject().put("start",start).put("end",start+7200000).put("kind","Obiekt").put("objectId","object-test"))
+            .put(JSONObject().put("start",start+7200000).put("end",start+9000000).put("kind","Zakupy"))
+            .put(JSONObject().put("start",start+9000000).put("end",start+10800000).put("kind","Przejazd")))))
+        d.put("links",JSONArray().put(JSONObject().put("id","pending").put("date",range.first.toString()).put("objectId","object-test").put("photos",JSONArray().put("file:///not-a-real-test-photo.jpg"))))
+        store(d)
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { a -> click(a,"GRAFIKI");assertTrue(has(a,"Podział czasu pracy"));assertTrue(all(a).filterIsInstance<TextView>().any { it.text.contains("66,7%") }) }
+            shot("17-charts")
+            scenario.onActivity { a -> a.onBackPressed();click(a,"ZDJĘCIA");assertTrue(all(a).filterIsInstance<Button>().any { it.text.contains("W KOLEJCE") });click(a,"KOLEJKA WYSYŁANIA");assertTrue(has(a,"PONÓW WYSYŁANIE")) }
+            shot("18-queue")
+            scenario.onActivity { a -> a.onBackPressed();a.onBackPressed();click(a,"⚙");click(a,"Język aplikacji");assertTrue(has(a,"Polski ✓")) }
+        }
+    }
+
 }
-
-
