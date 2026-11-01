@@ -34,8 +34,26 @@ class AppFlowTest {
     private fun views(v:View):List<View> = listOf(v)+if(v is ViewGroup) (0 until v.childCount).flatMap { views(v.getChildAt(it)) } else emptyList()
     private fun all(a:Activity) = views(a.window.decorView)
     private fun click(a:Activity,text:String) {
-        val button=all(a).filterIsInstance<Button>().firstOrNull { it.text.toString()==text }
-        assertNotNull("Missing button: "+text,button)
+        // The visual Home dashboard adds icons and spacing; keep navigation tests
+        // explicit about the rendered labels rather than disabling assertions.
+        val display=when(text) {
+            "🟢 ROZPOCZNIJ PRACĘ" -> "▶  ROZPOCZNIJ PRACĘ"
+            "🔴 ZAKOŃCZ PRACĘ" -> "■  ZAKOŃCZ PRACĘ"
+            "🔄 ZMIEŃ OBIEKT" -> "↔  ZMIEŃ OBIEKT"
+            "🚗 PRZEJAZD" -> "🚗  PRZEJAZD"
+            "DOTARŁEM" -> "✓  DOTARŁEM"
+            "ZAKUPY" -> "🛍  ZAKUPY"
+            "ZAKOŃCZ ZAKUPY" -> "✓  ZAKOŃCZ ZAKUPY"
+            "ZDJĘCIA" -> "📷  ZDJĘCIA"
+            "MATERIAŁY" -> "📦  MATERIAŁY"
+            "NOTATKI" -> "📝  NOTATKI"
+            "OBIEKTY" -> "🏢  OBIEKTY"
+            "MÓJ CZAS" -> "◷  MÓJ CZAS"
+            "GRAFIKI" -> "▥  GRAFIKI"
+            else -> text
+        }
+        val button=all(a).filterIsInstance<Button>().firstOrNull { it.text.toString()==display }
+        assertNotNull("Missing button: "+display,button)
         button!!.performClick()
     }
     private fun has(a:Activity,text:String) = all(a).filterIsInstance<TextView>().any { it.text.toString()==text }
@@ -210,15 +228,19 @@ class AppFlowTest {
             scenario.onActivity { a ->
                 val widgetView=GateWidget.render(a).apply(a,android.widget.FrameLayout(a))
                 assertEquals("ZMIEŃ OBIEKT",widgetView.findViewById<TextView>(R.id.wswitch).text.toString())
-                assertEquals(0xFF42D77D.toInt(),widgetView.findViewById<TextView>(R.id.wstatus).currentTextColor)
+                assertEquals(0xFF6EE0AD.toInt(),widgetView.findViewById<TextView>(R.id.wstatus).currentTextColor)
                 assertEquals("ZAKUPY",widgetView.findViewById<TextView>(R.id.wshopping).text.toString())
                 val widgetHeight=(160*a.resources.displayMetrics.density).toInt()
                 widgetView.measure(View.MeasureSpec.makeMeasureSpec(a.resources.displayMetrics.widthPixels,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(widgetHeight,View.MeasureSpec.EXACTLY))
                 widgetView.layout(0,0,a.resources.displayMetrics.widthPixels,widgetHeight)
                 val shoppingBounds=android.graphics.Rect()
-                widgetView.findViewById<View>(R.id.wshopping).getDrawingRect(shoppingBounds)
-                (widgetView as ViewGroup).offsetDescendantRectToMyCoords(widgetView.findViewById<View>(R.id.wshopping),shoppingBounds)
-                assertTrue("Shopping button must fit in the compact-height expanded widget",shoppingBounds.bottom<=widgetHeight)
+                val shopping=widgetView.findViewById<View>(R.id.wshopping)
+                shopping.getDrawingRect(shoppingBounds)
+                (widgetView as ViewGroup).offsetDescendantRectToMyCoords(shopping,shoppingBounds)
+                assertTrue("Shopping action must be visible",shopping.visibility==View.VISIBLE)
+                assertTrue("Shopping button must fit inside 160dp",shoppingBounds.bottom<=widgetHeight)
+                assertTrue("Shopping button must start inside the widget",shoppingBounds.top>=0)
+                assertTrue("Widget content must fit its width",shoppingBounds.right<=widgetView.width)
                 val frame=android.widget.FrameLayout(a).apply { setBackgroundColor(android.graphics.Color.BLACK); setPadding(24,100,24,24) }
                 frame.addView(GateWidget.render(a).apply(a,frame),android.widget.FrameLayout.LayoutParams(-1,(160*a.resources.displayMetrics.density).toInt()))
                 a.setContentView(frame)
@@ -368,7 +390,7 @@ class AppFlowTest {
                 val gear=all(a).filterIsInstance<Button>().first { it.contentDescription=="Ustawienia" }
                 assertTrue(gear.isShown)
                 val stop=all(a).filterIsInstance<Button>().first { it.text.toString().contains("ZAKOŃCZ PRACĘ") }
-                assertTrue(stop.minimumHeight<=(32*a.resources.displayMetrics.density).toInt())
+                assertTrue("Primary action should remain touch-friendly",stop.minimumHeight>=(48*a.resources.displayMetrics.density).toInt())
                 settings(a); click(a,"Wygląd widżetu")
                 all(a).filterIsInstance<android.widget.SeekBar>().first().progress=100
                 val widget=GateWidget.render(a).apply(a,android.widget.FrameLayout(a))
