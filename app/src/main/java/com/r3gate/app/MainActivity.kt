@@ -293,6 +293,13 @@ class MainActivity : Activity() {
         val top=View(this); frame.addView(top,LinearLayout.LayoutParams(-1,0))
         val header=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; gravity=Gravity.CENTER_VERTICAL; setPadding(dp(16),0,dp(8),0); setBackgroundColor(0xFF37474F.toInt()) }
         header.addView(TextView(this).apply { text=title; textSize=27f; gravity=Gravity.CENTER_VERTICAL; setTextColor(Color.WHITE); setTypeface(resources.getFont(R.font.clash_grotesk),android.graphics.Typeface.BOLD) },LinearLayout.LayoutParams(0,dp(56),1f).apply { gravity=Gravity.CENTER_VERTICAL })
+        if(title=="WorkMeter") header.addView(TextView(this).apply {
+            text="SOLO"
+            textSize=11f
+            setTextColor(0xFFAFE3CE.toInt())
+            setPadding(dp(7),dp(5),dp(7),dp(5))
+            background=background(0xFF28443F.toInt())
+        },LinearLayout.LayoutParams(-2,-2).apply { rightMargin=dp(7) })
         if(title=="WorkMeter") header.addView(Button(this).apply {
             text="⚙"; textSize=27f; contentDescription="Ustawienia"; setTextColor(Color.WHITE)
             background=android.graphics.drawable.ColorDrawable(Color.TRANSPARENT); backgroundTintList=null; setPadding(0,0,0,0)
@@ -303,6 +310,43 @@ class MainActivity : Activity() {
         root=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(dp(16),dp(12),dp(16),dp(24)); isFocusableInTouchMode=true; descendantFocusability=ViewGroup.FOCUS_BEFORE_DESCENDANTS }
         scroll.addView(root,FrameLayout.LayoutParams(-1,-2))
         frame.addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
+        // Persistent six-item navigation mirrors the supplied WorkMeter 4.0 prototype.
+        // It lives outside the screen-specific content, so forms and history remain intact.
+        val navigation=LinearLayout(this).apply {
+            orientation=LinearLayout.HORIZONTAL
+            gravity=Gravity.CENTER_VERTICAL
+            setPadding(dp(3),dp(4),dp(3),dp(3))
+            setBackgroundColor(Color.WHITE)
+            elevation=dp(4).toFloat()
+        }
+        val destinations=listOf(
+            Triple("⌂","Dzisiaj","home"),
+            Triple("◷","Mój czas","report"),
+            Triple("▦","Obiekty","objects"),
+            Triple("▧","Zdjęcia","list:links:"),
+            Triple("▤","Materiały","list:materials:"),
+            Triple("☷","Więcej","menu")
+        )
+        destinations.forEach { (symbol,name,target) ->
+            navigation.addView(Button(this).apply {
+                text="$symbol\n$name"
+                contentDescription=name
+                textSize=10f
+                isAllCaps=false
+                minHeight=dp(52); minimumHeight=dp(52)
+                setPadding(0,0,0,0)
+                setTextColor(if(screen==target || (target=="menu" && screen.startsWith("menu"))) 0xFF32916F.toInt() else 0xFF667E87.toInt())
+                background=android.graphics.drawable.ColorDrawable(Color.TRANSPARENT)
+                backgroundTintList=null
+                setOnClickListener {
+                    when(target) {
+                        "report" -> report()
+                        else -> openScreen(target)
+                    }
+                }
+            },LinearLayout.LayoutParams(0,dp(55),1f))
+        }
+        frame.addView(navigation,LinearLayout.LayoutParams(-1,dp(62)))
         val bottom=View(this); frame.addView(bottom,LinearLayout.LayoutParams(-1,0))
         frame.setOnApplyWindowInsetsListener { _,insets ->
             val topInset:Int; val bottomInset:Int
@@ -374,6 +418,8 @@ class MainActivity : Activity() {
         when {
             screen == "home" -> finish()
             screen == "sms" -> openScreen(smsParent)
+            screen=="menu" -> home()
+            screen.startsWith("menuFeature:") -> menu()
             screen in listOf("drive","logs","about","widgetSettings","wallet","language") -> settings()
             screen == "payment" || screen=="expenses" -> wallet()
             screen=="car" || screen.startsWith("materialGroup:") -> openScreen("list:materials:")
@@ -511,6 +557,104 @@ class MainActivity : Activity() {
             "🏢  OBIEKTY" to { openScreen("objects") })
         section("PRZEGLĄD")
         actionRow("◷  MÓJ CZAS" to { report() }, "▥  GRAFIKI" to { charts() })
+        root.addView(action("☷  WIĘCEJ · MENU P1–P4") { menu() },LinearLayout.LayoutParams(-1,dp(50)))
+    }
+
+    // Native WorkMeter 4.0 menu inspired by the user's P1–P4 interactive prototype.
+    // Not-yet-implemented modules are transparent informational destinations, never fake actions.
+    private data class MenuModule(val id:String,val title:String,val detail:String,val phase:String)
+    private val prototypeModules get() = listOf(
+        MenuModule("backups","Kopie i dane","Kopie lokalne, import, eksport i Google Disk","P1"),
+        MenuModule("widgets","Galeria widżetów","Wygląd, przezroczystość i podgląd","P1"),
+        MenuModule("schedule","Harmonogram","Kalendarz wizyt i zadania","P2"),
+        MenuModule("protocols","Protokoły","Odbiory, podpisy i PDF","P2"),
+        MenuModule("quality","Jakość i gwarancje","Usterki, reklamacje i historia","P2"),
+        MenuModule("team","Zespół","Pracownicy i dyspozycyjność","P3"),
+        MenuModule("service","Serwis cykliczny","Przeglądy i przypomnienia","P3"),
+        MenuModule("inventory","Magazyn","Stan auta, materiały i zestawy","P3"),
+        MenuModule("documents","Dokumenty","Zdjęcia, paragony i umowy","P3"),
+        MenuModule("access","Role i dostęp","Prywatność i uprawnienia","P3"),
+        MenuModule("clientportal","Portal klienta","Akceptacje i statusy","P3"),
+        MenuModule("routes","Trasy i dojazdy","Mapa obiektów i kolejność wizyt","P4"),
+        MenuModule("estimator","AI kosztorys","Roboczogodziny, materiały i marża","P4"),
+        MenuModule("insights","Rekomendacje AI","Porównanie planu i rzeczywistości","P4")
+    )
+    private fun menu() {
+        screen="menu"
+        base("Menu WorkMeter")
+        nav()
+        label("WORKMETER · SOLO")
+        label("WSZYSTKIE FUNKCJE · P1–P4")
+        label("Główne działy")
+        tiles(listOf(
+            "⌂  Dzisiaj" to { home() },
+            "◷  Mój czas" to { report() },
+            "▦  Obiekty" to { objects() },
+            "▧  Zdjęcia" to { openScreen("list:links:") },
+            "▤  Materiały" to { openScreen("list:materials:") },
+            "◔  Grafiki" to { charts() },
+            "🔐  Portfel" to { confirmPin { walletUnlocked=true;wallet() } },
+            "⚙  Ustawienia" to { settings() }
+        ))
+        for(phase in listOf("P1","P2","P3","P4")) {
+            label("$phase · "+when(phase) {
+                "P1" -> "Fundamenty";"P2" -> "Organizacja pracy"
+                "P3" -> "Zespół i dokumenty";else -> "Planowanie i analityka"
+            })
+            prototypeModules.filter { it.phase==phase }.forEach { module ->
+                button("›  "+module.title+"\n"+module.detail) { menuFeature(module.id) }
+            }
+        }
+    }
+    private fun menuFeature(id:String) {
+        when(id) {
+            "backups" -> { logs(); return }
+            "widgets" -> { widgetSettings(); return }
+            "inventory" -> { carStock(); return }
+            "insights" -> { charts(); return }
+        }
+        val module=prototypeModules.firstOrNull { it.id==id } ?: return menu()
+        screen="menuFeature:$id"
+        base(module.title)
+        nav()
+        label(module.phase+" · "+module.detail)
+        label("Ten moduł jest częścią wizualnego prototypu P1–P4. Pełna obsługa wymaga osobnego wdrożenia. Dostępne działania poniżej korzystają z prawdziwych danych WorkMeter.")
+        when(id) {
+            "schedule" -> {
+                button("◷  Historia pracy i kalendarz") { report() }
+                button("▦  Obiekty") { objects() }
+            }
+            "protocols","quality","service" -> {
+                button("📝  Notatki i historia") { openScreen("notes") }
+                button("▦  Obiekty") { objects() }
+                button("📷  Zdjęcia") { openScreen("list:links:") }
+            }
+            "team","access" -> {
+                button("▦  Obiekty") { objects() }
+                button("⚙  Ustawienia") { settings() }
+                button("🔐  Portfel prywatny (PIN)") { confirmPin { walletUnlocked=true; wallet() } }
+            }
+            "documents" -> {
+                button("📷  Zdjęcia") { openScreen("list:links:") }
+                button("🧾  Paragony i zakupy") { expenseList() }
+                button("☁  Kopia i import danych") { logs() }
+            }
+            "routes" -> {
+                button("▦  Obiekty i ich adresy") { objects() }
+                button("↗  Trasa do obiektu w Google Maps") {
+                    chooseObject(false) { obj -> if(obj!=null) openLink("https://www.google.com/maps/dir/?api=1&destination="+URLEncoder.encode(obj.optString("city")+" "+obj.optString("Adres"),"UTF-8")) }
+                }
+            }
+            "estimator" -> {
+                button("▤  Materiały") { openScreen("list:materials:") }
+                button("🔐  Stawki i rozliczenia (PIN)") { confirmPin { walletUnlocked=true;wallet() } }
+            }
+            "clientportal" -> {
+                button("▦  Obiekty") { objects() }
+                button("📝  Notatki") { openScreen("notes") }
+            }
+        }
+        button("☷  Wróć do pełnego menu") { menu() }
     }
     private fun settings() {
         base("Ustawienia"); screen="settings"; nav()
@@ -952,6 +1096,8 @@ class MainActivity : Activity() {
         screen=target
         when {
             target=="home" -> home()
+            target=="menu" -> menu()
+            target.startsWith("menuFeature:") -> menuFeature(target.substringAfter(":"))
             target=="settings" -> settings()
             target=="language" -> language()
             target=="charts" -> charts()
