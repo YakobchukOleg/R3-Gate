@@ -730,7 +730,7 @@ class MainActivity : Activity() {
             "Zdjęcia" -> {
                 label("Kolejka wysyłania i Google Drive")
                 button("Kolejka zdjęć") { openScreen("queue") }
-                button("Google Drive") { driveSettings() }
+                button("Google Disk") { driveSettings() }
             }
             "Materiały" -> {
                 label("Katalog i historia materiałów")
