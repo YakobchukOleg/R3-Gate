@@ -590,7 +590,7 @@ class MainActivity : Activity() {
         root.setBackgroundColor(0xFFF4F7F8.toInt())
         nav()
         val banner=TextView(this).apply {
-            text="WORKMETER · SOLO\\nWSZYSTKIE FUNKCJE · P1–P4"
+            text="WORKMETER · SOLO\nWSZYSTKIE FUNKCJE · P1–P4"
             textSize=13f
             setTextColor(0xFF2E725D.toInt())
             setTypeface(null,android.graphics.Typeface.BOLD)
@@ -618,7 +618,7 @@ class MainActivity : Activity() {
                 "P3" -> "Zespół i dokumenty";else -> "Planowanie i analityka"
             })
             prototypeModules.filter { it.phase==phase }.forEach { module ->
-                root.addView(makeButton("›  "+module.title+"\\n"+module.detail) { menuFeature(module.id) }.apply {
+                root.addView(makeButton("›  "+module.title+"\n"+module.detail) { menuFeature(module.id) }.apply {
                     textSize=13f
                     gravity=Gravity.CENTER_VERTICAL or Gravity.START
                     minHeight=dp(62); minimumHeight=dp(62)
