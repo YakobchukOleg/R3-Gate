@@ -24,7 +24,9 @@ object TimeAnalytics {
             if(end<=start) continue
             val points=(listOf(start,end)+sh.stages.flatMap { listOf(it.start,it.end) }.filter { it>start && it<end }).distinct().sorted()
             for((a,b) in points.zipWithNext()) {
-                val category=sh.stages.filter { it.start<=a && it.end>=b }.maxByOrNull { it.start }?.category?.takeIf { it in 0..3 } ?: 3
+                val category=sh.stages.filter { it.start<=a && it.end>=b }.maxByOrNull { it.start }?.category ?: 3
+                // -1 is personal time: it must not become unassigned working time.
+                if(category !in 0..3) continue
                 totals[category]+=b-a
                 var cursor=a
                 while(cursor<b) {

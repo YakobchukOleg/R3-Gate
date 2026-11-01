@@ -109,7 +109,7 @@ class MainActivity : Activity() {
     private fun hash(s: String): String = MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).joinToString("") { "%02x".format(it) }
     private fun setupPin() {
         val field = EditText(ContextThemeWrapper(this,R.style.WorkMeterDialogTheme)).apply { hint="PIN (4–8 cyfr)"; inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD }
-        AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Ustaw PIN").setMessage("Kod chroni rozpoczęcie i zakończenie pracy.").setView(field).setCancelable(false).setPositiveButton("Zapisz") { _, _ ->
+        AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Ustaw PIN").setMessage("Kod chroni rozpoczęcie pracy.").setView(field).setCancelable(false).setPositiveButton("Zapisz") { _, _ ->
             val p=field.text.toString(); if (p.length in 4..8) {
                 val salt=UUID.randomUUID().toString(); prefs.edit().putString("salt",salt).putString("pin",hash(salt+p)).apply(); home()
             } else { toast("PIN musi mieć 4–8 cyfr"); setupPin() }
@@ -138,7 +138,7 @@ class MainActivity : Activity() {
         when(action) {
             "photos" -> newForm("links",sendAfterSave=true)
             "start" -> confirmPin { startShift() }
-            "stop" -> confirmPin { stopShift() }
+            "stop" -> confirmAction("Zakończyć dzień pracy?") { stopShift() }
             "switch" -> confirmAction("Zmienić obiekt?") { switchObject() }
             "travel" -> toggleTravel()
             "shopping" -> toggleShopping()
@@ -151,6 +151,33 @@ class MainActivity : Activity() {
         prefs.edit().putString("data",d.toString()).apply(); GateWidget.refresh(this)
     }
     private fun active(d:JSONObject):JSONObject? = d.optJSONObject("active")
+    private fun privateIntervals(sh:JSONObject, until:Long = sh.optLong("end",System.currentTimeMillis())):List<PrivateTimeRules.Interval> {
+        val finished=rows(sh,"stages").filter { it.optString("kind")=="Prywatnie" }
+            .map { PrivateTimeRules.Interval(it.optLong("start"),it.optLong("end")) }
+        return if(!sh.has("end") && sh.optString("kind")=="Prywatnie")
+            finished+PrivateTimeRules.Interval(sh.optLong("stageStart",until),until) else finished
+    }
+    private fun workedMillis(sh:JSONObject,start:Long=sh.optLong("start"),end:Long=sh.optLong("end",System.currentTimeMillis())):Long =
+        PrivateTimeRules.worked(start,end,privateIntervals(sh,end))
+    private fun togglePrivate() {
+        val d=data(); val a=active(d) ?: return
+        val now=System.currentTimeMillis()
+        if(a.optString("kind")=="Prywatnie") {
+            closeStage(a,now)
+            a.put("stageStart",now).put("kind",a.optString("pausedKind","Nieprzypisane"))
+                .put("object",a.optString("pausedObject")).put("objectId",a.optString("pausedObjectId"))
+            a.remove("pausedKind");a.remove("pausedObject");a.remove("pausedObjectId")
+            save(d,"PRIVATE_END",fmt.format(Date(now)))
+        } else {
+            closeStage(a,now)
+            a.put("pausedKind",a.optString("kind","Obiekt"))
+                .put("pausedObject",a.optString("object")).put("pausedObjectId",a.optString("objectId"))
+            a.remove("stageMeta")
+            a.put("stageStart",now).put("kind","Prywatnie").put("object","").put("objectId","")
+            save(d,"PRIVATE_START",fmt.format(Date(now)))
+        }
+        home()
+    }
     private fun startShift() {
         if (active(data()) != null) { toast("Dzień pracy już rozpoczęty"); return }
         chooseObject(false) { obj ->
@@ -176,6 +203,7 @@ class MainActivity : Activity() {
         }
     }
     private fun beginStage(kind:String, target:String="") {
+        if(active(data())?.optString("kind")=="Prywatnie") { toast("Najpierw wznów pracę");return }
         val d=data(); val a=active(d)
         if(a==null) { toast("Najpierw rozpocznij pracę"); return }
         val now=System.currentTimeMillis()
@@ -189,6 +217,7 @@ class MainActivity : Activity() {
         save(d,"STAGE","$kind: "+a.optString("object")); home()
     }
     private fun switchObject() {
+        if(active(data())?.optString("kind")=="Prywatnie") { toast("Najpierw wznów pracę");return }
         if (active(data()) == null) { toast("Najpierw rozpocznij pracę"); return }
         chooseObject(false) { obj ->
             if (obj != null) {
@@ -204,6 +233,7 @@ class MainActivity : Activity() {
         }
     }
     private fun toggleTravel() {
+        if(active(data())?.optString("kind")=="Prywatnie") { toast("Najpierw wznów pracę");return }
         val a=active(data()) ?: run { toast("Najpierw rozpocznij pracę"); return }
         if(a.optString("kind")!="Przejazd") { beginStage("Przejazd"); return }
         confirmAction("Zakończyć przejazd i wybrać miejsce przyjazdu?") { chooseArrival() }
@@ -270,8 +300,8 @@ class MainActivity : Activity() {
             val start = it.optLong("start")
             val end = it.optLong("end")
             val date = Instant.ofEpochMilli(start).atZone(ZoneId.systemDefault()).toLocalDate()
-            sum += end - start
-            "${date.format(df)} ${pl[date.dayOfWeek.value - 1]} ${clock.format(Date(start))}–${clock.format(Date(end))}"
+            sum += workedMillis(it,start,end)
+            "${date.format(df)} ${pl[date.dayOfWeek.value - 1]} ${clock.format(Date(start))}–${clock.format(Date(end))} · praca ${duration(workedMillis(it,start,end))}"
         }
         val minutes = sum / 60000
         val sms = lines.joinToString("\n\n") + "\n\nRazem\n${minutes / 60} godz. ${minutes % 60} min"
@@ -418,7 +448,7 @@ class MainActivity : Activity() {
             this.text=text; textSize=size; setTextColor(color); setPadding(0,dp(4),0,dp(4))
         }) }
         line(if(a!=null) "● ONLINE" else "● OFFLINE",16f,if(a!=null) 0xFF42D77D.toInt() else 0xFFCFD8DC.toInt())
-        line(shown?.let { duration((if(a!=null) System.currentTimeMillis() else it.optLong("end"))-it.optLong("start")) } ?: "00:00",32f,Color.WHITE)
+        line(shown?.let { duration(workedMillis(it)) } ?: "00:00",32f,Color.WHITE)
         line("Rozpoczęcie: "+(shown?.let { fmt.format(Date(it.optLong("start"))) } ?: "—"),14f,0xFFDBEAF7.toInt())
         if(a==null) line("Zakończenie: "+(recent?.let { fmt.format(Date(it.optLong("end"))) } ?: "—"),14f,0xFFDBEAF7.toInt())
         if(a!=null) {
@@ -429,7 +459,8 @@ class MainActivity : Activity() {
         root.addView(card,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(16) })
         if(a==null) button("🟢 ROZPOCZNIJ PRACĘ") { confirmPin { startShift() } }
         else {
-            button("🔴 ZAKOŃCZ PRACĘ") { confirmPin { stopShift() } }
+            button("🔴 ZAKOŃCZ PRACĘ") { confirmAction("Zakończyć dzień pracy?") { stopShift() } }
+            button(if(a.optString("kind")=="Prywatnie") "▶ WZNÓW PRACĘ" else "⏸ PRYWATNIE") { togglePrivate() }
             button("🔄 ZMIEŃ OBIEKT") { confirmAction("Zmienić obiekt?") { switchObject() } }
             button(if(a.optString("kind")=="Przejazd") "DOTARŁEM" else "🚗 PRZEJAZD") { toggleTravel() }
             button(if(a.optString("kind")=="Zakupy") "ZAKOŃCZ ZAKUPY" else "ZAKUPY") { toggleShopping() }
@@ -495,7 +526,7 @@ class MainActivity : Activity() {
     }
     private fun walletShifts(d:JSONObject) = rows(d,"shifts").mapNotNull {
         val rate=WalletRules.rate(it.optString("rate","30.00")) ?: return@mapNotNull null
-        WalletRules.Shift(it.optLong("start"),it.optLong("end"),rate)
+        WalletRules.Shift(it.optLong("start"),it.optLong("end"),rate,privateIntervals(it))
     }
     private fun walletPayments(d:JSONObject) = rows(d,"payments").map { WalletRules.Payment(it.optString("periodFrom"),it.optString("periodTo"),it.optLong("cents"),it.optString("method")) }
     private fun money(cents:Long):String = BigDecimal.valueOf(cents,2).toPlainString().replace('.',',')+" zł"
@@ -524,7 +555,7 @@ class MainActivity : Activity() {
         else label("Saldo okresu niepełne: "+summary.overlapping+" wypłat obejmuje szerszy okres. Poszerz daty lub popraw przypisanie wypłaty.")
         val global=WalletRules.earned(shifts)+config.optLong("openingCents")-payments.sumOf { it.cents }
         label((if(global>=0) "Łącznie do wypłaty (cała historia): " else "Łączna nadpłata (cała historia): ")+money(kotlin.math.abs(global)))
-        label("Naliczanie obejmuje zakończone zmiany, także przejazdy i zakupy. Otwarty dzień zostanie rozliczony po zakończeniu.")
+        label("Naliczanie obejmuje zakończone zmiany, przejazdy i zakupy, bez czasu Prywatnie. Otwarty dzień zostanie rozliczony po zakończeniu.")
         val expenses=rows(d,"expenses")
         val expensesDue=expenses.sumOf { (it.optLong("cents")-it.optLong("reimbursedCents")).coerceAtLeast(0) }
         label("Zakupy firmowe do zwrotu (cała historia): "+money(expensesDue))
@@ -644,7 +675,7 @@ class MainActivity : Activity() {
         val shifts=rows(data(),"shifts")
         val entries=shifts.flatMap { shift -> HistoryRules.slices(shift.optLong("start"),shift.optLong("end"),ZoneId.systemDefault()).map { shift to it } }
             .filter { DomainRules.inRange(it.second.day,from,to) }
-        label("Łączny czas: "+duration(entries.sumOf { it.second.end-it.second.start }))
+        label("Łączny czas: "+duration(entries.sumOf { workedMillis(it.first,it.second.start,it.second.end) }))
         if(entries.isEmpty()) label("Brak zmian w wybranym okresie")
         for((day,items) in entries.groupBy { it.second.day }.toSortedMap(reverseOrder())) {
             val parent=root
@@ -656,9 +687,9 @@ class MainActivity : Activity() {
             root=card
             try {
                 label(dateText(day)+" · "+LocalDate.parse(day).dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL,Locale.forLanguageTag("pl")))
-                label("Czas dnia: "+duration(items.sumOf { it.second.end-it.second.start }))
+                label("Czas dnia: "+duration(items.sumOf { workedMillis(it.first,it.second.start,it.second.end) }))
                 for((shift,slice) in items.sortedByDescending { it.second.start }) {
-                    button(fmt.format(Date(slice.start))+" → "+fmt.format(Date(slice.end))+"  ("+duration(slice.end-slice.start)+")") { shiftDetails(shift.optString("id")) }
+                    button(fmt.format(Date(slice.start))+" → "+fmt.format(Date(slice.end))+"  ("+duration(workedMillis(shift,slice.start,slice.end))+")") { shiftDetails(shift.optString("id")) }
                     button("Edytuj czas") { confirmAction("Edytować godziny tej zmiany?") { editShift(shift.optString("id")) } }
                     button("Usuń zmianę") { deleteShift(shift.optString("id")) }
                 }
@@ -686,7 +717,7 @@ class MainActivity : Activity() {
         }
         if(stages.isNotEmpty() && cursor<end) label("Brak przypisanego etapu: "+fmt.format(Date(cursor))+" → "+fmt.format(Date(end))+" · "+duration(end-cursor))
         label("Zakończenie pracy: "+fmt.format(Date(end)))
-        label("Łączny czas: "+duration(end-start))
+        label("Czas pracy (bez Prywatnie): "+duration(workedMillis(shift,start,end)))
         button("Edytuj czas") { confirmAction { editShift(id) } }
         button("Usuń zmianę") { deleteShift(id) }
     }
@@ -1414,7 +1445,7 @@ class MainActivity : Activity() {
             val end=sh.optLong("end",System.currentTimeMillis())
             val stages=rows(sh,"stages").toMutableList()
             if(!sh.has("end")) stages.add(JSONObject().put("start",sh.optLong("stageStart",sh.optLong("start"))).put("end",end).put("kind",sh.optString("kind","Obiekt")).put("objectId",sh.optString("objectId")))
-            TimeAnalytics.Shift(sh.optLong("start"),end,stages.map { st -> TimeAnalytics.Stage(st.optLong("start"),st.optLong("end"),when(st.optString("kind")) { "Obiekt" -> if(st.optString("objectId").isNotBlank() || st.optString("object").isNotBlank()) 0 else 3; "Zakupy" -> 1; "Przejazd" -> 2; else -> 3 }) })
+            TimeAnalytics.Shift(sh.optLong("start"),end,stages.map { st -> TimeAnalytics.Stage(st.optLong("start"),st.optLong("end"),when(st.optString("kind")) { "Prywatnie" -> -1; "Obiekt" -> if(st.optString("objectId").isNotBlank() || st.optString("object").isNotBlank()) 0 else 3; "Zakupy" -> 1; "Przejazd" -> 2; else -> 3 }) })
         }
         val result=TimeAnalytics.calculate(shifts,range.first,range.second,ZoneId.systemDefault())
         label("Statystyka czasu pracy")
@@ -1430,9 +1461,10 @@ class MainActivity : Activity() {
             root.addView(TextView(this).apply { text="● "+TimeChart.names[i]+" — "+duration(n)+" · "+"%.1f%%".format(Locale("pl"),if(sum==0L) 0.0 else n*100.0/sum);textSize=16f;setTextColor(0xFF37474F.toInt());setPadding(0,dp(7),0,dp(7)) })
         }
         if(sum==0L) label("Brak czasu pracy w wybranym okresie.")
-        label("Podział nie zmienia czasu płatnego. Cała zmiana jest czasem pracy.")
+        label("Czas Prywatnie nie wlicza się do czasu pracy ani wynagrodzenia.")
     }
     private fun toggleShopping() {
+        if(active(data())?.optString("kind")=="Prywatnie") { toast("Najpierw wznów pracę");return }
         val a=active(data()) ?: run { toast("Najpierw rozpocznij pracę");return }
         if(a.optString("kind")=="Zakupy") {
             confirmAction("Zakończyć zakupy? Wybierz obiekt lub rozpocznij przejazd.") {
@@ -1443,6 +1475,7 @@ class MainActivity : Activity() {
         } else startShopping()
     }
     private fun startShopping() {
+        if(active(data())?.optString("kind")=="Prywatnie") { toast("Najpierw wznów pracę");return }
         val d=data();val a=active(d) ?: return
         val now=System.currentTimeMillis();val id=UUID.randomUUID().toString()
         if(a.optString("kind")=="Przejazd") a.optJSONObject("stageMeta")?.put("toObject","Zakupy")
