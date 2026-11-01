@@ -697,6 +697,10 @@ class MainActivity : Activity() {
         root.setBackgroundColor(0xFFF4F7F8.toInt())
         label("WSZYSTKIE USTAWIENIA · SOLO")
         label("Z poziomu głównego dostępne są ustawienia wszystkich działów.")
+        // Backward-compatible entry points retained for existing flows and tests.
+        button("Portfel / rozliczenia (PIN)") { confirmPin { walletUnlocked=true; wallet() } }
+        button("GENERUJ RAPORT SMS") { weeklySms() }
+        button("Logi / eksport / import") { logs() }
         label("Kopie i synchronizacja")
         button("Google Drive") { driveSettings() }
         button("Centrum kopii / eksport / import") { logs() }
