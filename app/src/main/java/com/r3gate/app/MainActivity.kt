@@ -405,46 +405,112 @@ class MainActivity : Activity() {
         super.onSaveInstanceState(out)
     }
     private fun duration(ms:Long):String { val m=(ms.coerceAtLeast(0)/60000); return "%02d:%02d".format(m/60,m%60) }
+    /** WorkMeter Solo home dashboard: visual components only; work state stays in legacy data. */
     private fun home() {
         base("WorkMeter")
         screen="home"; homeVisible=true
         val d=data(); val a=active(d)
         val recent=rows(d,"shifts").lastOrNull(); val shown=a?:recent
-        val card=LinearLayout(this).apply {
-            orientation=LinearLayout.VERTICAL; setPadding(dp(14),dp(12),dp(14),dp(12))
-            background=background(0xFF37474F.toInt())
+        val slate=0xFF304953.toInt()
+        val muted=0xFF6D7C84.toInt()
+        val coral=0xFFFF5C5C.toInt()
+        val surface=0xFFF4F7F8.toInt()
+        val privateMode=a?.optString("kind")=="Prywatnie"
+        root.setBackgroundColor(Color.WHITE)
+        root.setPadding(dp(16),dp(16),dp(16),dp(28))
+
+        fun rounded(color:Int,radius:Int=18):GradientDrawable = GradientDrawable().apply {
+            setColor(color); cornerRadius=dp(radius).toFloat()
         }
-        fun line(text:String,size:Float,color:Int) { card.addView(TextView(this).apply {
-            this.text=text; textSize=size; setTextColor(color); setPadding(0,dp(4),0,dp(4))
-        }) }
-        line(if(a!=null) "● ONLINE" else "● OFFLINE",16f,if(a!=null) 0xFF42D77D.toInt() else 0xFFCFD8DC.toInt())
-        line(shown?.let { duration((if(a!=null) System.currentTimeMillis() else it.optLong("end"))-it.optLong("start")) } ?: "00:00",32f,Color.WHITE)
-        line("Rozpoczęcie: "+(shown?.let { fmt.format(Date(it.optLong("start"))) } ?: "—"),14f,0xFFDBEAF7.toInt())
-        if(a==null) line("Zakończenie: "+(recent?.let { fmt.format(Date(it.optLong("end"))) } ?: "—"),14f,0xFFDBEAF7.toInt())
-        if(a!=null) {
-            val kind=a.optString("kind","Obiekt")
-            line(if(kind=="Obiekt") a.optString("object") else kind,16f,Color.WHITE)
-            if(kind=="Przejazd") line("W drodze: "+duration(System.currentTimeMillis()-a.optLong("stageStart")),18f,0xFFFF9898.toInt())
+        fun text(value:String,size:Float,color:Int,bold:Boolean=false):TextView =
+            TextView(this).apply {
+                this.text=value; textSize=size; setTextColor(color)
+                if(bold) setTypeface(resources.getFont(R.font.clash_grotesk),android.graphics.Typeface.BOLD)
+                includeFontPadding=false
+            }
+        fun section(title:String) {
+            root.addView(text(title,14f,slate,true),LinearLayout.LayoutParams(-1,-2).apply {
+                topMargin=dp(20); bottomMargin=dp(10)
+            })
         }
-        root.addView(card,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(16) })
-        if(a==null) button("🟢 ROZPOCZNIJ PRACĘ") { confirmPin { startShift() } }
-        else {
-            button("🔴 ZAKOŃCZ PRACĘ") { confirmPin { stopShift() } }
-            button("🔄 ZMIEŃ OBIEKT") { confirmAction("Zmienić obiekt?") { switchObject() } }
-            button(if(a.optString("kind")=="Przejazd") "DOTARŁEM" else "🚗 PRZEJAZD") { toggleTravel() }
-            button(if(a.optString("kind")=="Zakupy") "ZAKOŃCZ ZAKUPY" else "ZAKUPY") { toggleShopping() }
-            button("TRASA DO OBIEKTU") { chooseObject(false) { obj -> if(obj!=null) openLink("https://www.google.com/maps/dir/?api=1&destination="+URLEncoder.encode(obj.optString("city")+" "+obj.optString("Adres"),"UTF-8")) } }
-            if(a.optString("kind")=="Zakupy") button("Dane zakupów / paragony") { shoppingRecord(a.optString("shoppingRecordId")) }
+        fun action(label:String,primary:Boolean=false,onClick:()->Unit):Button =
+            makeButton(label,onClick).apply {
+                textSize=13f; minHeight=dp(48); minimumHeight=dp(48)
+                setTextColor(if(primary) Color.WHITE else slate)
+                background=rounded(if(primary) slate else surface,14)
+                setPadding(dp(8),dp(10),dp(8),dp(10))
+                isAllCaps=false
+            }
+        fun actionRow(first:Pair<String,()->Unit>,second:Pair<String,()->Unit>) {
+            val row=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
+            row.addView(action(first.first,onClick=first.second),LinearLayout.LayoutParams(0,dp(52),1f).apply { rightMargin=dp(5) })
+            row.addView(action(second.first,onClick=second.second),LinearLayout.LayoutParams(0,dp(52),1f).apply { leftMargin=dp(5) })
+            root.addView(row,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
         }
-        label("TWÓJ DZIEŃ")
-        tiles(listOf(
-            "ZDJĘCIA" to { openScreen("list:links:") },
-            "MATERIAŁY" to { openScreen("list:materials:") },
-            "NOTATKI" to { openScreen("notes") },
-            "OBIEKTY" to { openScreen("objects") },
-            "MÓJ CZAS" to { report() },
-            "GRAFIKI" to { charts() }
-        ))
+        val hero=LinearLayout(this).apply {
+            orientation=LinearLayout.VERTICAL
+            setPadding(dp(20),dp(19),dp(20),dp(20))
+            background=rounded(slate,22)
+            elevation=dp(2).toFloat()
+        }
+        val header=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL }
+        header.addView(text("TWÓJ DZIEŃ",12f,0xFFD4E0E4.toInt(),true),LinearLayout.LayoutParams(0,-2,1f))
+        val status=when { privateMode -> "● PRYWATNIE";a!=null -> "● ONLINE";else -> "● OFFLINE" }
+        val statusColor=when { privateMode -> 0xFFFFC88F.toInt();a!=null -> 0xFF6EE0AD.toInt();else -> 0xFFD3DBDF.toInt() }
+        header.addView(text(status,12f,statusColor,true))
+        hero.addView(header)
+        hero.addView(text(shown?.let {
+            duration((if(a!=null) System.currentTimeMillis() else it.optLong("end"))-it.optLong("start"))
+        } ?: "00:00",44f,Color.WHITE,true),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(14) })
+        hero.addView(text(
+            when {
+                privateMode -> "Czas prywatny"
+                a==null -> "Gotowy do rozpoczęcia pracy"
+                a.optString("kind")=="Przejazd" -> "W drodze"
+                a.optString("kind")=="Zakupy" -> "Zakupy"
+                else -> a.optString("object").ifBlank { "Bez przypisanego obiektu" }
+            },16f,Color.WHITE,true),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(5) })
+        hero.addView(text(
+            "Rozpoczęcie: "+(shown?.let { fmt.format(Date(it.optLong("start"))) } ?: "—"),
+            12f,0xFFD5E1E5.toInt()),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(7) })
+        if(a==null && recent!=null) hero.addView(text(
+            "Zakończenie: "+fmt.format(Date(recent.optLong("end"))),
+            12f,0xFFD5E1E5.toInt()),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(2) })
+        if(a?.optString("kind")=="Przejazd") hero.addView(text(
+            "Czas przejazdu: "+duration(System.currentTimeMillis()-a.optLong("stageStart")),
+            13f,0xFFFFC5BD.toInt(),true),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(9) })
+        root.addView(hero,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(14) })
+
+        if(a==null) {
+            root.addView(action("▶  ROZPOCZNIJ PRACĘ",true) { confirmPin { startShift() } },
+                LinearLayout.LayoutParams(-1,dp(52)))
+        } else {
+            root.addView(action("■  ZAKOŃCZ PRACĘ",true) { confirmPin { stopShift() } }.apply {
+                background=rounded(coral,14)
+            },LinearLayout.LayoutParams(-1,dp(52)).apply { bottomMargin=dp(10) })
+            if(privateMode) {
+                root.addView(text("Tryb prywatny — wróć do pracy z menu po zakończeniu przerwy.",13f,muted),
+                    LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
+            }
+            actionRow("↔  ZMIEŃ OBIEKT" to { confirmAction("Zmienić obiekt?") { switchObject() } },
+                (if(a.optString("kind")=="Przejazd") "✓  DOTARŁEM" else "🚗  PRZEJAZD") to { toggleTravel() })
+            actionRow((if(a.optString("kind")=="Zakupy") "✓  ZAKOŃCZ ZAKUPY" else "🛍  ZAKUPY") to { toggleShopping() },
+                "↗  TRASA DO OBIEKTU" to { chooseObject(false) { obj ->
+                    if(obj!=null) openLink("https://www.google.com/maps/dir/?api=1&destination="+
+                        URLEncoder.encode(obj.optString("city")+" "+obj.optString("Adres"),"UTF-8"))
+                } })
+            if(a.optString("kind")=="Zakupy") {
+                root.addView(action("Dane zakupów / paragony") { shoppingRecord(a.optString("shoppingRecordId")) },
+                    LinearLayout.LayoutParams(-1,dp(48)))
+            }
+        }
+        section("SZYBKIE DZIAŁANIA")
+        actionRow("📷  ZDJĘCIA" to { openScreen("list:links:") },
+            "📦  MATERIAŁY" to { openScreen("list:materials:") })
+        actionRow("📝  NOTATKI" to { openScreen("notes") },
+            "🏢  OBIEKTY" to { openScreen("objects") })
+        section("PRZEGLĄD")
+        actionRow("◷  MÓJ CZAS" to { report() }, "▥  GRAFIKI" to { charts() })
     }
     private fun settings() {
         base("Ustawienia"); screen="settings"; nav()
