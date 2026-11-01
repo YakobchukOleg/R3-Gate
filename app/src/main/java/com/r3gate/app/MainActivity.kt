@@ -693,7 +693,7 @@ class MainActivity : Activity() {
         button("☷  Wróć do pełnego menu") { menu() }
     }
     private fun settings() {
-        base("Ustawienia WorkMeter"); screen="settings"; nav()
+        base("Ustawienia"); screen="settings"; nav()
         root.setBackgroundColor(0xFFF4F7F8.toInt())
         label("WSZYSTKIE USTAWIENIA · SOLO")
         label("Z poziomu głównego dostępne są ustawienia wszystkich działów.")
