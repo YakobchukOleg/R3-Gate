@@ -419,6 +419,7 @@ class MainActivity : Activity() {
             screen == "home" -> finish()
             screen == "sms" -> openScreen(smsParent)
             screen=="menu" -> home()
+            screen=="sectionSettings" -> settings()
             screen.startsWith("menuFeature:") -> menu()
             screen in listOf("drive","logs","about","widgetSettings","wallet","language") -> settings()
             screen == "payment" || screen=="expenses" -> wallet()
@@ -692,14 +693,56 @@ class MainActivity : Activity() {
         button("☷  Wróć do pełnego menu") { menu() }
     }
     private fun settings() {
-        base("Ustawienia"); screen="settings"; nav()
-        button("Portfel / rozliczenia (PIN)") { confirmPin { walletUnlocked=true; wallet() } }
-        button("GENERUJ RAPORT SMS") { weeklySms() }
-        button("Google Disk") { driveSettings() }
-        button("Logi / eksport / import") { logs() }
+        base("Ustawienia WorkMeter"); screen="settings"; nav()
+        root.setBackgroundColor(0xFFF4F7F8.toInt())
+        label("WSZYSTKIE USTAWIENIA · SOLO")
+        label("Z poziomu głównego dostępne są ustawienia wszystkich działów.")
+        label("Kopie i synchronizacja")
+        button("Google Drive") { driveSettings() }
+        button("Centrum kopii / eksport / import") { logs() }
+        label("Widżet i interfejs")
         button("Wygląd widżetu") { widgetSettings() }
         button("Język aplikacji") { language() }
+        label("Ustawienia działów")
+        listOf("Mój czas","Obiekty","Zdjęcia","Materiały","Grafiki","Portfel").forEach { item ->
+            button("⚙  $item  ›") { sectionSettings(item) }
+        }
+        label("Informacje")
         button("O aplikacji") { about() }
+    }
+    private fun sectionSettings(section:String) {
+        base("Ustawienia · $section"); screen="sectionSettings"; nav()
+        root.setBackgroundColor(0xFFF4F7F8.toInt())
+        when(section) {
+            "Mój czas" -> {
+                label("Czas pracy i raporty")
+                button("Raport SMS") { weeklySms("settings") }
+                button("Historia pracy") { report() }
+            }
+            "Obiekty" -> {
+                label("Obiekty i lokalizacje GPS")
+                button("Lista obiektów") { openScreen("objects") }
+            }
+            "Zdjęcia" -> {
+                label("Kolejka wysyłania i Google Drive")
+                button("Kolejka zdjęć") { openScreen("queue") }
+                button("Google Drive") { driveSettings() }
+            }
+            "Materiały" -> {
+                label("Katalog i historia materiałów")
+                button("Otwórz materiały") { openScreen("list:materials:") }
+            }
+            "Grafiki" -> {
+                label("Analiza czasu")
+                button("Grafiki i filtry") { charts() }
+            }
+            "Portfel" -> {
+                label("Prywatne rozliczenia chronione PIN")
+                button("Otwórz Portfel") { confirmPin { walletUnlocked=true; wallet() } }
+            }
+        }
+        label("Dodatkowe przełączniki pojawią się po podłączeniu rzeczywistej logiki Android.")
+        button("Wszystkie ustawienia") { settings() }
     }
     private fun about() {
         base("O aplikacji"); screen="about"; nav()
