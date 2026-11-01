@@ -227,7 +227,7 @@ class AppFlowTest {
             assertEquals("object-test",active.getJSONArray("stages").getJSONObject(0).getString("objectId"))
             scenario.onActivity { a ->
                 val widgetView=GateWidget.render(a).apply(a,android.widget.FrameLayout(a))
-                assertEquals("OBIEKT ↔",widgetView.findViewById<TextView>(R.id.wswitch).text.toString())
+                assertEquals("ZMIEŃ OBIEKT",widgetView.findViewById<TextView>(R.id.wswitch).text.toString())
                 assertEquals(0xFF6EE0AD.toInt(),widgetView.findViewById<TextView>(R.id.wstatus).currentTextColor)
                 assertEquals("ZAKUPY",widgetView.findViewById<TextView>(R.id.wshopping).text.toString())
                 val widgetHeight=(160*a.resources.displayMetrics.density).toInt()
