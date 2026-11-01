@@ -606,7 +606,7 @@ class AppFlowTest {
                 assertTrue(has(a,"P2 · Organizacja pracy"))
                 assertTrue(has(a,"P3 · Zespół i dokumenty"))
                 assertTrue(has(a,"P4 · Planowanie i analityka"))
-                click(a,"›  Harmonogram\\nKalendarz wizyt i zadania")
+                click(a,"›  Harmonogram\nKalendarz wizyt i zadania")
                 assertTrue(has(a,"Ten moduł jest częścią wizualnego prototypu P1–P4. Pełna obsługa wymaga osobnego wdrożenia. Dostępne działania poniżej korzystają z prawdziwych danych WorkMeter."))
                 click(a,"◷  Historia pracy i kalendarz")
                 assertTrue(has(a,"Mój czas"))
