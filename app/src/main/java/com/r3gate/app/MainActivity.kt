@@ -587,9 +587,20 @@ class MainActivity : Activity() {
     private fun menu() {
         screen="menu"
         base("Menu WorkMeter")
+        root.setBackgroundColor(0xFFF4F7F8.toInt())
         nav()
-        label("WORKMETER · SOLO")
-        label("WSZYSTKIE FUNKCJE · P1–P4")
+        val banner=TextView(this).apply {
+            text="WORKMETER · SOLO\\nWSZYSTKIE FUNKCJE · P1–P4"
+            textSize=13f
+            setTextColor(0xFF2E725D.toInt())
+            setTypeface(null,android.graphics.Typeface.BOLD)
+            setPadding(dp(14),dp(12),dp(14),dp(12))
+            background=GradientDrawable().apply {
+                setColor(0xFFE1F2EB.toInt())
+                cornerRadius=dp(13).toFloat()
+            }
+        }
+        root.addView(banner,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(12) })
         label("Główne działy")
         tiles(listOf(
             "⌂  Dzisiaj" to { home() },
@@ -607,7 +618,18 @@ class MainActivity : Activity() {
                 "P3" -> "Zespół i dokumenty";else -> "Planowanie i analityka"
             })
             prototypeModules.filter { it.phase==phase }.forEach { module ->
-                button("›  "+module.title+"\n"+module.detail) { menuFeature(module.id) }
+                root.addView(makeButton("›  "+module.title+"\\n"+module.detail) { menuFeature(module.id) }.apply {
+                    textSize=13f
+                    gravity=Gravity.CENTER_VERTICAL or Gravity.START
+                    minHeight=dp(62); minimumHeight=dp(62)
+                    setTextColor(0xFF344953.toInt())
+                    setPadding(dp(14),dp(10),dp(12),dp(10))
+                    background=GradientDrawable().apply {
+                        setColor(Color.WHITE)
+                        cornerRadius=dp(13).toFloat()
+                        setStroke(dp(1),0xFFE2E9EC.toInt())
+                    }
+                },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(7) })
             }
         }
     }
