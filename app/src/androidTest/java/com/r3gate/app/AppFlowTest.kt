@@ -601,7 +601,7 @@ class AppFlowTest {
                 val more=all(a).filterIsInstance<Button>().firstOrNull { it.contentDescription=="Więcej" }
                 assertNotNull("Bottom navigation must expose Więcej",more)
                 more!!.performClick()
-                assertTrue(has(a,"WSZYSTKIE FUNKCJE · P1–P4"))
+                assertTrue(all(a).filterIsInstance<TextView>().any { it.text.toString().contains("WSZYSTKIE FUNKCJE · P1–P4") })
                 assertTrue(has(a,"P1 · Fundamenty"))
                 assertTrue(has(a,"P2 · Organizacja pracy"))
                 assertTrue(has(a,"P3 · Zespół i dokumenty"))
