@@ -566,9 +566,14 @@ class MainActivity : Activity() {
     private val prototypeModules get() = listOf(
         MenuModule("backups","Kopie i dane","Kopie lokalne, import, eksport i Google Disk","P1"),
         MenuModule("widgets","Galeria widżetów","Wygląd, przezroczystość i podgląd","P1"),
+        MenuModule("jobs","Zlecenia","Powiązanie pracy z obiektem","P2"),
+        MenuModule("planner","Planer","Plan dnia i zadania","P2"),
         MenuModule("schedule","Harmonogram","Kalendarz wizyt i zadania","P2"),
         MenuModule("protocols","Protokoły","Odbiory, podpisy i PDF","P2"),
         MenuModule("quality","Jakość i gwarancje","Usterki, reklamacje i historia","P2"),
+        MenuModule("company","Finanse firmy","Koszty, przychody i raporty","P3"),
+        MenuModule("clients","Klienci","Lista klientów i kontakty","P3"),
+        MenuModule("equipment","Sprzęt","Rejestr urządzeń i serwis","P3"),
         MenuModule("team","Zespół","Pracownicy i dyspozycyjność","P3"),
         MenuModule("service","Serwis cykliczny","Przeglądy i przypomnienia","P3"),
         MenuModule("inventory","Magazyn","Stan auta, materiały i zestawy","P3"),
@@ -620,7 +625,7 @@ class MainActivity : Activity() {
         label(module.phase+" · "+module.detail)
         label("Ten moduł jest częścią wizualnego prototypu P1–P4. Pełna obsługa wymaga osobnego wdrożenia. Dostępne działania poniżej korzystają z prawdziwych danych WorkMeter.")
         when(id) {
-            "schedule" -> {
+            "schedule","jobs","planner" -> {
                 button("◷  Historia pracy i kalendarz") { report() }
                 button("▦  Obiekty") { objects() }
             }
@@ -629,10 +634,18 @@ class MainActivity : Activity() {
                 button("▦  Obiekty") { objects() }
                 button("📷  Zdjęcia") { openScreen("list:links:") }
             }
-            "team","access" -> {
+            "team","access","clients" -> {
                 button("▦  Obiekty") { objects() }
                 button("⚙  Ustawienia") { settings() }
                 button("🔐  Portfel prywatny (PIN)") { confirmPin { walletUnlocked=true; wallet() } }
+            }
+            "equipment" -> {
+                button("▦  Obiekty i dane urządzeń") { objects() }
+                button("📝  Notatki serwisowe") { openScreen("notes") }
+            }
+            "company" -> {
+                button("🔐  Rozliczenia prywatne (PIN)") { confirmPin { walletUnlocked=true;wallet() } }
+                button("▤  Materiały") { openScreen("list:materials:") }
             }
             "documents" -> {
                 button("📷  Zdjęcia") { openScreen("list:links:") }
