@@ -702,7 +702,7 @@ class MainActivity : Activity() {
         button("GENERUJ RAPORT SMS") { weeklySms() }
         button("Logi / eksport / import") { logs() }
         label("Kopie i synchronizacja")
-        button("Google Drive") { driveSettings() }
+        button("Google Disk") { driveSettings() }
         button("Centrum kopii / eksport / import") { logs() }
         label("Widżet i interfejs")
         button("Wygląd widżetu") { widgetSettings() }
