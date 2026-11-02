@@ -9,6 +9,11 @@ import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.os.*
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import kotlin.math.sqrt
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -24,7 +29,40 @@ class GpsTrackingService : Service(), LocationListener {
     private val manager by lazy { getSystemService(LOCATION_SERVICE) as LocationManager }
     private var subscribed=false
     private var currentProvider:String?=null
+    private var subscribedIntervalMs=0L
     private var sessionStarted=false
+    private val sensors by lazy { getSystemService(SENSOR_SERVICE) as SensorManager }
+    private var motionListenerRegistered=false
+    private var samplingState=GpsAdaptiveSampling.State()
+    private var samplingIntervalMs=GpsAdaptiveSampling.ACTIVE_INTERVAL_MS
+    private val sensorListener=object:SensorEventListener {
+        override fun onAccuracyChanged(sensor:Sensor?,accuracy:Int) {}
+        override fun onSensorChanged(event:SensorEvent) {
+            if(event.sensor.type!=Sensor.TYPE_ACCELEROMETER || !prefs.getBoolean("gps_enabled",false)) return
+            val x=event.values[0].toDouble()
+            val y=event.values[1].toDouble()
+            val z=event.values[2].toDouble()
+            val delta=kotlin.math.abs(sqrt(x*x+y*y+z*z)-SensorManager.GRAVITY_EARTH)
+            val now=System.currentTimeMillis()
+            samplingState=GpsAdaptiveSampling.observe(samplingState,now,delta)
+            val target=GpsAdaptiveSampling.interval(samplingState,now,true)
+            if(target!=samplingIntervalMs) {
+                samplingIntervalMs=target
+                try { updateSubscription() }
+                catch(_:SecurityException) { prefs.edit().putString("gps_service_problem","permission").apply();shutdown() }
+                catch(_:RuntimeException) { prefs.edit().putString("gps_service_problem","provider").apply() }
+            }
+        }
+    }
+    private fun startMotionSensor() {
+        if(motionListenerRegistered) return
+        val sensor=sensors.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) ?: return
+        motionListenerRegistered=sensors.registerListener(sensorListener,sensor,SensorManager.SENSOR_DELAY_NORMAL)
+    }
+    private fun stopMotionSensor() {
+        if(motionListenerRegistered) sensors.unregisterListener(sensorListener)
+        motionListenerRegistered=false
+    }
     private val providerReceiver=object:BroadcastReceiver() {
         override fun onReceive(context:Context?,intent:Intent?) {
             if(intent?.action!=LocationManager.PROVIDERS_CHANGED_ACTION ||
@@ -61,11 +99,11 @@ class GpsTrackingService : Service(), LocationListener {
             subscribed=false; currentProvider=null
             return
         }
-        if(subscribed && chosen==currentProvider) return
+        if(subscribed && chosen==currentProvider && subscribedIntervalMs==samplingIntervalMs) return
         if(subscribed) manager.removeUpdates(this)
         subscribed=false;currentProvider=null
-        manager.requestLocationUpdates(chosen,30_000L,0f,this,Looper.getMainLooper())
-        currentProvider=chosen;subscribed=true
+        manager.requestLocationUpdates(chosen,samplingIntervalMs,0f,this,Looper.getMainLooper())
+        currentProvider=chosen;subscribed=true;subscribedIntervalMs=samplingIntervalMs
         prefs.edit().remove("gps_service_problem").apply()
     }
     override fun onProviderDisabled(provider:String) {
@@ -123,6 +161,7 @@ class GpsTrackingService : Service(), LocationListener {
                     .putLong("gps_session_start",System.currentTimeMillis()).apply()
             }
             // With no provider keep the visible foreground service listening for location changes.
+            startMotionSensor()
             updateSubscription()
         } catch(_:SecurityException) { prefs.edit().putString("gps_service_problem","permission").apply(); shutdown() }
         catch(_:IllegalArgumentException) { prefs.edit().putString("gps_service_problem","provider").apply(); shutdown() }
@@ -250,12 +289,14 @@ class GpsTrackingService : Service(), LocationListener {
             .put("accuracy",location.accuracy.toDouble()).put("time",now).toString()).apply()
     }
     private fun shutdown() {
+        stopMotionSensor()
         if(subscribed) { manager.removeUpdates(this);subscribed=false;currentProvider=null }
         prefs.edit().putBoolean("gps_service_active",false).apply()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
     override fun onDestroy() {
+        stopMotionSensor()
         unregisterReceiver(providerReceiver)
         if(subscribed) { manager.removeUpdates(this);subscribed=false;currentProvider=null }
         prefs.edit().putBoolean("gps_service_active",false).apply()
