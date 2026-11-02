@@ -168,9 +168,23 @@ class GpsTrackingService : Service(), LocationListener {
             if(Build.VERSION.SDK_INT>=29) startForeground(NOTIFICATION_ID,notification(),ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
             else startForeground(NOTIFICATION_ID,notification())
             if(!sessionStarted) {
+                // A new foreground service session must not join motion evidence from
+                // a previous run, even if the device was switched off only briefly.
+                val savedArrival=try {
+                    JSONObject(prefs.getString("gps_arrival_state","{}") ?: "{}")
+                } catch(_:Exception) { JSONObject() }
+                val confirmed=savedArrival.optString("confirmed")
+                val safeArrival=JSONObject().put("confirmed",confirmed)
+                    .put("candidate","").put("since",0L).put("last",0L)
+                prefs.edit().remove("gps_trip_state").remove("gps_motion_point")
+                    .remove("gps_last_provider")
+                    .putString("gps_arrival_state",safeArrival.toString())
+                    .putLong("gps_requested_interval_ms",GpsAdaptiveSampling.ACTIVE_INTERVAL_MS)
+                    .putBoolean("gps_service_active",true)
+                    .putLong("gps_session_start",System.currentTimeMillis()).commit()
+                samplingState=GpsAdaptiveSampling.State()
+                samplingIntervalMs=GpsAdaptiveSampling.ACTIVE_INTERVAL_MS
                 sessionStarted=true
-                prefs.edit().putBoolean("gps_service_active",true)
-                    .putLong("gps_session_start",System.currentTimeMillis()).apply()
             }
             // With no provider keep the visible foreground service listening for location changes.
             if(prefs.getBoolean("gps_adaptive_sampling",false)) startMotionSensor()
