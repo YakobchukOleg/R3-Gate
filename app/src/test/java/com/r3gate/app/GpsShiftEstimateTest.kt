@@ -25,4 +25,10 @@ class GpsShiftEstimateTest {
         assertEquals(400L,GpsShiftEstimate.calculate(events,shift,true).actualTravelMs)
         assertEquals(0L,GpsShiftEstimate.calculate(events,GpsShiftEstimate.Window(100,100),true).actualTravelMs)
     }
+    @Test fun restartCannotCompleteTripStartedBeforeGpsStopped() {
+        val events=listOf(e("TRIP_START",100),e("GPS_GAP",200),e("TRIP_STOP",800),
+            e("TRIP_START",850),e("TRIP_STOP",950))
+        assertEquals(GpsShiftEstimate.Summary(100,100,1),
+            GpsShiftEstimate.calculate(events,shift,true))
+    }
 }
