@@ -10,24 +10,10 @@ object GpsShiftEstimate {
     data class Summary(val actualTravelMs:Long,val payableTravelMs:Long,val completeTrips:Int)
     fun calculate(events:List<Event>,window:Window,payTravel:Boolean):Summary {
         if(window.endMs<=window.startMs) return Summary(0,0,0)
-        var opened:Long?=null
-        var actual=0L
-        var trips=0
-        for(event in events.sortedBy { it.timestampMs }) {
-            when(event.type) {
-                "TRIP_START" -> opened=event.timestampMs
-                "GPS_GAP" -> opened=null
-                "TRIP_STOP" -> {
-                    val start=opened
-                    if(start!=null && event.timestampMs>start) {
-                        val from=maxOf(start,window.startMs)
-                        val to=minOf(event.timestampMs,window.endMs)
-                        if(to>from) { actual+=to-from;trips++ }
-                    }
-                    opened=null
-                }
-            }
-        }
-        return Summary(actual,if(payTravel) actual else 0L,trips)
+        // Use the same interval-union engine as GPS trip billing so imported,
+        // duplicated or overlapping evidence cannot inflate estimated travel.
+        val trips=GpsTripBilling.pair(events,emptyMap())
+        val totals=GpsTripBilling.calculate(trips,window,GpsTripBilling.Rules())
+        return Summary(totals.elapsedMs,if(payTravel) totals.elapsedMs else 0L,totals.trips)
     }
 }
