@@ -259,8 +259,7 @@ class GpsTrackingService : Service(), LocationListener {
                 return
             }
         }
-        // Commit source ordering only after the fix passes teleport filtering.
-        prefs.edit().putLong("gps_last_source_fix_time",sourceTime).commit()
+        // Source order is checkpointed with the completed motion update below.
         val source=location.provider ?: ""
         val transition=GpsSourceTransitionRules.compare(
             prefs.getString("gps_last_provider",null),source)
@@ -330,10 +329,7 @@ class GpsTrackingService : Service(), LocationListener {
             GpsArrivalRules.uncertain(state,now)
         else GpsArrivalRules.advance(state,observed,now)
         val next=decision.state
-        val editor=prefs.edit().putString("gps_last_fix",JSONObject()
-            .put("lat",location.latitude).put("lon",location.longitude)
-            .put("accuracy",location.accuracy.toDouble()).put("time",now).toString())
-            .putString("gps_arrival_state",JSONObject()
+        val editor=prefs.edit().putString("gps_arrival_state",JSONObject()
                 .put("confirmed",next.confirmedId ?: "").put("candidate",next.candidateId ?: "")
                 .put("since",next.candidateSinceMs).put("last",next.lastFixMs).toString())
         if(decision.event!=null) {
@@ -411,6 +407,10 @@ class GpsTrackingService : Service(), LocationListener {
             motionEditor.putString("gps_motion_point",JSONObject()
                 .put("lat",location.latitude).put("lon",location.longitude)
                 .put("accuracy",location.accuracy.toDouble()).put("time",now).toString())
+                .putString("gps_last_fix",JSONObject()
+                    .put("lat",location.latitude).put("lon",location.longitude)
+                    .put("accuracy",location.accuracy.toDouble()).put("time",now).toString())
+                .putLong("gps_last_source_fix_time",sourceTime)
             if(!motionEditor.commit()) return
         } else if(lastTime>0 && now-lastTime>1_800_000L) {
             prefs.edit().remove("gps_trip_state").apply()
@@ -418,7 +418,11 @@ class GpsTrackingService : Service(), LocationListener {
         if(!GpsMotionContinuityRules.contiguous(lastTime,now)) {
             if(!prefs.edit().putString("gps_motion_point",JSONObject()
                 .put("lat",location.latitude).put("lon",location.longitude)
-                .put("accuracy",location.accuracy.toDouble()).put("time",now).toString()).commit()) return
+                .put("accuracy",location.accuracy.toDouble()).put("time",now).toString())
+                .putString("gps_last_fix",JSONObject()
+                    .put("lat",location.latitude).put("lon",location.longitude)
+                    .put("accuracy",location.accuracy.toDouble()).put("time",now).toString())
+                .putLong("gps_last_source_fix_time",sourceTime).commit()) return
         }
         if(prefs.getBoolean("gps_adaptive_sampling",false)) {
             val desired=safeSamplingInterval(now)
