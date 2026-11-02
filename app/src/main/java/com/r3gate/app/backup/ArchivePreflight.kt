@@ -13,7 +13,7 @@ object ArchivePreflight {
     const val JOURNAL = "journal/data.json"
     private const val MAX_JOURNAL_BYTES = 32 * 1024 * 1024
 
-    data class Preview(val version: Int, val entries: Int, val totalBytes: Long, val journalJson: String)
+    data class Preview(val version: Int, val entries: Int, val totalBytes: Long, val journalJson: String, val validation: JournalValidator.Report)
 
     fun verify(open: () -> InputStream): Preview {
         val report = open().use { WorkMeterArchive.inspect(it) }
@@ -48,7 +48,8 @@ object ArchivePreflight {
         require(digest == item.sha256) { "Journal changed during inspection" }
         // The original JSON remains opaque: objectId values and archived objects are never rewritten.
         val text = String(bytes, Charsets.UTF_8)
-        require(text.trimStart().startsWith("{") && text.trimEnd().endsWith("}")) { "Journal is not a JSON object" }
-        return Preview(report.version, report.files.size, report.totalBytes, text)
+        val validation = JournalValidator.inspect(text)
+        require(validation.canRestore) { "Invalid journal: " + validation.errors.joinToString("; ") }
+        return Preview(report.version, report.files.size, report.totalBytes, text, validation)
     }
 }
