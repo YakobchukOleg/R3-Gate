@@ -16,9 +16,10 @@ object ObjectListUiModel {
     data class Row(val id: String, val title: String, val status: String, val accessibilityLabel: String)
     data class Display(val rows: List<Row>, val emptyMessage: String?)
 
-    fun display(items: List<Item>, showArchived: Boolean): Display {
+    fun display(items: List<Item>, showArchived: Boolean, cityQuery: String = ""): Display {
         val rows = items.asSequence()
             .filter { it.archived == showArchived }
+            .filter { ObjectSearch.matches(it.city, cityQuery) }
             .sortedWith { a, b -> ObjectSearch.compareTags(a.tag, b.tag).takeIf { it != 0 } ?: a.id.compareTo(b.id) }
             .map {
                 val title = ObjectUiPresentation.title(it.tag, it.organization, it.city, it.address)
