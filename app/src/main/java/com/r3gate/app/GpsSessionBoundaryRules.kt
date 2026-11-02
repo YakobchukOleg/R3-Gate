@@ -13,5 +13,10 @@ object GpsSessionBoundaryRules {
     fun shouldResetActiveCheckpoint(lastFixMs:Long, nowMs:Long, sourceFixMs:Long):Boolean =
         clockRolledBack(lastFixMs,nowMs) && sourceFixMs>0L && sourceFixMs<=nowMs
 
+    /** Preserve a confirmed object, never a candidate backed by pre-rollback time. */
+    data class ArrivalCheckpoint(val confirmedId:String?,val candidateId:String?,val candidateSinceMs:Long,val lastFixMs:Long)
+    fun resetArrival(checkpoint:ArrivalCheckpoint):ArrivalCheckpoint =
+        ArrivalCheckpoint(checkpoint.confirmedId,null,0L,0L)
+
     fun shouldRecordShutdownGap(sessionStarted:Boolean):Boolean = sessionStarted
 }
