@@ -24,11 +24,16 @@ object GpsShiftReconciliation {
         var inside=0L
         var outside=0L
         var overlapping=0
+        var interrupted=0
         for(e in events.sortedBy { it.timestampMs }) {
             when(e.type) {
                 "TRIP_START" -> {
                     if(opened!=null) overlapping++
                     opened=e.timestampMs
+                }
+                "GPS_GAP" -> {
+                    if(opened!=null) interrupted++
+                    opened=null
                 }
                 "TRIP_STOP" -> {
                     val start=opened
@@ -46,7 +51,7 @@ object GpsShiftReconciliation {
         val fixes=fixTimes.filter { it in shift.startMs..shift.endMs }.sorted().distinct()
         val boundaries=(listOf(shift.startMs)+fixes+listOf(shift.endMs))
         val gaps=boundaries.zipWithNext().count { (a,b) -> b-a>gapThresholdMs }
-        val unfinished=if(opened!=null && opened<shift.endMs) 1 else 0
+        val unfinished=interrupted + if(opened!=null && opened<shift.endMs) 1 else 0
         return Review(complete,inside,outside,unfinished,overlapping,gaps,
             unfinished>0 || overlapping>0 || outside>0 || gaps>0)
     }
