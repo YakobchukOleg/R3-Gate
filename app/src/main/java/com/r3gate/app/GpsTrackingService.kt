@@ -35,6 +35,16 @@ class GpsTrackingService : Service(), LocationListener {
     private var motionListenerRegistered=false
     private var samplingState=GpsAdaptiveSampling.State()
     private var samplingIntervalMs=GpsAdaptiveSampling.ACTIVE_INTERVAL_MS
+    private fun safeSamplingInterval(now:Long):Long {
+        val suggested=GpsAdaptiveSampling.interval(samplingState,now,true)
+        val last=try { JSONObject(prefs.getString("gps_last_fix","{}") ?: "{}") } catch(_:Exception) { JSONObject() }
+        val motion=try { JSONObject(prefs.getString("gps_trip_state","{}") ?: "{}") } catch(_:Exception) { JSONObject() }
+        val confirmedTravel=motion.optString("mode")=="MOVING" &&
+            now-motion.optLong("last") in 0..GpsSamplingSafety.MAX_FIX_AGE_MS
+        return GpsSamplingSafety.interval(suggested,now,last.optLong("time"),
+            last.optDouble("accuracy",Double.NaN),confirmedTravel)
+    }
+
     private val sensorListener=object:SensorEventListener {
         override fun onAccuracyChanged(sensor:Sensor?,accuracy:Int) {}
         override fun onSensorChanged(event:SensorEvent) {
@@ -46,7 +56,7 @@ class GpsTrackingService : Service(), LocationListener {
             val delta=kotlin.math.abs(sqrt(x*x+y*y+z*z)-SensorManager.GRAVITY_EARTH)
             val now=System.currentTimeMillis()
             samplingState=GpsAdaptiveSampling.observe(samplingState,now,delta)
-            val target=GpsAdaptiveSampling.interval(samplingState,now,true)
+            val target=safeSamplingInterval(now)
             if(target!=samplingIntervalMs) {
                 samplingIntervalMs=target
                 try { updateSubscription() }
@@ -269,7 +279,7 @@ class GpsTrackingService : Service(), LocationListener {
             val moving=GpsWorkRules.traveling(previousPoint,point)
             if(moving && prefs.getBoolean("gps_adaptive_sampling",false)) {
                 samplingState=GpsAdaptiveSampling.gpsTravel(samplingState,now)
-                val desired=GpsAdaptiveSampling.interval(samplingState,now,true)
+                val desired=safeSamplingInterval(now)
                 if(desired!=samplingIntervalMs) {
                     samplingIntervalMs=desired
                     try { updateSubscription() }
@@ -313,6 +323,15 @@ class GpsTrackingService : Service(), LocationListener {
         prefs.edit().putString("gps_motion_point",JSONObject()
             .put("lat",location.latitude).put("lon",location.longitude)
             .put("accuracy",location.accuracy.toDouble()).put("time",now).toString()).apply()
+        if(prefs.getBoolean("gps_adaptive_sampling",false)) {
+            val desired=safeSamplingInterval(now)
+            if(desired!=samplingIntervalMs) {
+                samplingIntervalMs=desired
+                try { updateSubscription() }
+                catch(_:SecurityException) { prefs.edit().putString("gps_service_problem","permission").apply();shutdown() }
+                catch(_:RuntimeException) { prefs.edit().putString("gps_service_problem","provider").apply() }
+            }
+        }
     }
     private fun shutdown() {
         stopMotionSensor()
