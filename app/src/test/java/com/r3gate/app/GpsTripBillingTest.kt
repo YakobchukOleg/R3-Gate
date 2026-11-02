@@ -55,4 +55,25 @@ class GpsTripBillingTest {
             700L to GpsTripBilling.Category.BETWEEN))
         assertEquals(listOf(GpsTripBilling.Trip(700,950,GpsTripBilling.Category.BETWEEN)),trips)
     }
+    @Test fun overlappingTripsDoNotDoubleCountTravelOrPayableMinutes() {
+        val trips=listOf(
+            GpsTripBilling.Trip(100,500,GpsTripBilling.Category.BETWEEN),
+            GpsTripBilling.Trip(300,700,GpsTripBilling.Category.BETWEEN))
+        assertEquals(GpsTripBilling.Total(600,600,2,0),
+            GpsTripBilling.calculate(trips,GpsShiftEstimate.Window(0,1000),GpsTripBilling.Rules()))
+    }
+    @Test fun unpaidOverlapDoesNotEraseLegitimatePaidCoverage() {
+        val trips=listOf(
+            GpsTripBilling.Trip(100,600,GpsTripBilling.Category.PRIVATE),
+            GpsTripBilling.Trip(400,800,GpsTripBilling.Category.SHOPPING))
+        assertEquals(GpsTripBilling.Total(700,400,2,0),
+            GpsTripBilling.calculate(trips,GpsShiftEstimate.Window(0,1000),GpsTripBilling.Rules()))
+    }
+    @Test fun duplicatesAndWindowClippingCannotExceedShiftDuration() {
+        val trips=listOf(
+            GpsTripBilling.Trip(0,1200,GpsTripBilling.Category.BETWEEN),
+            GpsTripBilling.Trip(0,1200,GpsTripBilling.Category.BETWEEN))
+        assertEquals(GpsTripBilling.Total(800,800,2,0),
+            GpsTripBilling.calculate(trips,GpsShiftEstimate.Window(200,1000),GpsTripBilling.Rules()))
+    }
 }
