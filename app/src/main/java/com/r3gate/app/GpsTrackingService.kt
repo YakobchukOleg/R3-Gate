@@ -319,8 +319,7 @@ class GpsTrackingService : Service(), LocationListener {
         // Travel events are kept apart from work shifts until the user confirms billing rules.
         val previous=try { JSONObject(prefs.getString("gps_motion_point","{}") ?: "{}") } catch(_:Exception) { JSONObject() }
         val lastTime=previous.optLong("time")
-        if(lastTime>0 && now>lastTime &&
-            now-lastTime<=GpsTripRules.MAX_EVIDENCE_GAP_MS) {
+        if(GpsMotionContinuityRules.contiguous(lastTime,now)) {
             val previousPoint=GpsWorkRules.Point(previous.optDouble("lat"),previous.optDouble("lon"),
                 previous.optDouble("accuracy"),lastTime)
             val moving=GpsWorkRules.traveling(previousPoint,point)
