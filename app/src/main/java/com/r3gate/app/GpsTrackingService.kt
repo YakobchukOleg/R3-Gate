@@ -31,6 +31,15 @@ class GpsTrackingService : Service(), LocationListener {
     private var currentProvider:String?=null
     private var subscribedIntervalMs=0L
     private var sessionStarted=false
+    private fun recordTripBoundary(now:Long=System.currentTimeMillis()) {
+        val journal=try { JSONArray(prefs.getString("gps_trip_events","[]") ?: "[]") }
+            catch(_:Exception) { JSONArray() }
+        journal.put(JSONObject().put("event","GPS_GAP").put("time",now))
+        val retained=JSONArray()
+        for(i in maxOf(0,journal.length()-100) until journal.length()) retained.put(journal.opt(i))
+        prefs.edit().putString("gps_trip_events",retained.toString()).apply()
+    }
+
     private val sensors by lazy { getSystemService(SENSOR_SERVICE) as SensorManager }
     private var motionListenerRegistered=false
     private var samplingState=GpsAdaptiveSampling.State()
@@ -168,6 +177,7 @@ class GpsTrackingService : Service(), LocationListener {
             if(Build.VERSION.SDK_INT>=29) startForeground(NOTIFICATION_ID,notification(),ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
             else startForeground(NOTIFICATION_ID,notification())
             if(!sessionStarted) {
+                recordTripBoundary()
                 // A new foreground service session must not join motion evidence from
                 // a previous run, even if the device was switched off only briefly.
                 val savedArrival=try {
@@ -235,6 +245,7 @@ class GpsTrackingService : Service(), LocationListener {
             prefs.edit().remove("gps_trip_state").remove("gps_motion_point").commit()
         prefs.edit().putString("gps_last_provider",source).apply()
         if(recovery.recordGap) {
+            recordTripBoundary(now)
             val gaps=try { JSONArray(prefs.getString("gps_coverage_gaps","[]") ?: "[]") } catch(_:Exception) { JSONArray() }
             gaps.put(JSONObject().put("start",lastRecorded).put("end",now))
             val limited=JSONArray()
@@ -349,6 +360,7 @@ class GpsTrackingService : Service(), LocationListener {
         }
     }
     private fun shutdown() {
+        if(sessionStarted) { recordTripBoundary(); sessionStarted=false }
         stopMotionSensor()
         if(subscribed) { manager.removeUpdates(this);subscribed=false;currentProvider=null }
         prefs.edit().putBoolean("gps_service_active",false).apply()
@@ -356,6 +368,7 @@ class GpsTrackingService : Service(), LocationListener {
         stopSelf()
     }
     override fun onDestroy() {
+        if(sessionStarted) { recordTripBoundary(); sessionStarted=false }
         stopMotionSensor()
         unregisterReceiver(providerReceiver)
         if(subscribed) { manager.removeUpdates(this);subscribed=false;currentProvider=null }
