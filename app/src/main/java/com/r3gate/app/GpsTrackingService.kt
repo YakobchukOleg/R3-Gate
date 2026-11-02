@@ -138,9 +138,15 @@ class GpsTrackingService : Service(), LocationListener {
         val previousFix=try { JSONObject(prefs.getString("gps_last_fix","{}") ?: "{}") } catch(_:Exception) { JSONObject() }
         val lastRecorded=previousFix.optLong("time")
         if(lastRecorded>=now) return
+        val source=location.provider ?: ""
+        val transition=GpsSourceTransitionRules.compare(
+            prefs.getString("gps_last_provider",null),source)
         val recovery=GpsRecoveryRules.plan(lastRecorded,now)
-        if(recovery.resetArrival) prefs.edit().remove("gps_arrival_state").commit()
-        if(recovery.resetMotion) prefs.edit().remove("gps_trip_state").remove("gps_motion_point").commit()
+        if(recovery.resetArrival || transition.resetZoneCandidate)
+            prefs.edit().remove("gps_arrival_state").commit()
+        if(recovery.resetMotion || transition.resetMotion)
+            prefs.edit().remove("gps_trip_state").remove("gps_motion_point").commit()
+        prefs.edit().putString("gps_last_provider",source).apply()
         if(recovery.recordGap) {
             val gaps=try { JSONArray(prefs.getString("gps_coverage_gaps","[]") ?: "[]") } catch(_:Exception) { JSONArray() }
             gaps.put(JSONObject().put("start",lastRecorded).put("end",now))
