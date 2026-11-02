@@ -142,8 +142,18 @@ class GpsTrackingService : Service(), LocationListener {
         val transition=GpsSourceTransitionRules.compare(
             prefs.getString("gps_last_provider",null),source)
         val recovery=GpsRecoveryRules.plan(lastRecorded,now)
-        if(recovery.resetArrival || transition.resetZoneCandidate)
+        if(recovery.resetArrival) {
             prefs.edit().remove("gps_arrival_state").commit()
+        } else if(transition.resetZoneCandidate) {
+            // Keep the last confirmed object; discard only an unconfirmed handover.
+            val existing=try {
+                JSONObject(prefs.getString("gps_arrival_state","{}") ?: "{}")
+            } catch(_:Exception) { JSONObject() }
+            prefs.edit().putString("gps_arrival_state",JSONObject()
+                .put("confirmed",existing.optString("confirmed"))
+                .put("candidate","").put("since",0L)
+                .put("last",existing.optLong("last")).toString()).commit()
+        }
         if(recovery.resetMotion || transition.resetMotion)
             prefs.edit().remove("gps_trip_state").remove("gps_motion_point").commit()
         prefs.edit().putString("gps_last_provider",source).apply()
