@@ -181,8 +181,12 @@ class GpsTrackingService : Service(), LocationListener {
     override fun onLocationChanged(location:Location) {
         if(!prefs.getBoolean("gps_enabled",false)) { shutdown();return }
         if(!GpsFixSourceRules.accept(currentProvider,location.provider,true)) return
-        if(location.accuracy<=0f || location.accuracy>100f || !location.latitude.isFinite() || !location.longitude.isFinite()) return
         val now=System.currentTimeMillis()
+        if(!GpsLocationQuality.acceptable(now,location.time,location.accuracy.toDouble(),
+                location.latitude,location.longitude)) {
+            prefs.edit().putLong("gps_rejected_fix_at",now).apply()
+            return
+        }
         val previousFix=try { JSONObject(prefs.getString("gps_last_fix","{}") ?: "{}") } catch(_:Exception) { JSONObject() }
         val lastRecorded=previousFix.optLong("time")
         if(lastRecorded>=now) return
