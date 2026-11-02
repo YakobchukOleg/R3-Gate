@@ -245,8 +245,17 @@ class GpsTrackingService : Service(), LocationListener {
             return
         }
         val previousFix=try { JSONObject(prefs.getString("gps_last_fix","{}") ?: "{}") } catch(_:Exception) { JSONObject() }
-        val lastRecorded=previousFix.optLong("time")
-        if(lastRecorded>=now) return
+        val previousRecorded=previousFix.optLong("time")
+        val rollback=GpsSessionBoundaryRules.shouldResetActiveCheckpoint(
+            previousRecorded,now,location.time)
+        if(previousRecorded>=now && !rollback) return
+        if(rollback) {
+            // Discard only stale GPS evidence. Never edit historical events or work.
+            if(!prefs.edit().remove("gps_last_fix").remove("gps_last_source_fix_time")
+                .remove("gps_motion_point").remove("gps_trip_state")
+                .remove("gps_last_provider").commit()) return
+        }
+        val lastRecorded=if(rollback) 0L else previousRecorded
         val sourceTime=location.time
         if(!GpsFixOrderRules.accept(sourceTime,
                 prefs.getLong("gps_last_source_fix_time",0L))) {
