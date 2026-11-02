@@ -21,8 +21,7 @@ object GpsShiftReconciliation {
         if(shift.endMs<=shift.startMs) return Review(0,0,0,0,0,0,false)
         var opened:Long?=null
         var complete=0
-        var inside=0L
-        var outside=0L
+        val intervals=mutableListOf<Pair<Long,Long>>()
         var overlapping=0
         var interrupted=0
         for(e in events.sortedBy { it.timestampMs }) {
@@ -38,15 +37,28 @@ object GpsShiftReconciliation {
                 "TRIP_STOP" -> {
                     val start=opened
                     if(start!=null && e.timestampMs>start) {
-                        val duration=e.timestampMs-start
-                        val overlap=(minOf(e.timestampMs,shift.endMs)-maxOf(start,shift.startMs)).coerceAtLeast(0L)
-                        inside+=overlap
-                        outside+=duration-overlap
+                        intervals.add(start to e.timestampMs)
                         complete++
                     }
                     opened=null
                 }
             }
+        }
+        // A malformed import may contain overlapping trips. Never count the
+        // same minute twice in the reconciliation or its outside-shift total.
+        val merged=mutableListOf<Pair<Long,Long>>()
+        for((start,end) in intervals.sortedBy { it.first }) {
+            val last=merged.lastOrNull()
+            if(last!=null && start<=last.second)
+                merged[merged.lastIndex]=last.first to maxOf(last.second,end)
+            else merged.add(start to end)
+        }
+        var inside=0L
+        var outside=0L
+        for((start,end) in merged) {
+            val overlap=(minOf(end,shift.endMs)-maxOf(start,shift.startMs)).coerceAtLeast(0L)
+            inside+=overlap
+            outside+=(end-start)-overlap
         }
         val fixes=fixTimes.filter { it in shift.startMs..shift.endMs }.sorted().distinct()
         val boundaries=(listOf(shift.startMs)+fixes+listOf(shift.endMs))
