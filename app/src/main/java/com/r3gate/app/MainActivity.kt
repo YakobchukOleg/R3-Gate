@@ -2079,6 +2079,23 @@ class MainActivity : Activity() {
         }
         val maps=draft.optString("maps"); val link=draft.optString("Link Google Drive")
         if((maps.isNotBlank() && !maps.startsWith("https://")) || (link.isNotBlank() && !link.startsWith("https://"))) { toast("Link musi zaczynać się od https://"); return }
+        // Validate object references at the persistence boundary, including stale drafts.
+        val objectRefs=rows(d,"objects").map { ObjectIntegrityRules.ObjectRef(it.optString("id"),it.optBoolean("archived")) }
+        if(formKind=="objects") {
+            val old=rows(d,"objects").find { it.optString("id")==draft.optString("id") }
+            if(old==null && !ObjectIntegrityRules.validateNewId(draft.optString("id"),objectRefs)) {
+                toast("Nieprawidłowy identyfikator obiektu"); return
+            }
+        } else {
+            val assigned=draft.optString("objectId")
+            if(assigned.isNotBlank()) {
+                val old=rows(d,formKind).find { it.optString("id")==draft.optString("id") }
+                val unchanged=old?.optString("objectId")==assigned
+                if(!unchanged && !ObjectIntegrityRules.canAssign(assigned,objectRefs)) {
+                    toast("Wybierz aktywny obiekt"); return
+                }
+            }
+        }
         val list=arr(d,formKind); val index=(0 until list.length()).find { list.optJSONObject(it)?.optString("id")==draft.optString("id") }
         if(index==null) list.put(draft) else list.put(index,draft)
         save(d,"SAVE_"+formKind,draft.optString("id"))
