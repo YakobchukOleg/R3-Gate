@@ -115,6 +115,7 @@ class GpsTrackingService : Service(), LocationListener {
         subscribed=false;currentProvider=null
         manager.requestLocationUpdates(chosen,samplingIntervalMs,0f,this,Looper.getMainLooper())
         currentProvider=chosen;subscribed=true;subscribedIntervalMs=samplingIntervalMs
+        prefs.edit().putLong("gps_requested_interval_ms",samplingIntervalMs).apply()
         prefs.edit().remove("gps_service_problem").apply()
     }
     override fun onProviderDisabled(provider:String) {
