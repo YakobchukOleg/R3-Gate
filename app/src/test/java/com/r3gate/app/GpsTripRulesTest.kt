@@ -53,4 +53,21 @@ class GpsTripRulesTest {
         assertEquals(GpsTripRules.Mode.UNKNOWN,resumed.state.mode)
         assertEquals(GpsTripRules.Mode.STOPPED,resumed.state.candidate)
     }
+    @Test fun trafficLightAndTrafficJamDoNotSplitTripPrematurely() {
+        var state=GpsTripRules.State(mode=GpsTripRules.Mode.MOVING,lastFixMs=1000)
+        state=GpsTripRules.advance(state,false,31_000).state
+        state=GpsTripRules.advance(state,false,91_000).state
+        assertEquals(GpsTripRules.Mode.MOVING,state.mode)
+        val resumed=GpsTripRules.advance(state,true,121_000)
+        assertNull(resumed.event)
+        assertEquals(GpsTripRules.Mode.MOVING,resumed.state.mode)
+    }
+    @Test fun confirmedContinuousStopEndsTripAfterDwell() {
+        var state=GpsTripRules.State(mode=GpsTripRules.Mode.MOVING,lastFixMs=1000)
+        state=GpsTripRules.advance(state,false,31_000).state
+        state=GpsTripRules.advance(state,false,91_000).state
+        val stop=GpsTripRules.advance(state,false,151_000)
+        assertEquals("TRIP_STOP",stop.event)
+        assertEquals(GpsTripRules.Mode.STOPPED,stop.state.mode)
+    }
 }
