@@ -28,4 +28,14 @@ class GpsTripBillingTest {
         assertEquals(1,trips.size)
         assertEquals(0L,GpsTripBilling.calculate(trips,GpsShiftEstimate.Window(500,800),GpsTripBilling.Rules()).elapsedMs)
     }
+    @Test fun neverBillsAcrossRestartOrSignalOutage() {
+        val events=listOf(e("TRIP_START",100),e("GPS_GAP",150),e("TRIP_STOP",500),
+            e("TRIP_START",600),e("TRIP_STOP",800))
+        val trips=GpsTripBilling.pair(events,mapOf(100L to GpsTripBilling.Category.BETWEEN,
+            600L to GpsTripBilling.Category.BETWEEN))
+        assertEquals(1,trips.size)
+        assertEquals(600L,trips.single().startMs)
+        assertEquals(200L,GpsTripBilling.calculate(trips,GpsShiftEstimate.Window(0,1000),
+            GpsTripBilling.Rules()).payableMs)
+    }
 }
