@@ -885,15 +885,29 @@ class MainActivity : Activity() {
             try {
                 manager.requestSingleUpdate(provider,object:LocationListener {
                     override fun onLocationChanged(loc:Location) {
-                        prefs.edit().putString("gps_last_fix",JSONObject()
-                            .put("lat",loc.latitude).put("lon",loc.longitude).put("accuracy",loc.accuracy.toDouble())
-                            .put("time",System.currentTimeMillis()).toString()).apply()
-                        if(prefs.getBoolean("gps_enabled",false)) recordGpsArrival(loc)
+                        // Manual location checks are previews only: never overwrite the
+                        // tracking service's latest fix or advance arrival/trip evidence.
+                        val observedAt=System.currentTimeMillis()
+                        if(GpsLocationQuality.acceptable(observedAt,loc.time,loc.accuracy.toDouble(),
+                                loc.latitude,loc.longitude)) {
+                            prefs.edit().putString("gps_manual_preview",JSONObject()
+                                .put("lat",loc.latitude).put("lon",loc.longitude)
+                                .put("accuracy",loc.accuracy.toDouble())
+                                .put("time",observedAt).toString()).apply()
+                        } else {
+                            Toast.makeText(this@MainActivity,"Pomiar nieaktualny lub niedokładny",Toast.LENGTH_LONG).show()
+                        }
                         if(screen=="gps") gpsScreen()
                     }
                 },Looper.getMainLooper())
             } catch(e:SecurityException) { Toast.makeText(this,"Brak uprawnienia GPS",Toast.LENGTH_LONG).show() }
         }
+        val preview=try { JSONObject(prefs.getString("gps_manual_preview","{}") ?: "{}") } catch(_:Exception) { JSONObject() }
+        val previewAge=System.currentTimeMillis()-preview.optLong("time")
+        if(preview.optLong("time")>0 && previewAge in 0..120_000L)
+            label("Ręczny odczyt (podgląd, bez zapisu zdarzeń): "+
+                "%.5f".format(preview.optDouble("lat"))+", "+"%.5f".format(preview.optDouble("lon"))+
+                " · dokładność ok. "+preview.optInt("accuracy")+" m")
         val current=JSONObject(prefs.getString("gps_arrival_state","{}") ?: "{}").optString("confirmed")
         if(current.isNotBlank()) label("Potwierdzona strefa: "+(objectById(current)?.let { objectName(it) } ?: current))
         val gpsEvents=try { JSONArray(prefs.getString("gps_events","[]") ?: "[]") } catch(_:Exception) { JSONArray() }
