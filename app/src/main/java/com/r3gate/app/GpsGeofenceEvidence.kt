@@ -8,7 +8,11 @@ object GpsGeofenceEvidence {
     enum class Status { INSIDE, OUTSIDE, UNCERTAIN }
     data class Observation(val status:Status,val placeId:String?=null)
 
-    fun observe(point:GpsWorkRules.Point,places:List<GpsWorkRules.Place>):Observation {
+    fun observe(point:GpsWorkRules.Point,places:List<GpsWorkRules.Place>,confirmedId:String?=null):Observation {
+        // Removing a saved geozone must never look like physically leaving it.
+        if(!confirmedId.isNullOrBlank() && places.none { it.id==confirmedId })
+            return Observation(Status.UNCERTAIN)
+        if(places.isEmpty()) return Observation(Status.UNCERTAIN)
         val inside=GpsWorkRules.nearest(point,places)
         if(inside!=null) return Observation(Status.INSIDE,inside.place.id)
         if(!point.latitude.isFinite() || point.latitude !in -90.0..90.0 ||
