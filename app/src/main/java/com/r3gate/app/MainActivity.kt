@@ -1,6 +1,10 @@
 package com.r3gate.app
 
 import android.app.*
+import android.location.LocationManager
+import android.location.LocationListener
+import android.location.Location
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
@@ -420,6 +424,7 @@ class MainActivity : Activity() {
             screen == "sms" -> openScreen(smsParent)
             screen=="menu" -> home()
             screen=="sectionSettings" -> settings()
+            screen=="gps" -> sectionSettings("Obiekty")
             screen.startsWith("menuFeature:") -> menu()
             screen in listOf("drive","logs","about","widgetSettings","wallet","language") -> settings()
             screen == "payment" || screen=="expenses" -> wallet()
@@ -692,6 +697,68 @@ class MainActivity : Activity() {
         }
         button("☷  Wróć do pełnego menu") { menu() }
     }
+    private fun gpsScreen() {
+        base("GPS · WorkMeter"); screen="gps"; nav()
+        label("Pozycja GPS działa tylko na żądanie. Brak śledzenia w tle.")
+        val enabled = prefs.getBoolean("gps_enabled",false)
+        button(if(enabled) "GPS: włączony — wyłącz" else "GPS: wyłączony — włącz") {
+            prefs.edit().putBoolean("gps_enabled",!enabled).apply(); gpsScreen()
+        }
+        if(!enabled) return
+        val permission=checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED ||
+            checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION)==PackageManager.PERMISSION_GRANTED
+        if(!permission) {
+            label("Wymagane pozwolenie na lokalizację.")
+            button("Zezwól na GPS") { requestPermissions(arrayOf(android.Manifest.permission.ACCESS_COARSE_LOCATION,android.Manifest.permission.ACCESS_FINE_LOCATION),307) }
+            return
+        }
+        button("Sprawdź aktualną pozycję") {
+            val manager=getSystemService(LOCATION_SERVICE) as LocationManager
+            val provider=when {
+                manager.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
+                manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
+                else -> ""
+            }
+            if(provider.isEmpty()) { Toast.makeText(this,"Włącz lokalizację w telefonie",Toast.LENGTH_LONG).show(); return@button }
+            try {
+                manager.getCurrentLocation(provider,null,mainExecutor) { loc ->
+                    if(loc==null) {
+                        Toast.makeText(this,"Nie udało się pobrać pozycji",Toast.LENGTH_LONG).show()
+                    } else {
+                        prefs.edit().putString("gps_last_fix",JSONObject()
+                            .put("lat",loc.latitude).put("lon",loc.longitude).put("accuracy",loc.accuracy.toDouble())
+                            .put("time",System.currentTimeMillis()).toString()).apply()
+                        if(screen=="gps") gpsScreen()
+                    }
+                }
+            } catch(e:SecurityException) { Toast.makeText(this,"Brak uprawnienia GPS",Toast.LENGTH_LONG).show() }
+        }
+        val fix=JSONObject(prefs.getString("gps_last_fix","{}") ?: "{}")
+        val time=fix.optLong("time")
+        if(time>0) {
+            label("Ostatni pomiar: "+fmt.format(Date(time))+" · dokładność "+fix.optDouble("accuracy").toInt()+" m")
+            val point=GpsWorkRules.Point(fix.optDouble("lat"),fix.optDouble("lon"),fix.optDouble("accuracy"),time)
+            val places=rows(data(),"objects").mapNotNull { o ->
+                val geo=prefs.getString("gps_object_"+o.optString("id"),null) ?: return@mapNotNull null
+                try {
+                    val j=JSONObject(geo)
+                    GpsWorkRules.Place(o.optString("id"),GpsWorkRules.Kind.OBJECT,j.getDouble("lat"),j.getDouble("lon"),j.optDouble("radius",100.0))
+                } catch(_:Exception) { null }
+            }
+            val nearest=GpsWorkRules.nearest(point,places)
+            label(if(nearest==null) "Poza zapisanymi strefami obiektów." else
+                "W strefie: "+(objectById(nearest.place.id)?.let { objectName(it) } ?: nearest.place.id))
+            label("Przypisz bieżącą lokalizację do obiektu (promień 100 m):")
+            rows(data(),"objects").filter { !it.optBoolean("archived") }.forEach { o ->
+                button("📍 "+objectName(o)) {
+                    prefs.edit().putString("gps_object_"+o.optString("id"),
+                        JSONObject().put("lat",point.latitude).put("lon",point.longitude).put("radius",100).toString()).apply()
+                    gpsScreen()
+                }
+            }
+        }
+    }
+
     private fun settings() {
         base("Ustawienia"); screen="settings"; nav()
         root.setBackgroundColor(0xFFF4F7F8.toInt())
@@ -726,6 +793,7 @@ class MainActivity : Activity() {
             "Obiekty" -> {
                 label("Obiekty i lokalizacje GPS")
                 button("Lista obiektów") { openScreen("objects") }
+                button("GPS i geostrefy") { gpsScreen() }
             }
             "Zdjęcia" -> {
                 label("Kolejka wysyłania i Google Drive")
