@@ -958,8 +958,19 @@ class MainActivity : Activity() {
                 GpsActivitySuggestionRules.Kind.WORKSITE ->
                     label("GPS · możliwy przyjazd na obiekt: "+
                         (hint.placeId?.let { objectById(it)?.let { obj -> objectName(obj) } } ?: hint.placeId ?: ""))
-                GpsActivitySuggestionRules.Kind.SHOPPING ->
+                GpsActivitySuggestionRules.Kind.SHOPPING -> {
                     label("GPS · możliwy postój na zakupy materiałów")
+                    val shopId=hint.placeId
+                    if(!shopId.isNullOrBlank()) {
+                        val visits=GpsShopVisitHistory.confirmedVisits(
+                            activityEvents.map { GpsShopVisitHistory.Event(it.type,it.timeMs,it.placeId) },
+                            shopId,System.currentTimeMillis())
+                        if(visits>=2)
+                            label("W tej lokalizacji wykryto "+visits+
+                                " potwierdzone postoje w ciągu 30 dni. Sprawdź kategorię przejazdu ręcznie.")
+                        button("Sprawdź kategorię przejazdu") { gpsTripCategories() }
+                    }
+                }
                 GpsActivitySuggestionRules.Kind.STOP ->
                     label("GPS · wykryto dłuższy postój; jego cel jest nieznany")
             }
