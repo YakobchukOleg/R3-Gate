@@ -995,11 +995,11 @@ class MainActivity : Activity() {
                                                 freshEvents.add(GpsShiftEstimate.Event(
                                                     e.optString("event"),e.optLong("time")))
                                             }
-                                            val stillMatching=GpsShopTripMatch.matchingTrip(
-                                                freshEvents,matched.endMs,
-                                                prefs.getString("gps_place_kind_"+shopId,"WORKSITE")=="SHOPPING")
-                                            if(stillMatching?.startMs==matched.startMs &&
-                                                prefs.getString(categoryKey,"UNKNOWN")=="UNKNOWN") {
+                                            if(GpsShopConfirmationRules.canConfirm(
+                                                freshEvents,matched.startMs,matched.endMs,
+                                                prefs.getString("gps_place_kind_"+shopId,"WORKSITE")=="SHOPPING",
+                                                prefs.getString(categoryKey,"UNKNOWN") ?: "UNKNOWN",
+                                                System.currentTimeMillis())) {
                                                 prefs.edit().putString(categoryKey,"SHOPPING").apply()
                                                 toast("Zatwierdzono kategorię zakupów")
                                             } else {
