@@ -37,4 +37,20 @@ class GpsWorkRulesTest {
         assertFalse(GpsWorkRules.stable(10000,20000,30000))
         assertTrue(GpsWorkRules.stable(10000,40000,30000))
     }
+    @Test fun accuracyCircleCrossingGeofenceEdgeCannotConfirmArrival() {
+        val center=GpsWorkRules.Place("site",GpsWorkRules.Kind.OBJECT,54.092,18.776,100.0)
+        val nearEdge=base.copy(latitude=54.09272,accuracyM=30.0)
+        assertNull(GpsWorkRules.nearest(nearEdge,listOf(center)))
+        assertEquals("site",GpsWorkRules.nearest(nearEdge.copy(accuracyM=5.0),listOf(center))?.place?.id)
+    }
+    @Test fun closeOverlappingWorkplacesDoNotAssignArbitraryObject() {
+        val left=GpsWorkRules.Place("left",GpsWorkRules.Kind.OBJECT,54.092,18.776,100.0)
+        val right=GpsWorkRules.Place("right",GpsWorkRules.Kind.OBJECT,54.092,18.7761,100.0)
+        assertNull(GpsWorkRules.nearest(base.copy(accuracyM=10.0),listOf(left,right)))
+    }
+    @Test fun sufficientlySeparatedNearestWorkplaceRemainsEligible() {
+        val left=GpsWorkRules.Place("left",GpsWorkRules.Kind.OBJECT,54.092,18.776,100.0)
+        val right=GpsWorkRules.Place("right",GpsWorkRules.Kind.OBJECT,54.092,18.777,100.0)
+        assertEquals("left",GpsWorkRules.nearest(base.copy(accuracyM=8.0),listOf(left,right))?.place?.id)
+    }
 }
