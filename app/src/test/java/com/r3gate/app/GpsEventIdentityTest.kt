@@ -44,4 +44,35 @@ class GpsEventIdentityTest {
     fun missingKindRejected() {
         GpsEventIdentity.id(" ",12345L)
     }
+
+    @Test fun legacyTripReplayIsDetected() {
+        assertTrue(GpsEventIdentity.sameEvent(null,"TRIP_START",100L,null,
+            "TRIP_START",100L))
+    }
+    @Test fun legacyGeofenceReplayIsDetected() {
+        assertTrue(GpsEventIdentity.sameEvent("","ARRIVAL",100L,"object-1",
+            "ARRIVAL",100L,"object-1"))
+    }
+    @Test fun legacyDifferentObjectIsNotDuplicate() {
+        assertFalse(GpsEventIdentity.sameEvent(null,"ARRIVAL",100L,"object-1",
+            "ARRIVAL",100L,"object-2"))
+    }
+    @Test fun legacyDifferentTimeIsNotDuplicate() {
+        assertFalse(GpsEventIdentity.sameEvent(null,"GPS_GAP",100L,null,
+            "GPS_GAP",101L))
+    }
+    @Test fun legacyDifferentKindIsNotDuplicate() {
+        assertFalse(GpsEventIdentity.sameEvent(null,"TRIP_START",100L,null,
+            "TRIP_STOP",100L))
+    }
+    @Test fun newIdTakesPrecedenceOverLegacyFields() {
+        val id=GpsEventIdentity.id("TRIP_STOP",100L)
+        assertTrue(GpsEventIdentity.sameEvent(id,"incorrect",999L,null,
+            "TRIP_STOP",100L))
+    }
+    @Test fun newIdMismatchCannotBecomeLegacyMatch() {
+        val id=GpsEventIdentity.id("TRIP_START",100L)
+        assertFalse(GpsEventIdentity.sameEvent(id,"TRIP_STOP",100L,null,
+            "TRIP_STOP",100L))
+    }
 }
