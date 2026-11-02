@@ -80,4 +80,18 @@ class ObjectIntegrityRulesTest {
         assertTrue(ObjectIntegrityRules.canSaveMaterialAssignment("object", "missing", "missing", objects))
         assertFalse(ObjectIntegrityRules.canSaveMaterialAssignment("object", "missing", "obj-1", objects))
     }
+    @Test fun photoRecordsRequireMediaAndAnObject() {
+        assertFalse(ObjectIntegrityRules.canSavePhotoEntry(0, "", "obj-1", null, objects))
+        assertTrue(ObjectIntegrityRules.canSavePhotoEntry(1, "", "obj-1", null, objects))
+        assertTrue(ObjectIntegrityRules.canSavePhotoEntry(0, "https://drive.google.com/file/d/example", "obj-1", null, objects))
+        assertFalse(ObjectIntegrityRules.canSavePhotoEntry(1, "", "", null, objects))
+    }
+
+    @Test fun photoHistorySurvivesArchivingAndLegacyMissingObjects() {
+        assertTrue(ObjectIntegrityRules.canSavePhotoEntry(1, "", "obj-2", "obj-2", objects))
+        assertTrue(ObjectIntegrityRules.canSavePhotoEntry(1, "", "legacy-missing", "legacy-missing", objects))
+        assertFalse(ObjectIntegrityRules.canSavePhotoEntry(1, "", "obj-2", null, objects))
+        assertFalse(ObjectIntegrityRules.canSavePhotoEntry(1, "", "legacy-missing", "obj-1", objects))
+        assertTrue(ObjectIntegrityRules.canSavePhotoEntry(1, "", "obj-1", "obj-2", objects))
+    }
 }
