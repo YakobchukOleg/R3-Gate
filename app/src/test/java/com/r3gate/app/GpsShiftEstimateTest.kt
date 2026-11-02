@@ -22,7 +22,7 @@ class GpsShiftEstimateTest {
     }
     @Test fun ignoresInvalidShiftAndChronologicallyOrdersEvents() {
         val events=listOf(e("TRIP_STOP",600),e("TRIP_START",200))
-        assertEquals(400,GpsShiftEstimate.calculate(events,shift,true).actualTravelMs)
-        assertEquals(0,GpsShiftEstimate.calculate(events,GpsShiftEstimate.Window(100,100),true).actualTravelMs)
+        assertEquals(400L,GpsShiftEstimate.calculate(events,shift,true).actualTravelMs)
+        assertEquals(0L,GpsShiftEstimate.calculate(events,GpsShiftEstimate.Window(100,100),true).actualTravelMs)
     }
 }
