@@ -113,6 +113,43 @@ class GpsTrackingService : Service(), LocationListener {
             editor.putString("gps_events",limited.toString())
         }
         editor.apply()
+        // Travel events are kept apart from work shifts until the user confirms billing rules.
+        val previous=try { JSONObject(prefs.getString("gps_motion_point","{}") ?: "{}") } catch(_:Exception) { JSONObject() }
+        val lastTime=previous.optLong("time")
+        if(lastTime>0 && now>lastTime && now-lastTime<=1_800_000L) {
+            val previousPoint=GpsWorkRules.Point(previous.optDouble("lat"),previous.optDouble("lon"),
+                previous.optDouble("accuracy"),lastTime)
+            val moving=GpsWorkRules.traveling(previousPoint,point)
+            val previousState=try { JSONObject(prefs.getString("gps_trip_state","{}") ?: "{}") } catch(_:Exception) { JSONObject() }
+            val tripState=GpsTripRules.State(
+                mode=GpsTripRules.Mode.entries.find { it.name==previousState.optString("mode") } ?: GpsTripRules.Mode.UNKNOWN,
+                candidate=GpsTripRules.Mode.entries.find { it.name==previousState.optString("candidate") } ?: GpsTripRules.Mode.UNKNOWN,
+                candidateSinceMs=previousState.optLong("candidateSince"),
+                lastFixMs=previousState.optLong("last"),
+                stoppedSinceMs=previousState.optLong("stoppedSince"),
+                longStopReported=previousState.optBoolean("longStopReported")
+            )
+            val transition=GpsTripRules.advance(tripState,moving,now,
+                longStopMs=prefs.getInt("gps_stop_minutes",10).coerceIn(5,30)*60_000L)
+            val t=transition.state
+            val motionEditor=prefs.edit().putString("gps_trip_state",JSONObject()
+                .put("mode",t.mode.name).put("candidate",t.candidate.name)
+                .put("candidateSince",t.candidateSinceMs).put("last",t.lastFixMs)
+                .put("stoppedSince",t.stoppedSinceMs).put("longStopReported",t.longStopReported).toString())
+            if(transition.event!=null) {
+                val journal=try { JSONArray(prefs.getString("gps_trip_events","[]") ?: "[]") } catch(_:Exception) { JSONArray() }
+                journal.put(JSONObject().put("event",transition.event).put("time",now))
+                val recent=JSONArray()
+                for(i in maxOf(0,journal.length()-100) until journal.length()) recent.put(journal.opt(i))
+                motionEditor.putString("gps_trip_events",recent.toString())
+            }
+            motionEditor.apply()
+        } else if(lastTime>0 && now-lastTime>1_800_000L) {
+            prefs.edit().remove("gps_trip_state").apply()
+        }
+        prefs.edit().putString("gps_motion_point",JSONObject()
+            .put("lat",location.latitude).put("lon",location.longitude)
+            .put("accuracy",location.accuracy.toDouble()).put("time",now).toString()).apply()
     }
     private fun shutdown() {
         if(subscribed) { manager.removeUpdates(this);subscribed=false }
