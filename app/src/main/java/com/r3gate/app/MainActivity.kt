@@ -2392,6 +2392,11 @@ class MainActivity : Activity() {
         if(draft.optString("storage")!="car" && draft.optString("objectId").isBlank()) { toast("Wybierz obiekt");return }
         val batch=rows(draft,"batch").map { JSONObject(it.toString()) }.toMutableList()
         val d=data();val existing=rows(d,"materials").find { it.optString("id")==draft.optString("id") }
+        val objectRefs=rows(d,"objects").map { ObjectIntegrityRules.ObjectRef(it.optString("id"),it.optBoolean("archived")) }
+        val destination=draft.optString("objectId")
+        if(!ObjectIntegrityRules.canSaveMaterialAssignment(draft.optString("storage"),destination,existing?.optString("objectId"),objectRefs)) {
+            toast("Wybierz aktywny obiekt dla materiałów");return
+        }
         if(draft.optString("name").isNotBlank() || draft.optString("quantity").isNotBlank() || batch.isEmpty()) batch.add(pendingMaterial() ?: return)
         if(existing!=null && batch.size!=1) { toast("Edytuj jeden zapis naraz");return }
         val list=arr(d,"materials");val saved=mutableListOf<JSONObject>()
