@@ -41,4 +41,26 @@ class ObjectListUiModelTest {
         assertEquals(listOf("a", "z"), ObjectListUiModel.display(original, false).rows.map { it.id })
         assertEquals(listOf("z", "a"), original.map { it.id })
     }
+    @Test fun cityFilterIgnoresAccentsCaseAndWhitespace() {
+        val gdansk = item("gdansk", "GDA-01", false)
+        val tczew = ObjectListUiModel.Item("tczew", "TCZ-01", "", "Tczew", "1", false)
+        val rows = ObjectListUiModel.display(listOf(gdansk, tczew), false, "  GDANSK ").rows
+        assertEquals(listOf("gdansk"), rows.map { it.id })
+    }
+
+    @Test fun cityFilterDoesNotRevealArchivedObjects() {
+        val rows = ObjectListUiModel.display(listOf(
+            item("archived", "GDA-01", true),
+            item("active", "GDA-02", false)
+        ), false, "Gdańsk").rows
+        assertEquals(listOf("active"), rows.map { it.id })
+    }
+
+    @Test fun unmatchedCityUsesExistingEmptyStateMessage() {
+        val result = ObjectListUiModel.display(
+            listOf(item("gdansk", "GDA-01", false)), false, "Warszawa")
+        assertTrue(result.rows.isEmpty())
+        assertEquals(ObjectUiPresentation.emptyList(false), result.emptyMessage)
+    }
+
 }
