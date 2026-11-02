@@ -796,6 +796,16 @@ class MainActivity : Activity() {
         val quality=GpsSamplingHealth.assess(snapshot.serviceReportedActive,
             prefs.getLong("gps_session_start",0),samples,System.currentTimeMillis())
         label("Pomiary w tej sesji: "+quality.samples)
+        val requestedMs=prefs.getLong("gps_requested_interval_ms",30_000L)
+        val cadence=GpsCadenceStats.assess(samples,prefs.getLong("gps_session_start",0),
+            System.currentTimeMillis(),requestedMs)
+        label("Żądany odstęp pomiarów: "+(requestedMs/1000)+" s")
+        label("Mediana faktycznych odstępów: "+
+            (cadence.medianIntervalMs?.let { (it/1000).toString()+" s" } ?: "brak danych"))
+        label("Najdłuższa przerwa: "+
+            (cadence.longestGapMs?.let { (it/1000).toString()+" s" } ?: "brak danych"))
+        label("Opóźnione odstępy: "+cadence.delayedIntervals)
+        label("Odstępy pomiarów nie oznaczają zmierzonego zużycia baterii.")
         label("Jakość pomiarów w tle: "+when(quality.level) {
             GpsSamplingHealth.Level.NO_SESSION -> "brak aktywnej sesji"
             GpsSamplingHealth.Level.WAITING_FOR_FIRST_FIX -> "oczekiwanie na pierwszy pomiar"
