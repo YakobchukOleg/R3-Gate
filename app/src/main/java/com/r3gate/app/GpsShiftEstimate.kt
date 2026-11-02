@@ -16,6 +16,7 @@ object GpsShiftEstimate {
         for(event in events.sortedBy { it.timestampMs }) {
             when(event.type) {
                 "TRIP_START" -> if(opened==null) opened=event.timestampMs
+                "GPS_GAP" -> opened=null
                 "TRIP_STOP" -> {
                     val start=opened
                     if(start!=null && event.timestampMs>start) {
