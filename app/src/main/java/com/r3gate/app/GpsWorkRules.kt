@@ -39,9 +39,15 @@ object GpsWorkRules {
         return 6371000.0*2*asin(sqrt(h.coerceIn(0.0,1.0)))
     }
     fun nearest(point:Point,places:List<Place>):Fix? {
-        if(!point.latitude.isFinite()||!point.longitude.isFinite()||point.accuracyM>150.0||point.accuracyM<0.0) return null
+        if(!point.latitude.isFinite() || point.latitude !in -90.0..90.0 ||
+            !point.longitude.isFinite() || point.longitude !in -180.0..180.0 ||
+            !point.accuracyM.isFinite() || point.accuracyM<=0.0 ||
+            point.accuracyM>150.0) return null
         val matches=places.asSequence()
-            .filter { it.radiusM>=10 && it.radiusM<=2000 }
+            .filter { it.id.isNotBlank() && it.radiusM.isFinite() &&
+                it.radiusM in 10.0..2000.0 &&
+                it.latitude.isFinite() && it.latitude in -90.0..90.0 &&
+                it.longitude.isFinite() && it.longitude in -180.0..180.0 }
             .map { Fix(it,distanceM(point.latitude,point.longitude,it.latitude,it.longitude)) }
             // Keep the full accuracy circle inside the geofence; border noise
             // must not create an arrival or a shopping suggestion.
