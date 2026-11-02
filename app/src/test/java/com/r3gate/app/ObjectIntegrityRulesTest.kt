@@ -49,4 +49,22 @@ class ObjectIntegrityRulesTest {
         assertEquals(0, references.countFor("obj-1"))
         assertTrue(ObjectIntegrityRules.canHardDelete("obj-1", objects, references))
     }
+    @Test fun legacyArchivedAndMissingAssignmentsAreRetainedWithoutReassignment() {
+        assertTrue(ObjectIntegrityRules.canSaveAssignment("obj-2", "obj-2", objects))
+        assertTrue(ObjectIntegrityRules.canSaveAssignment("deleted-legacy", "deleted-legacy", objects))
+        assertFalse(ObjectIntegrityRules.canSaveAssignment("obj-2", "obj-1", objects))
+        assertFalse(ObjectIntegrityRules.canSaveAssignment("deleted-legacy", "obj-1", objects))
+    }
+
+    @Test fun newAssignmentsRequireActiveObjectsAndOptionalRecordsCanBeUnlinked() {
+        assertTrue(ObjectIntegrityRules.canSaveAssignment("obj-1", null, objects))
+        assertFalse(ObjectIntegrityRules.canSaveAssignment("obj-2", null, objects))
+        assertFalse(ObjectIntegrityRules.canSaveAssignment("unknown", null, objects))
+        assertTrue(ObjectIntegrityRules.canSaveAssignment("", "obj-2", objects))
+    }
+
+    @Test fun changingAnArchivedAssociationToAnActiveObjectIsAllowed() {
+        assertTrue(ObjectIntegrityRules.canSaveAssignment("obj-1", "obj-2", objects))
+        assertTrue(ObjectIntegrityRules.canSaveAssignment("obj-1", "missing-legacy", objects))
+    }
 }
