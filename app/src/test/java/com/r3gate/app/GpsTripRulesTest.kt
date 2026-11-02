@@ -101,6 +101,68 @@ class GpsTripRulesTest {
         val again=GpsTripRules.advance(afterGap.state,false,490_000)
         assertNull(again.event)
         val confirmed=GpsTripRules.advance(again.state,false,580_000)
-        assertEquals("TRIP_STOP",confirmed.event)
+        assertNull(confirmed.event)
+        assertEquals(GpsTripRules.Mode.STOPPED,confirmed.state.mode)
     }
+    @Test fun startingStationaryNeverCreatesPhantomTripStop() {
+        val first=GpsTripRules.advance(GpsTripRules.State(),false,1_000)
+        val second=GpsTripRules.advance(first.state,false,121_000)
+        assertNull(first.event)
+        assertNull(second.event)
+        assertEquals(GpsTripRules.Mode.STOPPED,second.state.mode)
+    }
+
+    @Test fun longStationaryStartupProducesNoTripStop() {
+        var state=GpsTripRules.State()
+        var stops=0
+        for(t in listOf(1_000L,61_000L,121_000L,181_000L,241_000L)) {
+            val result=GpsTripRules.advance(state,false,t)
+            if(result.event=="TRIP_STOP") stops++
+            state=result.state
+        }
+        assertEquals(0,stops)
+        assertEquals(GpsTripRules.Mode.STOPPED,state.mode)
+    }
+
+    @Test fun afterGpsOutageStationaryReacquisitionDoesNotEndUnknownTrip() {
+        val moving=GpsTripRules.State(mode=GpsTripRules.Mode.MOVING,lastFixMs=1_000)
+        val gap=GpsTripRules.advance(moving,false,300_000)
+        val recovered=GpsTripRules.advance(gap.state,false,421_000)
+        assertNull(gap.event)
+        assertNull(recovered.event)
+        assertEquals(GpsTripRules.Mode.STOPPED,recovered.state.mode)
+    }
+
+    @Test fun trueMovingToStoppedTransitionStillEndsTrip() {
+        val moving=GpsTripRules.State(mode=GpsTripRules.Mode.MOVING,lastFixMs=1_000)
+        val first=GpsTripRules.advance(moving,false,31_000)
+        val second=GpsTripRules.advance(first.state,false,151_000)
+        assertEquals("TRIP_STOP",second.event)
+        assertEquals(GpsTripRules.Mode.STOPPED,second.state.mode)
+    }
+
+    @Test fun stationaryToMovementStartsNewTripNormally() {
+        val idle=GpsTripRules.State(mode=GpsTripRules.Mode.STOPPED,
+            stoppedSinceMs=1_000,lastFixMs=1_000)
+        val first=GpsTripRules.advance(idle,true,31_000)
+        val second=GpsTripRules.advance(first.state,true,91_000)
+        assertNull(first.event)
+        assertEquals("TRIP_START",second.event)
+    }
+
+    @Test fun duplicateFixAfterStartupDoesNotCreateEvent() {
+        val first=GpsTripRules.advance(GpsTripRules.State(),false,1_000)
+        val repeated=GpsTripRules.advance(first.state,false,1_000)
+        assertNull(repeated.event)
+        assertEquals(first.state,repeated.state)
+    }
+
+    @Test fun confirmedStoppedModeDoesNotRepeatStopEvent() {
+        val idle=GpsTripRules.State(mode=GpsTripRules.Mode.STOPPED,
+            stoppedSinceMs=1_000,lastFixMs=1_000)
+        val repeated=GpsTripRules.advance(idle,false,61_000)
+        assertNull(repeated.event)
+        assertEquals(GpsTripRules.Mode.STOPPED,repeated.state.mode)
+    }
+
 }
