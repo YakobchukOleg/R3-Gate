@@ -25,4 +25,26 @@ class GpsSessionBoundaryRulesTest {
     @Test fun shutdownAfterStartedSessionHasBoundary() {
         assertTrue(GpsSessionBoundaryRules.shouldRecordShutdownGap(true))
     }
+
+    @Test fun clockRollbackIsDetected() {
+        assertTrue(GpsSessionBoundaryRules.clockRolledBack(5000L,4000L))
+    }
+    @Test fun equalClockIsNotRollback() {
+        assertFalse(GpsSessionBoundaryRules.clockRolledBack(5000L,5000L))
+    }
+    @Test fun forwardClockIsNotRollback() {
+        assertFalse(GpsSessionBoundaryRules.clockRolledBack(4000L,5000L))
+    }
+    @Test fun emptyCheckpointIsNotRollback() {
+        assertFalse(GpsSessionBoundaryRules.clockRolledBack(0L,5000L))
+    }
+    @Test fun invalidCurrentTimestampIsNotRollback() {
+        assertFalse(GpsSessionBoundaryRules.clockRolledBack(5000L,0L))
+    }
+    @Test fun rollbackDoesNotGenerateStartupGap() {
+        val previous=5000L
+        val now=4000L
+        assertTrue(GpsSessionBoundaryRules.clockRolledBack(previous,now))
+        assertFalse(GpsSessionBoundaryRules.shouldRecordStartupGap(previous,now))
+    }
 }
