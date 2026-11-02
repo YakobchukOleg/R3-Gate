@@ -1536,6 +1536,12 @@ class MainActivity : Activity() {
                 val st=start.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
                 val en=end.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
                 if(en<=st) { toast("Koniec musi być po rozpoczęciu"); return@setOnClickListener }
+                val otherShifts=rows(data(),"shifts").filter { it.optString("id")!=id }
+                    .map { WorkShiftIntegrity.Interval(it.optLong("start"),it.optLong("end")) }
+                if(!WorkShiftIntegrity.canSave(WorkShiftIntegrity.Interval(st,en),otherShifts)) {
+                    toast("Zmiana nakłada się na inną zmianę lub historia zawiera nieprawidłowe daty")
+                    return@setOnClickListener
+                }
                 val current=data()
                 val row=rows(current,"shifts").find { it.optString("id")==id } ?: return@setOnClickListener
                 arr(row,"edits").put(JSONObject().put("at",System.currentTimeMillis()).put("start",row.optLong("start")).put("end",row.optLong("end")))
