@@ -57,7 +57,7 @@ class GpsTrackingService : Service(), LocationListener {
         try {
             if(Build.VERSION.SDK_INT>=29) startForeground(NOTIFICATION_ID,notification(),ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
             else startForeground(NOTIFICATION_ID,notification())
-            prefs.edit().putBoolean("gps_service_active",true).apply()
+            prefs.edit().putBoolean("gps_service_active",true).putLong("gps_session_start",System.currentTimeMillis()).apply()
             if(!subscribed) {
                 val provider=when {
                     manager.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
@@ -65,11 +65,11 @@ class GpsTrackingService : Service(), LocationListener {
                     else -> null
                 }
                 if(provider==null) { shutdown();return START_NOT_STICKY }
-                manager.requestLocationUpdates(provider,30_000L,25f,this,Looper.getMainLooper())
+                manager.requestLocationUpdates(provider,30_000L,0f,this,Looper.getMainLooper())
                 subscribed=true
             }
-        } catch(_:SecurityException) { shutdown() }
-        catch(_:IllegalArgumentException) { shutdown() }
+        } catch(_:SecurityException) { prefs.edit().putString("gps_service_problem","permission").apply(); shutdown() }
+        catch(_:IllegalArgumentException) { prefs.edit().putString("gps_service_problem","provider").apply(); shutdown() }
         return START_NOT_STICKY
     }
     override fun onLocationChanged(location:Location) {
