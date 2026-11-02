@@ -425,6 +425,7 @@ class MainActivity : Activity() {
             screen=="menu" -> home()
             screen=="sectionSettings" -> settings()
             screen=="gps" -> sectionSettings("Obiekty")
+            screen=="gpsPay" -> settings()
             screen.startsWith("menuFeature:") -> menu()
             screen in listOf("drive","logs","about","widgetSettings","wallet","language") -> settings()
             screen == "payment" || screen=="expenses" -> wallet()
@@ -871,6 +872,7 @@ class MainActivity : Activity() {
             settings()
         }
         button("Geostrefy i lokalizacja GPS") { gpsScreen() }
+        button("GPS · zasady rozliczania czasu") { gpsPaySettings() }
         label("Ustawienia działów")
         listOf("Mój czas","Obiekty","Zdjęcia","Materiały","Grafiki","Portfel").forEach { item ->
             button("⚙  $item  ›") { sectionSettings(item) }
@@ -1083,9 +1085,49 @@ class MainActivity : Activity() {
             val d=data(); walletConfig(d).put("openingCents",amount); save(d,"OPENING_BALANCE_EDIT",""); dialog.dismiss(); wallet()
         } }; dialog.show()
     }
+    private fun gpsPaySettings() {
+        base("GPS · rozliczanie czasu"); screen="gpsPay"; nav()
+        label("Ustawienia dotyczą tylko szacunków GPS. Nie zmieniają zapisanych godzin pracy.")
+        val choices=listOf(
+            "gps_pay_outbound" to "Dojazd z domu",
+            "gps_pay_return" to "Powrót do domu",
+            "gps_pay_between" to "Przejazdy między obiektami",
+            "gps_pay_shopping" to "Zakupy materiałów",
+            "gps_pay_stop" to "Dłuższe postoje"
+        )
+        for((key,title) in choices) {
+            val selected=prefs.getBoolean(key,key=="gps_pay_between" || key=="gps_pay_shopping")
+            button(title+": "+if(selected) "PŁATNY" else "NIEPŁATNY") {
+                prefs.edit().putBoolean(key,!selected).apply(); gpsPaySettings()
+            }
+        }
+        label("Nieznane przejazdy są domyślnie niepłatne. Ich rodzaju nie da się pewnie ustalić wyłącznie z GPS.")
+        button("Mój czas") { report() }
+    }
+    private fun gpsEstimate(sh:JSONObject,endMs:Long):GpsShiftEstimate.Summary {
+        val events=try { JSONArray(prefs.getString("gps_trip_events","[]") ?: "[]") } catch(_:Exception) { JSONArray() }
+        val list=mutableListOf<GpsShiftEstimate.Event>()
+        for(i in 0 until events.length()) {
+            val event=events.optJSONObject(i) ?: continue
+            list.add(GpsShiftEstimate.Event(event.optString("event"),event.optLong("time")))
+        }
+        // A trip of unknown type is not assigned to a payable commute category automatically.
+        return GpsShiftEstimate.calculate(list,
+            GpsShiftEstimate.Window(sh.optLong("start"),endMs),false)
+    }
     private fun report() {
         base("Mój czas"); screen="report"; nav()
         button("GENERUJ RAPORT SMS") { weeklySms("report") }
+        button("GPS · zasady rozliczania") { gpsPaySettings() }
+        val currentShift=active(data()) ?: rows(data(),"shifts").lastOrNull()
+        if(currentShift!=null) {
+            val end=if(currentShift.has("end")) currentShift.optLong("end") else System.currentTimeMillis()
+            val estimate=gpsEstimate(currentShift,end)
+            label("GPS · szacunkowy czas przejazdów: "+duration(estimate.actualTravelMs)+
+                " · zatwierdzone do wypłaty: "+duration(estimate.payableTravelMs))
+            label("Wykryto "+estimate.completeTrips+" zakończonych przejazdów. Szacunek GPS nie zmienia ewidencji pracy.")
+        }
+
         val from=prefs.getString("reportFrom","").orEmpty(); val to=prefs.getString("reportTo","").orEmpty()
         fun setPeriod(key:String,date:LocalDate) {
             val f=if(key=="reportFrom") date.toString() else from
