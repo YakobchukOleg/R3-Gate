@@ -43,4 +43,19 @@ class ArchivePreflightTest {
         val bytes = archive(ArchivePreflight.JOURNAL to """{"id":"abc"}""")
         rejected { ArchivePreflight.verify { ByteArrayInputStream(bytes.copyOf(20)) } }
     }
+    @Test fun duplicateObjectIdsPreventPreflight() {
+        val bytes = archive(ArchivePreflight.JOURNAL to """{"objects":[{"id":"x"},{"id":"x"}]}""")
+        rejected { ArchivePreflight.verify { ByteArrayInputStream(bytes) } }
+    }
+    @Test fun orphanedHistoricalReferencesAreVisibleInPreview() {
+        val bytes = archive(ArchivePreflight.JOURNAL to """{"objects":[],"shifts":[{"objectId":"old-object"}]}""")
+        val result = ArchivePreflight.verify { ByteArrayInputStream(bytes) }
+        assertTrue(result.validation.canRestore)
+        assertEquals(1, result.validation.warnings.size)
+    }
+    @Test fun malformedJsonWithObjectBracesCannotPassPreflight() {
+        val bytes = archive(ArchivePreflight.JOURNAL to """{"objects":[}""")
+        rejected { ArchivePreflight.verify { ByteArrayInputStream(bytes) } }
+    }
+
 }
