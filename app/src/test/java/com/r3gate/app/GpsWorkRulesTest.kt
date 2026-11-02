@@ -126,4 +126,40 @@ class GpsWorkRulesTest {
         assertTrue(GpsWorkRules.traveling(base,moved))
     }
 
+    @Test fun suddenGpsTeleportCannotBecomeDriving() {
+        val teleport=base.copy(latitude=54.5,timestampMs=base.timestampMs+30_000)
+        assertFalse(GpsWorkRules.traveling(base,teleport))
+    }
+
+    @Test fun largeJumpOverFiveSecondsIsRejected() {
+        val jump=base.copy(latitude=54.2,timestampMs=base.timestampMs+5_000)
+        assertFalse(GpsWorkRules.traveling(base,jump))
+    }
+
+    @Test fun largeJumpOverFullMinuteIsRejected() {
+        val jump=base.copy(latitude=54.3,timestampMs=base.timestampMs+60_000)
+        assertFalse(GpsWorkRules.traveling(base,jump))
+    }
+
+    @Test fun veryFastButPlausibleFixesStillSuggestTravel() {
+        val fast=base.copy(latitude=54.12,timestampMs=base.timestampMs+30_000)
+        assertTrue(GpsWorkRules.traveling(base,fast))
+    }
+
+    @Test fun ordinaryDrivingSpeedRemainsRecognized() {
+        val drive=base.copy(latitude=54.095,timestampMs=base.timestampMs+30_000)
+        assertTrue(GpsWorkRules.traveling(base,drive))
+    }
+
+    @Test fun accuracyMarginAloneCannotTurnTeleportIntoMovement() {
+        val jump=base.copy(latitude=54.5,accuracyM=100.0,
+            timestampMs=base.timestampMs+30_000)
+        assertFalse(GpsWorkRules.traveling(base.copy(accuracyM=100.0),jump))
+    }
+
+    @Test fun stationaryPhoneAfterBadTeleportDoesNotStartTrip() {
+        val still=base.copy(latitude=54.09201,timestampMs=base.timestampMs+30_000)
+        assertFalse(GpsWorkRules.traveling(base,still))
+    }
+
 }
