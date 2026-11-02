@@ -38,4 +38,21 @@ class GpsTripBillingTest {
         assertEquals(200L,GpsTripBilling.calculate(trips,GpsShiftEstimate.Window(0,1000),
             GpsTripBilling.Rules()).payableMs)
     }
+    @Test fun newStartAfterInterruptedTrackingReplacesOrphanStart() {
+        val events=listOf(e("TRIP_START",100),e("TRIP_START",500),e("TRIP_STOP",800))
+        val trips=GpsTripBilling.pair(events,mapOf(
+            100L to GpsTripBilling.Category.BETWEEN,
+            500L to GpsTripBilling.Category.BETWEEN))
+        assertEquals(1,trips.size)
+        assertEquals(500L,trips.single().startMs)
+        assertEquals(300L,GpsTripBilling.calculate(trips,GpsShiftEstimate.Window(0,1000),
+            GpsTripBilling.Rules()).payableMs)
+    }
+    @Test fun freshStartFollowingGapOnlyPairsWithItsOwnStop() {
+        val events=listOf(e("TRIP_START",100),e("GPS_GAP",200),
+            e("TRIP_START",700),e("TRIP_STOP",950))
+        val trips=GpsTripBilling.pair(events,mapOf(100L to GpsTripBilling.Category.BETWEEN,
+            700L to GpsTripBilling.Category.BETWEEN))
+        assertEquals(listOf(GpsTripBilling.Trip(700,950,GpsTripBilling.Category.BETWEEN)),trips)
+    }
 }
