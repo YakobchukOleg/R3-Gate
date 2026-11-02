@@ -23,12 +23,17 @@ class GpsTripRulesTest {
         assertEquals("TRIP_STOP",b.event)
         assertNull(GpsTripRules.advance(b.state,false,123000).event)
     }
-    @Test fun longStopReportedOnceAndOldFixIgnored() {
+    @Test fun longStopRequiresContinuousFixesAndOldFixIgnored() {
         val state=GpsTripRules.State(mode=GpsTripRules.Mode.STOPPED,lastFixMs=1000,stoppedSinceMs=1000)
-        val a=GpsTripRules.advance(state,false,601000)
-        assertEquals("LONG_STOP",a.event)
-        assertNull(GpsTripRules.advance(a.state,false,602000).event)
-        assertEquals(a.state,GpsTripRules.advance(a.state,true,500).state)
+        val afterGap=GpsTripRules.advance(state,false,601000)
+        assertNull(afterGap.event)
+        assertEquals(GpsTripRules.Mode.UNKNOWN,afterGap.state.mode)
+        assertEquals(afterGap.state,GpsTripRules.advance(afterGap.state,true,500).state)
+        val confirmed=GpsTripRules.advance(afterGap.state,false,722000)
+        assertEquals(GpsTripRules.Mode.STOPPED,confirmed.state.mode)
+        assertNull(confirmed.event.takeIf { it=="LONG_STOP" })
+        val longStop=GpsTripRules.advance(confirmed.state,false,1_322_000)
+        assertNull(longStop.event) // The 10-minute blind gap is not observed stationary time.
     }
     @Test fun movementAfterLongGpsSilenceNeedsFreshConfirmation() {
         val previous=GpsTripRules.State(mode=GpsTripRules.Mode.MOVING,
