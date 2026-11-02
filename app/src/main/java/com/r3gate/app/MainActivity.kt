@@ -721,16 +721,14 @@ class MainActivity : Activity() {
             }
             if(provider.isEmpty()) { Toast.makeText(this,"Włącz lokalizację w telefonie",Toast.LENGTH_LONG).show(); return@button }
             try {
-                androidx.core.location.LocationManagerCompat.getCurrentLocation(manager,provider,null,androidx.core.content.ContextCompat.getMainExecutor(this)) { loc ->
-                    if(loc==null) {
-                        Toast.makeText(this,"Nie udało się pobrać pozycji",Toast.LENGTH_LONG).show()
-                    } else {
+                manager.requestSingleUpdate(provider,object:LocationListener {
+                    override fun onLocationChanged(loc:Location) {
                         prefs.edit().putString("gps_last_fix",JSONObject()
                             .put("lat",loc.latitude).put("lon",loc.longitude).put("accuracy",loc.accuracy.toDouble())
                             .put("time",System.currentTimeMillis()).toString()).apply()
                         if(screen=="gps") gpsScreen()
                     }
-                }
+                },Looper.getMainLooper())
             } catch(e:SecurityException) { Toast.makeText(this,"Brak uprawnienia GPS",Toast.LENGTH_LONG).show() }
         }
         val fix=JSONObject(prefs.getString("gps_last_fix","{}") ?: "{}")
