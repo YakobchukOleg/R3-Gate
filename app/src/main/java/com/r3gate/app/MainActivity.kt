@@ -731,12 +731,33 @@ class MainActivity : Activity() {
         editor.apply()
     }
 
+    private fun setGpsEnabled(value:Boolean) {
+        if(!value) {
+            prefs.edit().putBoolean("gps_enabled",false).apply()
+            stopService(Intent(this,GpsTrackingService::class.java))
+            return
+        }
+        val fine=checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED
+        val coarse=checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION)==PackageManager.PERMISSION_GRANTED
+        if(!fine && !coarse) {
+            requestPermissions(arrayOf(android.Manifest.permission.ACCESS_COARSE_LOCATION,android.Manifest.permission.ACCESS_FINE_LOCATION),307)
+            return
+        }
+        prefs.edit().putBoolean("gps_enabled",true).apply()
+        try {
+            androidx.core.content.ContextCompat.startForegroundService(
+                this,Intent(this,GpsTrackingService::class.java).setAction(GpsTrackingService.ACTION_START))
+        } catch(e:Exception) {
+            prefs.edit().putBoolean("gps_enabled",false).apply()
+            Toast.makeText(this,"Nie można uruchomić GPS: "+e.javaClass.simpleName,Toast.LENGTH_LONG).show()
+        }
+    }
     private fun gpsScreen() {
         base("GPS · WorkMeter"); screen="gps"; nav()
-        label("Pozycja GPS działa tylko na żądanie. Brak śledzenia w tle.")
+        label("GPS aktywny działa w tle z widocznym powiadomieniem. Wyłącz GPS, aby zakończyć rejestrację.")
         val enabled = prefs.getBoolean("gps_enabled",false)
         button(if(enabled) "GPS: włączony — wyłącz" else "GPS: wyłączony — włącz") {
-            prefs.edit().putBoolean("gps_enabled",!enabled).apply(); gpsScreen()
+            setGpsEnabled(!enabled); gpsScreen()
         }
         if(!enabled) return
         val permission=checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED ||
@@ -822,7 +843,7 @@ class MainActivity : Activity() {
         label("GPS i lokalizacja")
         button(if(prefs.getBoolean("gps_enabled",false)) "GPS WorkMeter: WŁĄCZONY — wyłącz" else "GPS WorkMeter: WYŁĄCZONY — włącz") {
             val next=!prefs.getBoolean("gps_enabled",false)
-            prefs.edit().putBoolean("gps_enabled",next).apply()
+            setGpsEnabled(next)
             settings()
         }
         button("Geostrefy i lokalizacja GPS") { gpsScreen() }
@@ -846,7 +867,7 @@ class MainActivity : Activity() {
                 label("Obiekty i lokalizacje GPS")
                 button("Lista obiektów") { openScreen("objects") }
                 button(if(prefs.getBoolean("gps_enabled",false)) "Wyłącz GPS WorkMeter" else "Włącz GPS WorkMeter") {
-                    prefs.edit().putBoolean("gps_enabled",!prefs.getBoolean("gps_enabled",false)).apply()
+                    setGpsEnabled(!prefs.getBoolean("gps_enabled",false))
                     sectionSettings("Obiekty")
                 }
                 button("GPS i geostrefy") { gpsScreen() }
