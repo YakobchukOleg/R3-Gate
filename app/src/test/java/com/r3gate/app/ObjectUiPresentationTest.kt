@@ -26,7 +26,7 @@ class ObjectUiPresentationTest {
             ObjectUiPresentation.archiveConfirmation(false))
     }
 
-    @Test fun emptyStatesDistinguishActiveFromArchived() {
+    @Test fun accessibilityLabelReflectsArchiveState() {\n        assertEquals(\"KOP-01, Aktywny\", ObjectUiPresentation.accessibilityLabel(\"KOP-01\", false))\n        assertEquals(\"KOP-01, Zarchiwizowany\", ObjectUiPresentation.accessibilityLabel(\"KOP-01\", true))\n        assertEquals(\"Zarchiwizowany\", ObjectUiPresentation.accessibilityLabel(\"  \", true))\n    }\n\n    @Test fun emptyStatesDistinguishActiveFromArchived() {
         assertEquals("Brak zarchiwizowanych obiektów",
             ObjectUiPresentation.emptyList(true))
         assertEquals("Dodaj pierwszy obiekt, aby przypisywać pracę, materiały i zdjęcia.",
