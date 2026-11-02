@@ -50,4 +50,35 @@ class GpsMotionOutlierRulesTest {
         val fast=start.copy(latitude=54.12,timestampMs=130_000)
         assertFalse(GpsMotionOutlierRules.impossibleJump(start,fast))
     }
+
+    @Test fun teleportAfterOneSecondIsRejected() {
+        assertTrue(GpsMotionOutlierRules.impossibleJump(
+            start,start.copy(latitude=54.50,timestampMs=101_000)))
+    }
+
+    @Test fun teleportAfterTwoSecondsIsRejected() {
+        assertTrue(GpsMotionOutlierRules.impossibleJump(
+            start,start.copy(latitude=54.50,timestampMs=102_000)))
+    }
+
+    @Test fun teleportAfterFourSecondsIsRejected() {
+        assertTrue(GpsMotionOutlierRules.impossibleJump(
+            start,start.copy(latitude=54.50,timestampMs=104_000)))
+    }
+
+    @Test fun parkedNoiseAfterTwoSecondsIsAccepted() {
+        assertFalse(GpsMotionOutlierRules.impossibleJump(
+            start,start.copy(latitude=54.09201,timestampMs=102_000)))
+    }
+
+    @Test fun poorAccuracyDoesNotTurnTinyMovementIntoTeleport() {
+        assertFalse(GpsMotionOutlierRules.impossibleJump(
+            start.copy(accuracyM=95.0),
+            start.copy(latitude=54.0925,accuracyM=95.0,timestampMs=102_000)))
+    }
+
+    @Test fun subsecondFixIsNotUsedForSpeedClassification() {
+        assertFalse(GpsMotionOutlierRules.impossibleJump(
+            start,start.copy(latitude=54.50,timestampMs=100_999)))
+    }
 }
