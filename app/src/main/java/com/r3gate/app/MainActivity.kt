@@ -697,6 +697,40 @@ class MainActivity : Activity() {
         }
         button("☷  Wróć do pełnego menu") { menu() }
     }
+    private fun recordGpsArrival(loc:Location) {
+        if(loc.accuracy>100f || !loc.latitude.isFinite() || !loc.longitude.isFinite()) return
+        val now=System.currentTimeMillis()
+        val point=GpsWorkRules.Point(loc.latitude,loc.longitude,loc.accuracy.toDouble(),now)
+        val places=rows(data(),"objects").filter { !it.optBoolean("archived") }.mapNotNull { o ->
+            try {
+                val geo=JSONObject(prefs.getString("gps_object_"+o.optString("id"),"{}") ?: "{}")
+                if(!geo.has("lat") || !geo.has("lon")) null else
+                    GpsWorkRules.Place(o.optString("id"),GpsWorkRules.Kind.OBJECT,geo.getDouble("lat"),geo.getDouble("lon"),geo.optDouble("radius",100.0))
+            } catch(_:Exception) { null }
+        }
+        val observed=GpsWorkRules.nearest(point,places)?.place?.id
+        val saved=JSONObject(prefs.getString("gps_arrival_state","{}") ?: "{}")
+        val state=GpsArrivalRules.State(
+            confirmedId=saved.optString("confirmed").ifBlank { null },
+            candidateId=saved.optString("candidate").ifBlank { null },
+            candidateSinceMs=saved.optLong("since"),
+            lastFixMs=saved.optLong("last")
+        )
+        val result=GpsArrivalRules.advance(state,observed,now)
+        val next=result.state
+        val stateJson=JSONObject().put("confirmed",next.confirmedId ?: "").put("candidate",next.candidateId ?: "")
+            .put("since",next.candidateSinceMs).put("last",next.lastFixMs)
+        val editor=prefs.edit().putString("gps_arrival_state",stateJson.toString())
+        if(result.event!=null) {
+            val history=try { JSONArray(prefs.getString("gps_events","[]") ?: "[]") } catch(_:Exception) { JSONArray() }
+            history.put(JSONObject().put("event",result.event).put("objectId",result.placeId ?: "").put("time",now))
+            val recent=JSONArray()
+            for(i in maxOf(0,history.length()-100) until history.length()) recent.put(history.get(i))
+            editor.putString("gps_events",recent.toString())
+        }
+        editor.apply()
+    }
+
     private fun gpsScreen() {
         base("GPS · WorkMeter"); screen="gps"; nav()
         label("Pozycja GPS działa tylko na żądanie. Brak śledzenia w tle.")
@@ -726,10 +760,23 @@ class MainActivity : Activity() {
                         prefs.edit().putString("gps_last_fix",JSONObject()
                             .put("lat",loc.latitude).put("lon",loc.longitude).put("accuracy",loc.accuracy.toDouble())
                             .put("time",System.currentTimeMillis()).toString()).apply()
+                        if(prefs.getBoolean("gps_enabled",false)) recordGpsArrival(loc)
                         if(screen=="gps") gpsScreen()
                     }
                 },Looper.getMainLooper())
             } catch(e:SecurityException) { Toast.makeText(this,"Brak uprawnienia GPS",Toast.LENGTH_LONG).show() }
+        }
+        val current=JSONObject(prefs.getString("gps_arrival_state","{}") ?: "{}").optString("confirmed")
+        if(current.isNotBlank()) label("Potwierdzona strefa: "+(objectById(current)?.let { objectName(it) } ?: current))
+        val gpsEvents=try { JSONArray(prefs.getString("gps_events","[]") ?: "[]") } catch(_:Exception) { JSONArray() }
+        if(gpsEvents.length()>0) {
+            label("Ostatnie zdarzenia GPS (tylko lokalnie):")
+            for(i in gpsEvents.length()-1 downTo maxOf(0,gpsEvents.length()-5)) {
+                val event=gpsEvents.optJSONObject(i) ?: continue
+                val title=if(event.optString("event")=="ARRIVAL") "Przyjazd" else "Wyjazd"
+                label(title+" · "+(objectById(event.optString("objectId"))?.let { objectName(it) } ?: event.optString("objectId"))+
+                    " · "+fmt.format(Date(event.optLong("time"))))
+            }
         }
         val fix=JSONObject(prefs.getString("gps_last_fix","{}") ?: "{}")
         val time=fix.optLong("time")
