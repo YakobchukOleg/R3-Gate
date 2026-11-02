@@ -825,6 +825,17 @@ class MainActivity : Activity() {
         label("GPS aktywny działa w tle z widocznym powiadomieniem. Wyłącz GPS, aby zakończyć rejestrację.")
         gpsResumePrompt()
         button("Diagnostyka GPS i baterii Android") { gpsDeviceDiagnostics() }
+        val adaptive=prefs.getBoolean("gps_adaptive_sampling",false)
+        button("Oszczędzanie GPS z akcelerometrem: "+if(adaptive) "WŁĄCZONE" else "WYŁĄCZONE") {
+            prefs.edit().putBoolean("gps_adaptive_sampling",!adaptive).apply()
+            if(prefs.getBoolean("gps_enabled",false)) {
+                stopService(Intent(this,GpsTrackingService::class.java))
+                setGpsEnabled(true)
+            }
+            gpsScreen()
+        }
+        label("Eksperymentalne: po 5 minutach bez wykrytego ruchu GPS co 90 sekund zamiast co 30 sekund. Nie wyłącza GPS; ruch telefonu nie potwierdza przejazdu.")
+
         val enabled = prefs.getBoolean("gps_enabled",false)
         button(if(enabled) "GPS: włączony — wyłącz" else "GPS: wyłączony — włącz") {
             setGpsEnabled(!enabled); gpsScreen()
