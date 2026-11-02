@@ -79,4 +79,38 @@ class GpsGeofenceEvidenceTest {
             GpsGeofenceEvidence.observe(nearBorder,listOf(site),"site").status)
     }
 
+    @Test fun neighboringSiteIsNotConfirmedWhenPreviousSiteStillPossible() {
+        val next=site.copy(id="next",latitude=54.0929,radiusM=70.0)
+        val fix=center.copy(latitude=54.09285,accuracyM=12.0)
+        assertEquals(GpsGeofenceEvidence.Status.UNCERTAIN,
+            GpsGeofenceEvidence.observe(fix,listOf(site,next),"site").status)
+    }
+
+    @Test fun clearlyExitedOldSiteAllowsArrivalAtNextSite() {
+        val next=site.copy(id="next",latitude=54.0929,radiusM=70.0)
+        val fix=center.copy(latitude=54.0933,accuracyM=8.0)
+        assertEquals(GpsGeofenceEvidence.Observation(GpsGeofenceEvidence.Status.INSIDE,"next"),
+            GpsGeofenceEvidence.observe(fix,listOf(site,next),"site"))
+    }
+
+    @Test fun freshFirstVisitCanChooseNeighborWithoutPriorConfirmedSite() {
+        val next=site.copy(id="next",latitude=54.0929,radiusM=70.0)
+        val fix=center.copy(latitude=54.09285,accuracyM=12.0)
+        assertEquals(GpsGeofenceEvidence.Observation(GpsGeofenceEvidence.Status.INSIDE,"next"),
+            GpsGeofenceEvidence.observe(fix,listOf(site,next)))
+    }
+
+    @Test fun remainingAtConfirmedSiteDoesNotBecomeUncertain() {
+        val next=site.copy(id="next",latitude=54.0929,radiusM=70.0)
+        assertEquals(GpsGeofenceEvidence.Observation(GpsGeofenceEvidence.Status.INSIDE,"site"),
+            GpsGeofenceEvidence.observe(center,listOf(site,next),"site"))
+    }
+
+    @Test fun invalidAccuracyDoesNotSwitchToAdjacentWorksite() {
+        val next=site.copy(id="next",latitude=54.0929,radiusM=70.0)
+        val fix=center.copy(latitude=54.09285,accuracyM=Double.NaN)
+        assertEquals(GpsGeofenceEvidence.Status.UNCERTAIN,
+            GpsGeofenceEvidence.observe(fix,listOf(site,next),"site").status)
+    }
+
 }
