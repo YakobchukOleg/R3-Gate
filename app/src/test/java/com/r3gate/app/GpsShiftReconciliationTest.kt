@@ -47,4 +47,25 @@ class GpsShiftReconciliationTest {
         assertEquals(1,result.incompleteTripStarts)
         assertTrue(result.requiresReview)
     }
+    @Test fun consecutiveTripsSplitAcrossWindowHaveCorrectInsideAndOutsideTotals() {
+        val events=listOf(e("TRIP_START",50),e("TRIP_STOP",150),
+            e("TRIP_START",150),e("TRIP_STOP",250),
+            e("TRIP_START",250),e("TRIP_STOP",350))
+        val review=GpsShiftReconciliation.review(events,
+            GpsShiftReconciliation.Window(100,300),
+            listOf(100,150,200,250,300),100)
+        assertEquals(3,review.completedTrips)
+        assertEquals(200L,review.travelInsideMs)
+        assertEquals(100L,review.travelOutsideMs)
+    }
+    @Test fun gpsGapExcludesInterruptedTravelFromReconciliation() {
+        val events=listOf(e("TRIP_START",100),e("GPS_GAP",150),
+            e("TRIP_START",400),e("TRIP_STOP",550))
+        val review=GpsShiftReconciliation.review(events,
+            GpsShiftReconciliation.Window(50,600),
+            listOf(50,100,150,400,550,600),300)
+        assertEquals(150L,review.travelInsideMs)
+        assertEquals(1,review.incompleteTripStarts)
+        assertTrue(review.requiresReview)
+    }
 }
