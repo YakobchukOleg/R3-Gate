@@ -9,23 +9,24 @@ object GpsGeofenceEvidence {
     data class Observation(val status:Status,val placeId:String?=null)
 
     fun observe(point:GpsWorkRules.Point,places:List<GpsWorkRules.Place>,confirmedId:String?=null):Observation {
-        // Removing a saved geozone must never look like physically leaving it.
-        if(!confirmedId.isNullOrBlank() && places.none { it.id==confirmedId })
+        val validPlaces=places.filter { p ->
+            p.id.isNotBlank() && p.radiusM.isFinite() && p.radiusM in 10.0..2000.0 &&
+                p.latitude.isFinite() && p.latitude in -90.0..90.0 &&
+                p.longitude.isFinite() && p.longitude in -180.0..180.0
+        }
+        // Missing or corrupt saved sites are not evidence of physical departure.
+        if(!confirmedId.isNullOrBlank() && validPlaces.none { it.id==confirmedId })
             return Observation(Status.UNCERTAIN)
-        if(places.isEmpty()) return Observation(Status.UNCERTAIN)
-        val inside=GpsWorkRules.nearest(point,places)
+        if(validPlaces.isEmpty()) return Observation(Status.UNCERTAIN)
+        val inside=GpsWorkRules.nearest(point,validPlaces)
         if(inside!=null) return Observation(Status.INSIDE,inside.place.id)
         if(!point.latitude.isFinite() || point.latitude !in -90.0..90.0 ||
             !point.longitude.isFinite() || point.longitude !in -180.0..180.0 ||
             !point.accuracyM.isFinite() || point.accuracyM<=0.0 ||
             point.accuracyM>150.0) return Observation(Status.UNCERTAIN)
-        val possibleZone=places.any { place ->
-            place.id.isNotBlank() && place.radiusM.isFinite() &&
-                place.radiusM in 10.0..2000.0 &&
-                place.latitude.isFinite() && place.latitude in -90.0..90.0 &&
-                place.longitude.isFinite() && place.longitude in -180.0..180.0 &&
-                GpsWorkRules.distanceM(point.latitude,point.longitude,
-                    place.latitude,place.longitude)-point.accuracyM<=place.radiusM
+        val possibleZone=validPlaces.any { p ->
+            GpsWorkRules.distanceM(point.latitude,point.longitude,
+                p.latitude,p.longitude)-point.accuracyM<=p.radiusM
         }
         return Observation(if(possibleZone) Status.UNCERTAIN else Status.OUTSIDE)
     }
