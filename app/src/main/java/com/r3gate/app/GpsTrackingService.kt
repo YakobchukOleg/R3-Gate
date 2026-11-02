@@ -77,6 +77,13 @@ class GpsTrackingService : Service(), LocationListener {
         if(location.accuracy<=0f || location.accuracy>100f || !location.latitude.isFinite() || !location.longitude.isFinite()) return
         val now=System.currentTimeMillis()
         val point=GpsWorkRules.Point(location.latitude,location.longitude,location.accuracy.toDouble(),now)
+        // Keep bounded timestamps for detecting GPS coverage gaps, never modifying shifts.
+        val fixes=try { JSONArray(prefs.getString("gps_fix_times","[]") ?: "[]") } catch(_:Exception) { JSONArray() }
+        fixes.put(now)
+        val retained=JSONArray()
+        for(i in maxOf(0,fixes.length()-500) until fixes.length()) retained.put(fixes.optLong(i))
+        prefs.edit().putString("gps_fix_times",retained.toString()).apply()
+
         val raw=try { JSONObject(prefs.getString("data","{}") ?: "{}") } catch(_:Exception) { JSONObject() }
         val objects=raw.optJSONArray("objects") ?: JSONArray()
         val places=mutableListOf<GpsWorkRules.Place>()
