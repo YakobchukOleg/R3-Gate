@@ -11,9 +11,8 @@ object GpsRecoveryRules {
         // confirmed object while restarting motion classification from scratch.
         if(lastFixMs<=0) return Plan(false,true,false)
         if(newFixMs<=lastFixMs) return Plan(false,false,false)
-        // Subtraction can overflow for corrupted or extreme persisted timestamps.
-        // Any positive interval that exceeds the threshold is stale.
-        val stale=newFixMs>lastFixMs && newFixMs-lastFixMs>maxGapMs
+        // Positive, ordered timestamps make this subtraction safe from overflow.
+        val stale=newFixMs-lastFixMs>maxGapMs
         return Plan(stale,stale,stale)
     }
 }
