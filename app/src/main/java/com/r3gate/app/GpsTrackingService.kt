@@ -294,13 +294,17 @@ class GpsTrackingService : Service(), LocationListener {
                     geo.getDouble("lat"),geo.getDouble("lon"),geo.optDouble("radius",100.0)))
             } catch(_:Exception) { }
         }
-        val observed=GpsWorkRules.nearest(point,places)?.place?.id
+        val zoneEvidence=GpsGeofenceEvidence.observe(point,places)
+        val observed=zoneEvidence.placeId
         val saved=try { JSONObject(prefs.getString("gps_arrival_state","{}") ?: "{}") } catch(_:Exception) { JSONObject() }
         val state=GpsArrivalRules.State(
             saved.optString("confirmed").ifBlank { null },
             saved.optString("candidate").ifBlank { null },
             saved.optLong("since"), saved.optLong("last"))
-        val decision=GpsArrivalRules.advance(state,observed,now)
+        // Inaccurate border fixes cannot count as a confirmed departure.
+        val decision=if(zoneEvidence.status==GpsGeofenceEvidence.Status.UNCERTAIN)
+            GpsArrivalRules.Decision(state)
+        else GpsArrivalRules.advance(state,observed,now)
         val next=decision.state
         val editor=prefs.edit().putString("gps_last_fix",JSONObject()
             .put("lat",location.latitude).put("lon",location.longitude)
