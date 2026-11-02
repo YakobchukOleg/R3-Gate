@@ -45,6 +45,7 @@ class GpsTrackingService : Service(), LocationListener {
     }
     override fun onStartCommand(intent:Intent?,flags:Int,startId:Int):Int {
         if(intent?.action==ACTION_STOP || !prefs.getBoolean("gps_enabled",false)) {
+            if(intent?.action==ACTION_STOP) prefs.edit().putBoolean("gps_enabled",false).apply()
             shutdown()
             return START_NOT_STICKY
         }
