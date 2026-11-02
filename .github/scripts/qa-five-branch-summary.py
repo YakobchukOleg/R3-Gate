@@ -29,7 +29,7 @@ def summarize(rows):
             elif run.get("conclusion") != "success": status = "FAILED"
             else:
                 candidate = run.get("counts")
-                if isinstance(candidate, dict) and all(type(candidate.get(k)) is int and candidate[k] >= 0 for k in COUNT_KEYS) and candidate["tests"] == sum(candidate[k] for k in COUNT_KEYS if k != "tests"):
+                if isinstance(candidate, dict) and all(type(candidate.get(k)) is int and candidate[k] >= 0 for k in COUNT_KEYS) and candidate["tests"] > 0 and candidate["passed"] > 0 and candidate["tests"] == sum(candidate[k] for k in COUNT_KEYS if k != "tests"):
                     counts = {k: candidate[k] for k in COUNT_KEYS}
                     status = "PASS"
                     for key in COUNT_KEYS: totals[key] += counts[key]
