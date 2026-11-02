@@ -70,4 +70,14 @@ class GpsWorkRulesTest {
         val site=GpsWorkRules.Place("good",GpsWorkRules.Kind.OBJECT,54.092,18.776,100.0)
         assertEquals("good",GpsWorkRules.nearest(base,invalid+site)?.place?.id)
     }
+    @Test fun movementMustUseRecentValidGpsFixes() {
+        val destination=base.copy(latitude=54.097,timestampMs=base.timestampMs+60_000)
+        assertTrue(GpsWorkRules.traveling(base,destination))
+        assertFalse(GpsWorkRules.traveling(base,destination.copy(
+            timestampMs=base.timestampMs+GpsTripRules.MAX_EVIDENCE_GAP_MS+1)))
+        assertFalse(GpsWorkRules.traveling(base,destination.copy(timestampMs=base.timestampMs)))
+        assertFalse(GpsWorkRules.traveling(base.copy(accuracyM=Double.NaN),destination))
+        assertFalse(GpsWorkRules.traveling(base.copy(latitude=91.0),destination))
+        assertFalse(GpsWorkRules.traveling(base,destination.copy(longitude=181.0)))
+    }
 }
