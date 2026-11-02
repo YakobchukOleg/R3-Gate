@@ -12,7 +12,7 @@ class GpsShopVisitHistoryTest {
     }
     @Test fun passingAndInterruptedTrackingNeverCountAsVisits() {
         val events=listOf(e("ARRIVAL",1000,"shop"),e("TRIP_START",2000),e("TRIP_STOP",3000),
-            e("ARRIVAL",4000,"shop"),e("GPS_GAP",5000),e("TRIP_STOP",6000))
+            e("GPS_GAP",3500),e("ARRIVAL",4000,"shop"),e("GPS_GAP",5000),e("TRIP_STOP",6000))
         assertEquals(0,GpsShopVisitHistory.confirmedVisits(events,"shop",7000))
     }
     @Test fun anotherLocationCannotCountForThisShop() {
@@ -43,5 +43,10 @@ class GpsShopVisitHistoryTest {
         val b=listOf(e("TRIP_STOP",60_000),e("ARRIVAL",70_000,"other"),e("ARRIVAL",90_000,"shop"))
         assertEquals(0,GpsShopVisitHistory.confirmedVisits(a,"shop",100_000))
         assertEquals(0,GpsShopVisitHistory.confirmedVisits(b,"shop",100_000))
+    }
+    @Test fun newArrivalAfterNewCompletedTripIsSeparateVisit() {
+        val events=listOf(e("ARRIVAL",1000,"shop"),e("TRIP_START",2000),
+            e("TRIP_STOP",3000),e("ARRIVAL",4000,"shop"))
+        assertEquals(1,GpsShopVisitHistory.confirmedVisits(events,"shop",5000))
     }
 }
