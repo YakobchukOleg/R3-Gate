@@ -53,4 +53,21 @@ class GpsWorkRulesTest {
         val right=GpsWorkRules.Place("right",GpsWorkRules.Kind.OBJECT,54.092,18.777,100.0)
         assertEquals("left",GpsWorkRules.nearest(base.copy(accuracyM=8.0),listOf(left,right))?.place?.id)
     }
+    @Test fun rejectsNonFiniteFixCoordinatesAndAccuracy() {
+        val place=GpsWorkRules.Place("site",GpsWorkRules.Kind.OBJECT,54.092,18.776,100.0)
+        assertNull(GpsWorkRules.nearest(base.copy(accuracyM=Double.NaN),listOf(place)))
+        assertNull(GpsWorkRules.nearest(base.copy(accuracyM=Double.POSITIVE_INFINITY),listOf(place)))
+        assertNull(GpsWorkRules.nearest(base.copy(latitude=91.0),listOf(place)))
+        assertNull(GpsWorkRules.nearest(base.copy(longitude=181.0),listOf(place)))
+    }
+    @Test fun rejectsBrokenSavedGeofencesWithoutHidingValidSite() {
+        val invalid=listOf(
+            GpsWorkRules.Place("nan",GpsWorkRules.Kind.OBJECT,Double.NaN,18.776,100.0),
+            GpsWorkRules.Place("infinite",GpsWorkRules.Kind.OBJECT,54.092,18.776,Double.POSITIVE_INFINITY),
+            GpsWorkRules.Place("outside",GpsWorkRules.Kind.OBJECT,95.0,18.776,100.0),
+            GpsWorkRules.Place("",GpsWorkRules.Kind.OBJECT,54.092,18.776,100.0))
+        assertNull(GpsWorkRules.nearest(base,invalid))
+        val site=GpsWorkRules.Place("good",GpsWorkRules.Kind.OBJECT,54.092,18.776,100.0)
+        assertEquals("good",GpsWorkRules.nearest(base,invalid+site)?.place?.id)
+    }
 }
