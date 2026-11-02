@@ -51,6 +51,18 @@ object ObjectIntegrityRules {
         else newObjectId.isNotBlank() &&
             canSaveAssignment(newObjectId, previousObjectId, objects)
 
+    /** A photo entry must contain media or an existing Drive link and have a safe object reference. */
+    fun canSavePhotoEntry(
+        photoCount: Int,
+        driveLink: String,
+        newObjectId: String,
+        previousObjectId: String?,
+        objects: Collection<ObjectRef>
+    ): Boolean =
+        (photoCount > 0 || driveLink.isNotBlank()) &&
+            newObjectId.isNotBlank() &&
+            canSaveAssignment(newObjectId, previousObjectId, objects)
+
     /** Keep archived objects addressable for historical views. */
     fun canResolveHistory(objectId: String, objects: Collection<ObjectRef>): Boolean =
         objectId.isNotBlank() && objects.any { it.id == objectId }
