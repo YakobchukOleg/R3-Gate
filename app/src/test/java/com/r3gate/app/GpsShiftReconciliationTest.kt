@@ -38,4 +38,13 @@ class GpsShiftReconciliationTest {
         assertEquals(0L,GpsShiftReconciliation.review(
             listOf(e("TRIP_START",1),e("TRIP_STOP",500)),GpsShiftReconciliation.Window(800,700)).travelInsideMs)
     }
+    @Test fun interruptedGpsTripRequiresReviewWithoutInventingDuration() {
+        val result=GpsShiftReconciliation.review(listOf(e("TRIP_START",200),
+            e("GPS_GAP",250),e("TRIP_STOP",400)),
+            GpsShiftReconciliation.Window(100,500),listOf(100,200,300,400,500),250)
+        assertEquals(0,result.completedTrips)
+        assertEquals(0L,result.travelInsideMs)
+        assertEquals(1,result.incompleteTripStarts)
+        assertTrue(result.requiresReview)
+    }
 }
