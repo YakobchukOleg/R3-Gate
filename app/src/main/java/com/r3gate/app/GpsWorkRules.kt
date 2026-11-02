@@ -40,9 +40,21 @@ object GpsWorkRules {
     }
     fun nearest(point:Point,places:List<Place>):Fix? {
         if(!point.latitude.isFinite()||!point.longitude.isFinite()||point.accuracyM>150.0||point.accuracyM<0.0) return null
-        return places.asSequence().filter { it.radiusM>=10 && it.radiusM<=2000 }.map { Fix(it,distanceM(point.latitude,point.longitude,it.latitude,it.longitude)) }
-            .filter { it.distanceM<=it.place.radiusM && point.accuracyM<=it.place.radiusM }
-            .minByOrNull { it.distanceM }
+        val matches=places.asSequence()
+            .filter { it.radiusM>=10 && it.radiusM<=2000 }
+            .map { Fix(it,distanceM(point.latitude,point.longitude,it.latitude,it.longitude)) }
+            // Keep the full accuracy circle inside the geofence; border noise
+            // must not create an arrival or a shopping suggestion.
+            .filter { it.distanceM+point.accuracyM<=it.place.radiusM }
+            .sortedBy { it.distanceM }.toList()
+        if(matches.size>1) {
+            // The same GPS fix must not assign two neighboring workplaces.
+            // Wait for a less ambiguous location observation.
+            val closest=matches[0]
+            val second=matches[1]
+            if(second.distanceM-closest.distanceM<=2*point.accuracyM) return null
+        }
+        return matches.firstOrNull()
     }
     fun traveling(previous:Point,current:Point,settings:Settings=Settings()):Boolean {
         if(!settings.enabled||!settings.autoTravel) return false
