@@ -24,6 +24,7 @@ class GpsTrackingService : Service(), LocationListener {
     private val manager by lazy { getSystemService(LOCATION_SERVICE) as LocationManager }
     private var subscribed=false
     private var currentProvider:String?=null
+    private var sessionStarted=false
     private val providerReceiver=object:BroadcastReceiver() {
         override fun onReceive(context:Context?,intent:Intent?) {
             if(intent?.action!=LocationManager.PROVIDERS_CHANGED_ACTION ||
@@ -116,7 +117,8 @@ class GpsTrackingService : Service(), LocationListener {
         try {
             if(Build.VERSION.SDK_INT>=29) startForeground(NOTIFICATION_ID,notification(),ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
             else startForeground(NOTIFICATION_ID,notification())
-            if(!prefs.getBoolean("gps_service_active",false)) {
+            if(!sessionStarted) {
+                sessionStarted=true
                 prefs.edit().putBoolean("gps_service_active",true)
                     .putLong("gps_session_start",System.currentTimeMillis()).apply()
             }
@@ -133,6 +135,7 @@ class GpsTrackingService : Service(), LocationListener {
     }
     override fun onLocationChanged(location:Location) {
         if(!prefs.getBoolean("gps_enabled",false)) { shutdown();return }
+        if(!GpsFixSourceRules.accept(currentProvider,location.provider,true)) return
         if(location.accuracy<=0f || location.accuracy>100f || !location.latitude.isFinite() || !location.longitude.isFinite()) return
         val now=System.currentTimeMillis()
         val previousFix=try { JSONObject(prefs.getString("gps_last_fix","{}") ?: "{}") } catch(_:Exception) { JSONObject() }
