@@ -165,4 +165,56 @@ class GpsTripRulesTest {
         assertEquals(GpsTripRules.Mode.STOPPED,repeated.state.mode)
     }
 
+    @Test fun zeroMovementDwellCannotInstantlyStartTrip() {
+        val state=GpsTripRules.State(candidate=GpsTripRules.Mode.MOVING,
+            candidateSinceMs=1_000,lastFixMs=2_000)
+        val result=GpsTripRules.advance(state,true,3_000,movementDwellMs=0)
+        assertNull(result.event)
+        assertEquals(state,result.state)
+    }
+
+    @Test fun negativeMovementDwellDoesNotStartTrip() {
+        val state=GpsTripRules.State(candidate=GpsTripRules.Mode.MOVING,
+            candidateSinceMs=1_000,lastFixMs=2_000)
+        assertEquals(state,GpsTripRules.advance(state,true,3_000,movementDwellMs=-1).state)
+    }
+
+    @Test fun zeroStopDwellCannotInstantlyStopTrip() {
+        val state=GpsTripRules.State(mode=GpsTripRules.Mode.MOVING,
+            candidate=GpsTripRules.Mode.STOPPED,candidateSinceMs=1_000,lastFixMs=2_000)
+        val result=GpsTripRules.advance(state,false,3_000,stopDwellMs=0)
+        assertNull(result.event)
+        assertEquals(state,result.state)
+    }
+
+    @Test fun negativeStopDwellCannotStopTrip() {
+        val state=GpsTripRules.State(mode=GpsTripRules.Mode.MOVING,
+            candidate=GpsTripRules.Mode.STOPPED,candidateSinceMs=1_000,lastFixMs=2_000)
+        assertEquals(state,GpsTripRules.advance(state,false,3_000,stopDwellMs=-5).state)
+    }
+
+    @Test fun zeroLongStopThresholdCannotReportInstantBreak() {
+        val state=GpsTripRules.State(mode=GpsTripRules.Mode.STOPPED,
+            stoppedSinceMs=1_000,lastFixMs=2_000)
+        val result=GpsTripRules.advance(state,false,3_000,longStopMs=0)
+        assertNull(result.event)
+        assertEquals(state,result.state)
+    }
+
+    @Test fun negativeLongStopThresholdCannotReportBreak() {
+        val state=GpsTripRules.State(mode=GpsTripRules.Mode.STOPPED,
+            stoppedSinceMs=1_000,lastFixMs=2_000)
+        assertEquals(state,GpsTripRules.advance(state,false,3_000,longStopMs=-60_000).state)
+    }
+
+    @Test fun positiveCustomThresholdsStillConfirmTripAndStop() {
+        val initial=GpsTripRules.State()
+        val first=GpsTripRules.advance(initial,true,1_000,movementDwellMs=30_000)
+        val moving=GpsTripRules.advance(first.state,true,31_000,movementDwellMs=30_000)
+        assertEquals("TRIP_START",moving.event)
+        val stopCandidate=GpsTripRules.advance(moving.state,false,61_000,stopDwellMs=45_000)
+        val stopped=GpsTripRules.advance(stopCandidate.state,false,106_000,stopDwellMs=45_000)
+        assertEquals("TRIP_STOP",stopped.event)
+    }
+
 }
