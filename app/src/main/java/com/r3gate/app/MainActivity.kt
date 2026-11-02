@@ -968,7 +968,34 @@ class MainActivity : Activity() {
                         if(visits>=2)
                             label("W tej lokalizacji wykryto "+visits+
                                 " potwierdzone postoje w ciągu 30 dni. Sprawdź kategorię przejazdu ręcznie.")
-                        button("Sprawdź kategorię przejazdu") { gpsTripCategories() }
+                        val observedTrips=activityEvents.map {
+                            GpsShiftEstimate.Event(it.type,it.timeMs)
+                        }
+                        val matched=GpsShopTripMatch.matchingTrip(
+                            observedTrips,hint.atMs,true)
+                        if(matched!=null) {
+                            val categoryKey="gps_trip_category_"+matched.startMs
+                            val category=prefs.getString(categoryKey,"UNKNOWN")
+                            if(category=="UNKNOWN") {
+                                button("Potwierdź kategorię tej podróży") {
+                                    AlertDialog.Builder(this,R.style.WorkMeterDialogTheme)
+                                        .setTitle("Zakupy materiałów?")
+                                        .setMessage("Przejazd: "+
+                                            fmt.format(Date(matched.startMs))+
+                                            " – "+fmt.format(Date(matched.endMs))+
+                                            ". Czy potwierdzasz zakupy materiałów? "+
+                                            "Zmiana dotyczy tylko kategorii szacunku GPS, nie ewidencji pracy.")
+                                        .setPositiveButton("Potwierdź") { _,_ ->
+                                            if(prefs.getString(categoryKey,"UNKNOWN")=="UNKNOWN")
+                                                prefs.edit().putString(categoryKey,"SHOPPING").apply()
+                                            gpsScreen()
+                                        }
+                                        .setNegativeButton("Anuluj",null).show()
+                                }
+                            } else label("Kategoria tego przejazdu: "+category+
+                                " · zmień ręcznie w kategorii przejazdów.")
+                        }
+                        button("Wszystkie kategorie przejazdów") { gpsTripCategories() }
                     }
                 }
                 GpsActivitySuggestionRules.Kind.STOP ->
