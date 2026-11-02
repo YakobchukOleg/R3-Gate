@@ -63,4 +63,15 @@ class JournalRestoreStoreTest {
             JournalRestoreStore.restore(context, preview, true))
         assertEquals(before, prefs.getString("data", null))
     }
+    @Test fun checkpointPreservesPreviousJournal() {
+        JournalRestoreStore.restore(context, plan(), true)
+        assertEquals(before, prefs.getString("restore_checkpoint_data", null))
+        assertEquals(incoming, prefs.getString("data", null))
+    }
+    @Test fun rejectedRestoreDoesNotOverwriteExistingJournal() {
+        try { JournalRestoreStore.restore(context, plan(), false) }
+        catch (_: IllegalArgumentException) { }
+        assertEquals(before, prefs.getString("data", null))
+    }
+
 }
