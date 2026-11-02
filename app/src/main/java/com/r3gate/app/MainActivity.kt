@@ -809,6 +809,7 @@ class MainActivity : Activity() {
         label("Najdłuższa przerwa: "+
             (cadence.longestGapMs?.let { (it/1000).toString()+" s" } ?: "brak danych"))
         label("Opóźnione odstępy: "+cadence.delayedIntervals)
+        label("Przerwy w pomiarach GPS ponad 4 minuty: "+cadence.coverageInterruptions)
         label("Odstępy pomiarów nie oznaczają zmierzonego zużycia baterii.")
         label("Jakość pomiarów w tle: "+when(quality.level) {
             GpsSamplingHealth.Level.NO_SESSION -> "brak aktywnej sesji"
