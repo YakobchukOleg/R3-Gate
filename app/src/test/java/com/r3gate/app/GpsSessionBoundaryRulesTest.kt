@@ -47,4 +47,23 @@ class GpsSessionBoundaryRulesTest {
         assertTrue(GpsSessionBoundaryRules.clockRolledBack(previous,now))
         assertFalse(GpsSessionBoundaryRules.shouldRecordStartupGap(previous,now))
     }
+
+    @Test fun activeSessionRollbackResetsStaleCheckpoint() {
+        assertTrue(GpsSessionBoundaryRules.shouldResetActiveCheckpoint(5000L,4000L,3990L))
+    }
+    @Test fun activeSessionNormalClockDoesNotReset() {
+        assertFalse(GpsSessionBoundaryRules.shouldResetActiveCheckpoint(4000L,5000L,4990L))
+    }
+    @Test fun activeSessionEqualClockDoesNotReset() {
+        assertFalse(GpsSessionBoundaryRules.shouldResetActiveCheckpoint(5000L,5000L,4990L))
+    }
+    @Test fun futureDatedSourceDoesNotTriggerReset() {
+        assertFalse(GpsSessionBoundaryRules.shouldResetActiveCheckpoint(5000L,4000L,4500L))
+    }
+    @Test fun invalidSourceDoesNotTriggerReset() {
+        assertFalse(GpsSessionBoundaryRules.shouldResetActiveCheckpoint(5000L,4000L,0L))
+    }
+    @Test fun missingPriorFixDoesNotTriggerReset() {
+        assertFalse(GpsSessionBoundaryRules.shouldResetActiveCheckpoint(0L,4000L,3990L))
+    }
 }
