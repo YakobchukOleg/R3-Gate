@@ -76,6 +76,19 @@ class GpsTrackingService : Service(), LocationListener {
         if(!prefs.getBoolean("gps_enabled",false)) { shutdown();return }
         if(location.accuracy<=0f || location.accuracy>100f || !location.latitude.isFinite() || !location.longitude.isFinite()) return
         val now=System.currentTimeMillis()
+        val previousFix=try { JSONObject(prefs.getString("gps_last_fix","{}") ?: "{}") } catch(_:Exception) { JSONObject() }
+        val lastRecorded=previousFix.optLong("time")
+        if(lastRecorded>=now) return
+        val recovery=GpsRecoveryRules.plan(lastRecorded,now)
+        if(recovery.resetArrival) prefs.edit().remove("gps_arrival_state").commit()
+        if(recovery.resetMotion) prefs.edit().remove("gps_trip_state").remove("gps_motion_point").commit()
+        if(recovery.recordGap) {
+            val gaps=try { JSONArray(prefs.getString("gps_coverage_gaps","[]") ?: "[]") } catch(_:Exception) { JSONArray() }
+            gaps.put(JSONObject().put("start",lastRecorded).put("end",now))
+            val limited=JSONArray()
+            for(i in maxOf(0,gaps.length()-100) until gaps.length()) limited.put(gaps.opt(i))
+            prefs.edit().putString("gps_coverage_gaps",limited.toString()).commit()
+        }
         val point=GpsWorkRules.Point(location.latitude,location.longitude,location.accuracy.toDouble(),now)
         // Keep bounded timestamps for detecting GPS coverage gaps, never modifying shifts.
         val fixes=try { JSONArray(prefs.getString("gps_fix_times","[]") ?: "[]") } catch(_:Exception) { JSONArray() }
