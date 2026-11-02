@@ -71,6 +71,9 @@ jobs:
           if [ -f .github/scripts/test-qa-branch-status.py ]; then
             python3 .github/scripts/test-qa-branch-status.py
           fi
+      - name: Verify five-branch aggregate report rules
+        run: |
+          if [ -f .github/scripts/test-qa-five-branch-summary.py ]; then python3 .github/scripts/test-qa-five-branch-summary.py; fi
       - name: JVM unit tests and lint (no APK)
         run: gradle --no-daemon testDebugUnitTest lintDebug
       - name: Android instrumentation tests (on demand only)
