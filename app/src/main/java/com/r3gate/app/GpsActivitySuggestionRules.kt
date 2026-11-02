@@ -16,8 +16,14 @@ object GpsActivitySuggestionRules {
             when(e.type) {
                 "ARRIVAL" -> {
                     arrival=if(!e.placeId.isNullOrBlank()) e else null
-                    stopped=null
                     hint=null
+                    val recentStop=stopped
+                    if(arrival!=null && recentStop!=null &&
+                        e.timeMs-recentStop.timeMs in 0..MAX_ARRIVAL_STOP_MS) {
+                        val kind=placeKinds[arrival.placeId]
+                        if(kind==Kind.WORKSITE || kind==Kind.SHOPPING)
+                            hint=Suggestion(kind,arrival.placeId,recentStop.timeMs)
+                    }
                 }
                 "TRIP_STOP" -> {
                     stopped=e
