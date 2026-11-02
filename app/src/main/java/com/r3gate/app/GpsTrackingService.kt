@@ -34,7 +34,11 @@ class GpsTrackingService : Service(), LocationListener {
     private fun recordTripBoundary(now:Long=System.currentTimeMillis()) {
         val journal=try { JSONArray(prefs.getString("gps_trip_events","[]") ?: "[]") }
             catch(_:Exception) { JSONArray() }
-        journal.put(JSONObject().put("event","GPS_GAP").put("time",now))
+        val eventId=GpsEventIdentity.id("GPS_GAP",now)
+        if(!GpsEventIdentity.shouldAppend((0 until journal.length()).map {
+                journal.optJSONObject(it)?.optString("eventId").orEmpty()
+            },eventId)) return
+        journal.put(JSONObject().put("event","GPS_GAP").put("time",now).put("eventId",eventId))
         val retained=JSONArray()
         for(i in maxOf(0,journal.length()-100) until journal.length()) retained.put(journal.opt(i))
         prefs.edit().putString("gps_trip_events",retained.toString()).apply()
@@ -331,7 +335,11 @@ class GpsTrackingService : Service(), LocationListener {
                 .put("since",next.candidateSinceMs).put("last",next.lastFixMs).toString())
         if(decision.event!=null) {
             val history=try { JSONArray(prefs.getString("gps_events","[]") ?: "[]") } catch(_:Exception) { JSONArray() }
-            history.put(JSONObject().put("event",decision.event).put("objectId",decision.placeId ?: "").put("time",now))
+            val eventId=GpsEventIdentity.id(decision.event,now,decision.placeId)
+            if(GpsEventIdentity.shouldAppend((0 until history.length()).map {
+                    history.optJSONObject(it)?.optString("eventId").orEmpty()
+                },eventId)) history.put(JSONObject().put("event",decision.event)
+                .put("objectId",decision.placeId ?: "").put("time",now).put("eventId",eventId))
             val limited=JSONArray()
             for(i in maxOf(0,history.length()-100) until history.length()) limited.put(history.opt(i))
             editor.putString("gps_events",limited.toString())
@@ -378,7 +386,11 @@ class GpsTrackingService : Service(), LocationListener {
                 .put("stoppedSince",t.stoppedSinceMs).put("longStopReported",t.longStopReported).toString())
             if(transition.event!=null) {
                 val journal=try { JSONArray(prefs.getString("gps_trip_events","[]") ?: "[]") } catch(_:Exception) { JSONArray() }
-                journal.put(JSONObject().put("event",transition.event).put("time",now))
+                val eventId=GpsEventIdentity.id(transition.event,now)
+                if(GpsEventIdentity.shouldAppend((0 until journal.length()).map {
+                        journal.optJSONObject(it)?.optString("eventId").orEmpty()
+                    },eventId)) journal.put(JSONObject().put("event",transition.event)
+                    .put("time",now).put("eventId",eventId))
                 val recent=JSONArray()
                 for(i in maxOf(0,journal.length()-100) until journal.length()) recent.put(journal.opt(i))
                 motionEditor.putString("gps_trip_events",recent.toString())
