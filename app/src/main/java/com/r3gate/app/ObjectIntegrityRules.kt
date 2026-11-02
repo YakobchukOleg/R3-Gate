@@ -24,6 +24,19 @@ object ObjectIntegrityRules {
     fun canAssign(objectId: String, objects: Collection<ObjectRef>): Boolean =
         objects.any { it.id == objectId && !it.archived }
 
+    /**
+     * Legacy records can retain their original association even when their object
+     * has since been archived or is missing from an old backup. Changing the
+     * association, however, always requires an existing active object.
+     */
+    fun canSaveAssignment(
+        newObjectId: String,
+        previousObjectId: String?,
+        objects: Collection<ObjectRef>
+    ): Boolean =
+        newObjectId.isBlank() || (previousObjectId != null && previousObjectId == newObjectId) ||
+            canAssign(newObjectId, objects)
+
     /** Keep archived objects addressable for historical views. */
     fun canResolveHistory(objectId: String, objects: Collection<ObjectRef>): Boolean =
         objectId.isNotBlank() && objects.any { it.id == objectId }
