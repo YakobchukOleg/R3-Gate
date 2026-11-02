@@ -830,11 +830,31 @@ class MainActivity : Activity() {
         button("Odśwież diagnostykę") { gpsDeviceDiagnostics() }
     }
 
+    private fun gpsPlaceKinds() {
+        base("GPS · typy geostref"); screen="gpsPlaceKinds"; nav()
+        label("Oznacz zapisany obiekt jako sklep z materiałami tylko wtedy, gdy faktycznie nim jest. Sam GPS nie rozpoznaje celu wizyty.")
+        label("Zmiana typu nie wpływa na czas pracy, wynagrodzenie ani historię przejazdów.")
+        val objects=rows(data(),"objects").filter { !it.optBoolean("archived") }
+        if(objects.isEmpty()) label("Brak obiektów. Dodaj lokalizację w sekcji Obiekty.")
+        for(o in objects) {
+            val id=o.optString("id")
+            if(id.isBlank()) continue
+            val key="gps_place_kind_"+id
+            val isShop=prefs.getString(key,"WORKSITE")=="SHOPPING"
+            button(objectName(o)+" · "+if(isShop) "SKLEP Z MATERIAŁAMI" else "OBIEKT PRACY") {
+                prefs.edit().putString(key,if(isShop) "WORKSITE" else "SHOPPING").apply()
+                gpsPlaceKinds()
+            }
+        }
+        button("GPS · wróć") { gpsScreen() }
+    }
+
     private fun gpsScreen() {
         base("GPS · WorkMeter"); screen="gps"; nav()
         label("GPS aktywny działa w tle z widocznym powiadomieniem. Wyłącz GPS, aby zakończyć rejestrację.")
         gpsResumePrompt()
         button("Diagnostyka GPS i baterii Android") { gpsDeviceDiagnostics() }
+        button("Typy geostref: obiekt / sklep z materiałami") { gpsPlaceKinds() }
         val adaptive=prefs.getBoolean("gps_adaptive_sampling",false)
         button("Oszczędzanie GPS z akcelerometrem: "+if(adaptive) "WŁĄCZONE" else "WYŁĄCZONE") {
             prefs.edit().putBoolean("gps_adaptive_sampling",!adaptive).apply()
@@ -927,7 +947,9 @@ class MainActivity : Activity() {
         for(o in objectRows) {
             val id=o.optString("id")
             if(id.isNotBlank() && !o.optBoolean("archived"))
-                worksiteKinds[id]=GpsActivitySuggestionRules.Kind.WORKSITE
+                worksiteKinds[id]=if(prefs.getString("gps_place_kind_"+id,"WORKSITE")=="SHOPPING")
+                    GpsActivitySuggestionRules.Kind.SHOPPING
+                else GpsActivitySuggestionRules.Kind.WORKSITE
         }
         val hint=GpsActivitySuggestionRules.latest(activityEvents,worksiteKinds,System.currentTimeMillis())
         if(hint!=null) {
