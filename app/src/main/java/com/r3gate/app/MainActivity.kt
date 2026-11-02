@@ -791,6 +791,20 @@ class MainActivity : Activity() {
                 GpsDeviceDiagnostics.Issue.SERVICE_NOT_ACTIVE -> "Usługa GPS nie zgłasza działania"
             })
         }
+        val fixJournal=try { JSONArray(prefs.getString("gps_fix_times","[]") ?: "[]") } catch(_:Exception) { JSONArray() }
+        val samples=(0 until fixJournal.length()).map { fixJournal.optLong(it) }
+        val quality=GpsSamplingHealth.assess(snapshot.serviceReportedActive,
+            prefs.getLong("gps_session_start",0),samples,System.currentTimeMillis())
+        label("Pomiary w tej sesji: "+quality.samples)
+        label("Jakość pomiarów w tle: "+when(quality.level) {
+            GpsSamplingHealth.Level.NO_SESSION -> "brak aktywnej sesji"
+            GpsSamplingHealth.Level.WAITING_FOR_FIRST_FIX -> "oczekiwanie na pierwszy pomiar"
+            GpsSamplingHealth.Level.FRESH -> "aktualne pomiary"
+            GpsSamplingHealth.Level.DELAYED -> "opóźnione pomiary"
+            GpsSamplingHealth.Level.STALE -> "brak pomiarów ponad 15 minut"
+        })
+        if(quality.level==GpsSamplingHealth.Level.STALE)
+            label("Sprawdź oszczędzanie energii i dostęp GPS. Nie dopisujemy brakujących godzin.")
         button("Ustawienia lokalizacji telefonu") {
             startActivity(Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS))
         }
