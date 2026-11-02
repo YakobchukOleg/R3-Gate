@@ -38,7 +38,8 @@ class GpsTrackingService : Service(), LocationListener {
     private val sensorListener=object:SensorEventListener {
         override fun onAccuracyChanged(sensor:Sensor?,accuracy:Int) {}
         override fun onSensorChanged(event:SensorEvent) {
-            if(event.sensor.type!=Sensor.TYPE_ACCELEROMETER || !prefs.getBoolean("gps_enabled",false)) return
+            if(event.sensor.type!=Sensor.TYPE_ACCELEROMETER || !prefs.getBoolean("gps_enabled",false) ||
+                !prefs.getBoolean("gps_adaptive_sampling",false)) return
             val x=event.values[0].toDouble()
             val y=event.values[1].toDouble()
             val z=event.values[2].toDouble()
@@ -161,7 +162,12 @@ class GpsTrackingService : Service(), LocationListener {
                     .putLong("gps_session_start",System.currentTimeMillis()).apply()
             }
             // With no provider keep the visible foreground service listening for location changes.
-            startMotionSensor()
+            if(prefs.getBoolean("gps_adaptive_sampling",false)) startMotionSensor()
+            else {
+                stopMotionSensor()
+                samplingIntervalMs=GpsAdaptiveSampling.ACTIVE_INTERVAL_MS
+                samplingState=GpsAdaptiveSampling.State()
+            }
             updateSubscription()
         } catch(_:SecurityException) { prefs.edit().putString("gps_service_problem","permission").apply(); shutdown() }
         catch(_:IllegalArgumentException) { prefs.edit().putString("gps_service_problem","provider").apply(); shutdown() }
