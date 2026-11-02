@@ -8,20 +8,49 @@ on:
     branches:
       - feature/workmeter-qa
   workflow_dispatch:
+    inputs:
+      target_branch:
+        description: 'Exact work branch to check (no merges)'
+        type: choice
+        required: true
+        default: feature/workmeter-qa
+        options:
+          - feature/workmeter-qa
+          - feature/workmeter-core
+          - feature/workmeter-ui
+          - feature/workmeter-backup
+          - feature/prototype-p1-p4-native-menu
+      suite:
+        description: 'fast: JVM + lint; device: Android emulator tests'
+        type: choice
+        required: true
+        default: fast
+        options:
+          - fast
+          - device
 
 permissions:
   contents: read
 
 concurrency:
-  group: qa-${{ github.workflow }}-${{ github.ref }}
+  group: qa-${{ github.workflow }}-${{ github.ref }}-${{ inputs.target_branch || 'feature/workmeter-qa' }}
   cancel-in-progress: true
 
 jobs:
   checks:
     runs-on: ubuntu-24.04
-    timeout-minutes: 18
+    timeout-minutes: 35
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out exact selected branch without merging
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.target_branch || github.head_ref || github.ref_name }}
+          persist-credentials: false
+      - name: Record tested revision
+        run: |
+          echo "Selected branch: ${{ inputs.target_branch || github.head_ref || github.ref_name }}"
+          echo "TESTED_SHA=$(git rev-parse HEAD)" | tee -a "$GITHUB_ENV"
+          git rev-parse HEAD > tested-sha.txt
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -34,15 +63,29 @@ jobs:
           gradle-version: '8.9'
       - name: Prepare verified publisher fonts
         run: python3 .github/scripts/prepare-fonts.py
-      - name: Run JVM unit tests and Android lint (no APK)
+      - name: JVM unit tests and lint (no APK)
         run: gradle --no-daemon testDebugUnitTest lintDebug
+      - name: Android instrumentation tests (on demand only)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.suite == 'device' }}
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash .github/scripts/device-tests.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: qa-reports
           path: |
+            tested-sha.txt
             app/build/reports/tests/testDebugUnitTest/
             app/build/test-results/testDebugUnitTest/
             app/build/reports/lint-results-debug.html
             app/build/reports/lint-results-debug.xml
+            app/build/reports/androidTests/connected/
+            device-screenshots/
           if-no-files-found: ignore
