@@ -27,4 +27,18 @@ class GpsGeofenceEvidenceTest {
         assertEquals(GpsGeofenceEvidence.Status.UNCERTAIN,
             GpsGeofenceEvidence.observe(center.copy(accuracyM=10.0),listOf(site,second)).status)
     }
+    @Test fun removedOrArchivedWorksiteCannotPretendToBeGpsDeparture() {
+        val outside=center.copy(latitude=54.10)
+        assertEquals(GpsGeofenceEvidence.Status.UNCERTAIN,
+            GpsGeofenceEvidence.observe(outside,emptyList(),"site").status)
+        val another=site.copy(id="another",latitude=54.11)
+        assertEquals(GpsGeofenceEvidence.Status.UNCERTAIN,
+            GpsGeofenceEvidence.observe(outside,listOf(another),"site").status)
+        assertEquals(GpsGeofenceEvidence.Status.OUTSIDE,
+            GpsGeofenceEvidence.observe(outside,listOf(site),"site").status)
+    }
+    @Test fun noConfiguredPlacesAreUnknownNotDepartureEvidence() {
+        assertEquals(GpsGeofenceEvidence.Status.UNCERTAIN,
+            GpsGeofenceEvidence.observe(center,emptyList()).status)
+    }
 }
