@@ -19,6 +19,16 @@ object GpsGeofenceEvidence {
             return Observation(Status.UNCERTAIN)
         if(validPlaces.isEmpty()) return Observation(Status.UNCERTAIN)
         val inside=GpsWorkRules.nearest(point,validPlaces)
+        // A fix may be well inside a neighboring site yet still overlap the
+        // previously confirmed site's uncertainty circle. Never switch sites
+        // until it is clear we actually left the previous one.
+        if(inside!=null && !confirmedId.isNullOrBlank() && inside.place.id!=confirmedId) {
+            val previous=validPlaces.first { it.id==confirmedId }
+            if(point.accuracyM.isFinite() && point.accuracyM>0 &&
+                GpsWorkRules.distanceM(point.latitude,point.longitude,
+                    previous.latitude,previous.longitude)-point.accuracyM<=previous.radiusM)
+                return Observation(Status.UNCERTAIN)
+        }
         if(inside!=null) return Observation(Status.INSIDE,inside.place.id)
         if(!point.latitude.isFinite() || point.latitude !in -90.0..90.0 ||
             !point.longitude.isFinite() || point.longitude !in -180.0..180.0 ||
