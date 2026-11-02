@@ -43,5 +43,15 @@ class SummaryTest(unittest.TestCase):
         data[0]["run"] = dict(head_sha=SHA, status="completed", conclusion="success", counts=dict(tests=1,passed=2,failures=0,errors=0,skipped=0))
         self.assertEqual(mod.summarize(data)["modules"][0]["status"], "NO_COUNTS")
 
+    def test_zero_tests_cannot_pass(self):
+        data = rows()
+        data[0]["run"] = dict(head_sha=SHA, status="completed", conclusion="success", counts=dict(tests=0, passed=0, failures=0, errors=0, skipped=0))
+        self.assertEqual(mod.summarize(data)["modules"][0]["status"], "NO_COUNTS")
+
+    def test_all_skipped_cannot_pass(self):
+        data = rows()
+        data[0]["run"] = dict(head_sha=SHA, status="completed", conclusion="success", counts=dict(tests=3, passed=0, failures=0, errors=0, skipped=3))
+        self.assertEqual(mod.summarize(data)["modules"][0]["status"], "NO_COUNTS")
+
 if __name__ == "__main__":
     unittest.main()
