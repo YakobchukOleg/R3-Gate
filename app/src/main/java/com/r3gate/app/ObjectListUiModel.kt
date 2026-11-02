@@ -19,7 +19,7 @@ object ObjectListUiModel {
     fun display(items: List<Item>, showArchived: Boolean): Display {
         val rows = items.asSequence()
             .filter { it.archived == showArchived }
-            .sortedWith(compareBy<Item, String> { it.tag }.thenBy { it.id })
+            .sortedWith { a, b -> ObjectSearch.compareTags(a.tag, b.tag).takeIf { it != 0 } ?: a.id.compareTo(b.id) }
             .map {
                 val title = ObjectUiPresentation.title(it.tag, it.organization, it.city, it.address)
                 Row(it.id, title, ObjectUiPresentation.status(it.archived),
