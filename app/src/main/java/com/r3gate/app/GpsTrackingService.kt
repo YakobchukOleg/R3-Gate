@@ -241,6 +241,11 @@ class GpsTrackingService : Service(), LocationListener {
                 .put("candidate","").put("since",0L)
                 .put("last",existing.optLong("last")).toString()).commit()
         }
+        if(transition.resetMotion && !recovery.recordGap) {
+            // A provider handover invalidates any open trip inferred from the old
+            // source; a later stop must not complete that earlier trip.
+            recordTripBoundary(now)
+        }
         if(recovery.resetMotion || transition.resetMotion)
             prefs.edit().remove("gps_trip_state").remove("gps_motion_point").commit()
         prefs.edit().putString("gps_last_provider",source).apply()
