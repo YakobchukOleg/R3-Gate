@@ -28,14 +28,31 @@ object GpsTripBilling {
         }
         return result
     }
+    /** Count each millisecond only once, even if imported evidence overlaps. */
+    private fun coveredMs(intervals:List<Pair<Long,Long>>):Long {
+        var total=0L
+        var end=Long.MIN_VALUE
+        for((from,to) in intervals.sortedWith(compareBy<Pair<Long,Long>> { it.first }.thenBy { it.second })) {
+            if(to<=from) continue
+            val uncoveredStart=maxOf(from,end)
+            if(to>uncoveredStart) total+=to-uncoveredStart
+            end=maxOf(end,to)
+        }
+        return total
+    }
     fun calculate(trips:List<Trip>,window:GpsShiftEstimate.Window,rules:Rules):Total {
         if(window.endMs<=window.startMs) return Total(0,0,0,0)
-        var elapsed=0L;var payable=0L;var count=0;var unknown=0
+        val all=mutableListOf<Pair<Long,Long>>()
+        val paid=mutableListOf<Pair<Long,Long>>()
+        var count=0
+        var unknown=0
         for(t in trips) {
             if(t.endMs<=t.startMs) continue
-            val duration=(minOf(t.endMs,window.endMs)-maxOf(t.startMs,window.startMs)).coerceAtLeast(0)
-            if(duration==0L) continue
-            elapsed+=duration;count++
+            val from=maxOf(t.startMs,window.startMs)
+            val to=minOf(t.endMs,window.endMs)
+            if(to<=from) continue
+            all.add(from to to)
+            count++
             if(t.category==Category.UNKNOWN) unknown++
             if(when(t.category) {
                 Category.OUTBOUND -> rules.outbound
@@ -43,8 +60,8 @@ object GpsTripBilling {
                 Category.BETWEEN -> rules.between
                 Category.SHOPPING -> rules.shopping
                 Category.UNKNOWN,Category.PRIVATE -> false
-            }) payable+=duration
+            }) paid.add(from to to)
         }
-        return Total(elapsed,payable,count,unknown)
+        return Total(coveredMs(all),coveredMs(paid),count,unknown)
     }
 }
