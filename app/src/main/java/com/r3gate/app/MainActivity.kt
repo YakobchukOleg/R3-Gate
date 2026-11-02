@@ -733,9 +733,22 @@ class MainActivity : Activity() {
         editor.apply()
     }
 
+    private fun gpsResumePrompt() {
+        if(!prefs.getBoolean("gps_resume_pending",false)) return
+        label("GPS był aktywny przed restartem telefonu. Wznów go tylko, jeśli chcesz.")
+        button("Wznów GPS po restarcie") {
+            prefs.edit().putBoolean("gps_resume_pending",false).apply()
+            setGpsEnabled(true)
+            gpsScreen()
+        }
+        button("Nie wznawiaj GPS") {
+            prefs.edit().putBoolean("gps_resume_pending",false).apply()
+            gpsScreen()
+        }
+    }
     private fun setGpsEnabled(value:Boolean) {
         if(!value) {
-            prefs.edit().putBoolean("gps_enabled",false).apply()
+            prefs.edit().putBoolean("gps_enabled",false).putBoolean("gps_resume_pending",false).apply()
             stopService(Intent(this,GpsTrackingService::class.java))
             return
         }
@@ -757,6 +770,7 @@ class MainActivity : Activity() {
     private fun gpsScreen() {
         base("GPS · WorkMeter"); screen="gps"; nav()
         label("GPS aktywny działa w tle z widocznym powiadomieniem. Wyłącz GPS, aby zakończyć rejestrację.")
+        gpsResumePrompt()
         val enabled = prefs.getBoolean("gps_enabled",false)
         button(if(enabled) "GPS: włączony — wyłącz" else "GPS: wyłączony — włącz") {
             setGpsEnabled(!enabled); gpsScreen()
@@ -875,6 +889,7 @@ class MainActivity : Activity() {
         button("Wygląd widżetu") { widgetSettings() }
         button("Język aplikacji") { language() }
         label("GPS i lokalizacja")
+        if(prefs.getBoolean("gps_resume_pending",false)) button("GPS · wznowienie po restarcie") { gpsScreen() }
         button(if(prefs.getBoolean("gps_enabled",false)) "GPS WorkMeter: WŁĄCZONY — wyłącz" else "GPS WorkMeter: WYŁĄCZONY — włącz") {
             val next=!prefs.getBoolean("gps_enabled",false)
             setGpsEnabled(next)
