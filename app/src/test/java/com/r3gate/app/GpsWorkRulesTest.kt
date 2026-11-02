@@ -80,4 +80,50 @@ class GpsWorkRulesTest {
         assertFalse(GpsWorkRules.traveling(base.copy(latitude=91.0),destination))
         assertFalse(GpsWorkRules.traveling(base,destination.copy(longitude=181.0)))
     }
+    @Test fun sameSecondGpsJumpCannotPretendToBeDriving() {
+        val jump=base.copy(latitude=54.097,timestampMs=base.timestampMs+1_000)
+        assertFalse(GpsWorkRules.traveling(base,jump))
+    }
+
+    @Test fun fourSecondGpsJitterCannotStartTrip() {
+        val jump=base.copy(latitude=54.097,timestampMs=base.timestampMs+4_999)
+        assertFalse(GpsWorkRules.traveling(base,jump))
+    }
+
+    @Test fun fiveSecondMovementStillMeetsMinimumObservationInterval() {
+        val destination=base.copy(latitude=54.097,timestampMs=base.timestampMs+5_000)
+        assertTrue(GpsWorkRules.traveling(base,destination))
+    }
+
+    @Test fun invalidNegativeSpeedThresholdCannotClassifyStationaryPhoneAsMoving() {
+        val atRest=base.copy(timestampMs=base.timestampMs+30_000)
+        assertFalse(GpsWorkRules.traveling(base,atRest,
+            GpsWorkRules.Settings(minimumTravelSpeedMps=-1.0)))
+    }
+
+    @Test fun zeroSpeedThresholdCannotClassifyNoiseAsTravel() {
+        val atRest=base.copy(timestampMs=base.timestampMs+30_000)
+        assertFalse(GpsWorkRules.traveling(base,atRest,
+            GpsWorkRules.Settings(minimumTravelSpeedMps=0.0)))
+    }
+
+    @Test fun nonFiniteSpeedThresholdCannotClassifyTravel() {
+        val moved=base.copy(latitude=54.097,timestampMs=base.timestampMs+30_000)
+        assertFalse(GpsWorkRules.traveling(base,moved,
+            GpsWorkRules.Settings(minimumTravelSpeedMps=Double.NaN)))
+        assertFalse(GpsWorkRules.traveling(base,moved,
+            GpsWorkRules.Settings(minimumTravelSpeedMps=Double.POSITIVE_INFINITY)))
+    }
+
+    @Test fun invalidGpsTimestampCannotConfirmMovement() {
+        val initial=base.copy(timestampMs=0)
+        val later=base.copy(latitude=54.097,timestampMs=30_000)
+        assertFalse(GpsWorkRules.traveling(initial,later))
+    }
+
+    @Test fun normallySpacedReliableFixesStillConfirmMovement() {
+        val moved=base.copy(latitude=54.097,timestampMs=base.timestampMs+30_000)
+        assertTrue(GpsWorkRules.traveling(base,moved))
+    }
+
 }
