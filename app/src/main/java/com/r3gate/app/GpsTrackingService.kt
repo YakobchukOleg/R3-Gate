@@ -57,8 +57,11 @@ class GpsTrackingService : Service(), LocationListener {
         try {
             if(Build.VERSION.SDK_INT>=29) startForeground(NOTIFICATION_ID,notification(),ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
             else startForeground(NOTIFICATION_ID,notification())
-            prefs.edit().putBoolean("gps_service_active",true).putLong("gps_session_start",System.currentTimeMillis()).apply()
             if(!subscribed) {
+                // Repeated START intents must not reset the current sampling session.
+                prefs.edit().putBoolean("gps_service_active",true)
+                    .putLong("gps_session_start",System.currentTimeMillis())
+                    .remove("gps_service_problem").apply()
                 val provider=when {
                     manager.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
                     manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
