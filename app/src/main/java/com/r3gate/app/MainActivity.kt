@@ -825,6 +825,14 @@ class MainActivity : Activity() {
                 label(title+" · "+fmt.format(Date(event.optLong("time"))))
             }
         }
+        val coverageGaps=try { JSONArray(prefs.getString("gps_coverage_gaps","[]") ?: "[]") } catch(_:Exception) { JSONArray() }
+        if(coverageGaps.length()>0) {
+            label("Przerwy w GPS (nie uzupełniamy czasu automatycznie):")
+            for(i in coverageGaps.length()-1 downTo maxOf(0,coverageGaps.length()-3)) {
+                val gap=coverageGaps.optJSONObject(i) ?: continue
+                label(fmt.format(Date(gap.optLong("start")))+" – "+fmt.format(Date(gap.optLong("end"))))
+            }
+        }
         val fix=JSONObject(prefs.getString("gps_last_fix","{}") ?: "{}")
         val time=fix.optLong("time")
         if(time>0) {
