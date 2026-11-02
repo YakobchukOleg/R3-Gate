@@ -774,6 +774,13 @@ class MainActivity : Activity() {
         label("Widżet i interfejs")
         button("Wygląd widżetu") { widgetSettings() }
         button("Język aplikacji") { language() }
+        label("GPS i lokalizacja")
+        button(if(prefs.getBoolean("gps_enabled",false)) "GPS WorkMeter: WŁĄCZONY — wyłącz" else "GPS WorkMeter: WYŁĄCZONY — włącz") {
+            val next=!prefs.getBoolean("gps_enabled",false)
+            prefs.edit().putBoolean("gps_enabled",next).apply()
+            settings()
+        }
+        button("Geostrefy i lokalizacja GPS") { gpsScreen() }
         label("Ustawienia działów")
         listOf("Mój czas","Obiekty","Zdjęcia","Materiały","Grafiki","Portfel").forEach { item ->
             button("⚙  $item  ›") { sectionSettings(item) }
@@ -793,6 +800,10 @@ class MainActivity : Activity() {
             "Obiekty" -> {
                 label("Obiekty i lokalizacje GPS")
                 button("Lista obiektów") { openScreen("objects") }
+                button(if(prefs.getBoolean("gps_enabled",false)) "Wyłącz GPS WorkMeter" else "Włącz GPS WorkMeter") {
+                    prefs.edit().putBoolean("gps_enabled",!prefs.getBoolean("gps_enabled",false)).apply()
+                    sectionSettings("Obiekty")
+                }
                 button("GPS i geostrefy") { gpsScreen() }
             }
             "Zdjęcia" -> {
