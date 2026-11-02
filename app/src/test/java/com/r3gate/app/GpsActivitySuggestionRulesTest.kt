@@ -32,4 +32,18 @@ class GpsActivitySuggestionRulesTest {
         assertNull(GpsActivitySuggestionRules.latest(events,kinds,1_300_001))
         assertNull(GpsActivitySuggestionRules.latest(events+e("DEPARTURE",3000),kinds,4000))
     }
+    @Test fun explicitShopTagProducesShoppingSuggestionNotWorksite() {
+        val events=listOf(e("ARRIVAL",1_000,"supplier"),e("TRIP_STOP",91_000))
+        val kinds=mapOf("supplier" to GpsActivitySuggestionRules.Kind.SHOPPING)
+        val hint=GpsActivitySuggestionRules.latest(events,kinds,92_000)
+        assertEquals(GpsActivitySuggestionRules.Kind.SHOPPING,hint?.kind)
+        assertEquals("supplier",hint?.placeId)
+    }
+    @Test fun changingTaggedPlaceToWorksiteChangesOnlySuggestionKind() {
+        val events=listOf(e("ARRIVAL",1_000,"supplier"),e("TRIP_STOP",91_000))
+        val worksite=GpsActivitySuggestionRules.latest(events,
+            mapOf("supplier" to GpsActivitySuggestionRules.Kind.WORKSITE),92_000)
+        assertEquals(GpsActivitySuggestionRules.Kind.WORKSITE,worksite?.kind)
+        assertNull(GpsActivitySuggestionRules.latest(events,emptyMap(),92_000))
+    }
 }
