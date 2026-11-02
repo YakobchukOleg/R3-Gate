@@ -2095,6 +2095,13 @@ class MainActivity : Activity() {
                 }
             }
         }
+        if(formKind=="links") {
+            val previous=rows(d,"links").find { it.optString("id")==draft.optString("id") }
+            if(!ObjectIntegrityRules.canSavePhotoEntry(
+                arr(draft,"photos").length(),draft.optString("Link Google Drive"),
+                draft.optString("objectId"),previous?.optString("objectId"),objectRefs
+            )) { toast("Zdjęcia wymagają aktywnego obiektu i zdjęcia lub linku"); return }
+        }
         val list=arr(d,formKind); val index=(0 until list.length()).find { list.optJSONObject(it)?.optString("id")==draft.optString("id") }
         if(index==null) list.put(draft) else list.put(index,draft)
         save(d,"SAVE_"+formKind,draft.optString("id"))
