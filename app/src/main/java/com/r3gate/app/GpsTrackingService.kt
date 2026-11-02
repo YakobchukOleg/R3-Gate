@@ -237,6 +237,22 @@ class GpsTrackingService : Service(), LocationListener {
                 prefs.getInt("gps_rejected_order_count",0)+1).apply()
             return
         }
+        val point=GpsWorkRules.Point(location.latitude,location.longitude,location.accuracy.toDouble(),now)
+        // An impossible GPS jump is not evidence of stopping, starting a trip,
+        // or entering/leaving any worksite. Preserve the last trustworthy fix.
+        val trustedMotion=try { JSONObject(prefs.getString("gps_motion_point","{}") ?: "{}") }
+            catch(_:Exception) { JSONObject() }
+        val trustedTime=trustedMotion.optLong("time")
+        if(GpsMotionContinuityRules.contiguous(trustedTime,now)) {
+            val trustedPoint=GpsWorkRules.Point(trustedMotion.optDouble("lat"),
+                trustedMotion.optDouble("lon"),trustedMotion.optDouble("accuracy"),trustedTime)
+            if(GpsMotionOutlierRules.impossibleJump(trustedPoint,point)) {
+                prefs.edit().putInt("gps_rejected_jump_count",
+                    prefs.getInt("gps_rejected_jump_count",0)+1).apply()
+                return
+            }
+        }
+        // Commit source ordering only after the fix passes teleport filtering.
         prefs.edit().putLong("gps_last_source_fix_time",sourceTime).commit()
         val source=location.provider ?: ""
         val transition=GpsSourceTransitionRules.compare(
@@ -272,21 +288,6 @@ class GpsTrackingService : Service(), LocationListener {
             val limited=JSONArray()
             for(i in maxOf(0,gaps.length()-100) until gaps.length()) limited.put(gaps.opt(i))
             prefs.edit().putString("gps_coverage_gaps",limited.toString()).commit()
-        }
-        val point=GpsWorkRules.Point(location.latitude,location.longitude,location.accuracy.toDouble(),now)
-        // An impossible GPS jump is not evidence of stopping, starting a trip,
-        // or entering/leaving any worksite. Preserve the last trustworthy fix.
-        val trustedMotion=try { JSONObject(prefs.getString("gps_motion_point","{}") ?: "{}") }
-            catch(_:Exception) { JSONObject() }
-        val trustedTime=trustedMotion.optLong("time")
-        if(GpsMotionContinuityRules.contiguous(trustedTime,now)) {
-            val trustedPoint=GpsWorkRules.Point(trustedMotion.optDouble("lat"),
-                trustedMotion.optDouble("lon"),trustedMotion.optDouble("accuracy"),trustedTime)
-            if(GpsMotionOutlierRules.impossibleJump(trustedPoint,point)) {
-                prefs.edit().putInt("gps_rejected_jump_count",
-                    prefs.getInt("gps_rejected_jump_count",0)+1).apply()
-                return
-            }
         }
         // Keep bounded timestamps for detecting GPS coverage gaps, never modifying shifts.
         val fixes=try { JSONArray(prefs.getString("gps_fix_times","[]") ?: "[]") } catch(_:Exception) { JSONArray() }
