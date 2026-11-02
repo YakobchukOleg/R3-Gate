@@ -66,4 +66,25 @@ class GpsSessionBoundaryRulesTest {
     @Test fun missingPriorFixDoesNotTriggerReset() {
         assertFalse(GpsSessionBoundaryRules.shouldResetActiveCheckpoint(0L,4000L,3990L))
     }
+
+    @Test fun rollbackRetainsConfirmedObject() {
+        val old=GpsSessionBoundaryRules.ArrivalCheckpoint("object-a","object-b",5000L,5100L)
+        assertEquals("object-a",GpsSessionBoundaryRules.resetArrival(old).confirmedId)
+    }
+    @Test fun rollbackDropsPendingArrival() {
+        val old=GpsSessionBoundaryRules.ArrivalCheckpoint(null,"object-b",5000L,5100L)
+        assertNull(GpsSessionBoundaryRules.resetArrival(old).candidateId)
+    }
+    @Test fun rollbackClearsCandidateDwellStart() {
+        val old=GpsSessionBoundaryRules.ArrivalCheckpoint("object-a","object-b",5000L,5100L)
+        assertEquals(0L,GpsSessionBoundaryRules.resetArrival(old).candidateSinceMs)
+    }
+    @Test fun rollbackClearsFutureGeofenceTimestamp() {
+        val old=GpsSessionBoundaryRules.ArrivalCheckpoint("object-a",null,0L,5100L)
+        assertEquals(0L,GpsSessionBoundaryRules.resetArrival(old).lastFixMs)
+    }
+    @Test fun rollbackWithoutKnownObjectStaysUnknown() {
+        val old=GpsSessionBoundaryRules.ArrivalCheckpoint(null,null,0L,0L)
+        assertNull(GpsSessionBoundaryRules.resetArrival(old).confirmedId)
+    }
 }
