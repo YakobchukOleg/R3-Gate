@@ -16,7 +16,7 @@ object GpsTripBilling {
         var start:Long?=null
         for(event in events.sortedBy { it.timestampMs }) {
             when(event.type) {
-                "TRIP_START" -> if(start==null) start=event.timestampMs
+                "TRIP_START" -> start=event.timestampMs
                 "GPS_GAP" -> start=null
                 "TRIP_STOP" -> {
                     val opened=start
