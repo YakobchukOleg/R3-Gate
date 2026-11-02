@@ -721,7 +721,7 @@ class MainActivity : Activity() {
             }
             if(provider.isEmpty()) { Toast.makeText(this,"Włącz lokalizację w telefonie",Toast.LENGTH_LONG).show(); return@button }
             try {
-                manager.getCurrentLocation(provider,null,mainExecutor) { loc ->
+                androidx.core.location.LocationManagerCompat.getCurrentLocation(manager,provider,null,androidx.core.content.ContextCompat.getMainExecutor(this)) { loc ->
                     if(loc==null) {
                         Toast.makeText(this,"Nie udało się pobrać pozycji",Toast.LENGTH_LONG).show()
                     } else {
