@@ -46,4 +46,24 @@ class GpsActivitySuggestionRulesTest {
         assertEquals(GpsActivitySuggestionRules.Kind.WORKSITE,worksite?.kind)
         assertNull(GpsActivitySuggestionRules.latest(events,emptyMap(),92_000))
     }
+    @Test fun tripStopJustBeforeArrivalStillSuggestsTaggedShop() {
+        val events=listOf(e("TRIP_START",1000),e("TRIP_STOP",61000),
+            e("ARRIVAL",90000,"shop"))
+        val hint=GpsActivitySuggestionRules.latest(events,
+            mapOf("shop" to GpsActivitySuggestionRules.Kind.SHOPPING),91000)
+        assertEquals(GpsActivitySuggestionRules.Kind.SHOPPING,hint?.kind)
+        assertEquals(61000L,hint?.atMs)
+    }
+    @Test fun arrivalLongAfterStopDoesNotImplyPurchase() {
+        val events=listOf(e("TRIP_STOP",1000),e("ARRIVAL",400000,"shop"))
+        assertNull(GpsActivitySuggestionRules.latest(events,
+            mapOf("shop" to GpsActivitySuggestionRules.Kind.SHOPPING),401000))
+    }
+    @Test fun gpsGapOrNewTripBetweenStopAndArrivalBlocksSuggestion() {
+        val kinds=mapOf("shop" to GpsActivitySuggestionRules.Kind.SHOPPING)
+        assertNull(GpsActivitySuggestionRules.latest(listOf(e("TRIP_STOP",1000),
+            e("GPS_GAP",2000),e("ARRIVAL",3000,"shop")),kinds,4000))
+        assertNull(GpsActivitySuggestionRules.latest(listOf(e("TRIP_STOP",1000),
+            e("TRIP_START",2000),e("ARRIVAL",3000,"shop")),kinds,4000))
+    }
 }
