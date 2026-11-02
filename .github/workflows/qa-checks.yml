@@ -66,6 +66,11 @@ jobs:
       - name: Validate QA reporting logic (when present)
         run: |
           if [ -f .github/scripts/test-qa-report.py ]; then python3 .github/scripts/test-qa-report.py; fi
+      - name: Check central QA status classification
+        run: |
+          if [ -f .github/scripts/test-qa-branch-status.py ]; then
+            python3 .github/scripts/test-qa-branch-status.py
+          fi
       - name: JVM unit tests and lint (no APK)
         run: gradle --no-daemon testDebugUnitTest lintDebug
       - name: Android instrumentation tests (on demand only)
