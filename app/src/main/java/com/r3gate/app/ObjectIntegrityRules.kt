@@ -37,6 +37,20 @@ object ObjectIntegrityRules {
         newObjectId.isBlank() || (previousObjectId != null && previousObjectId == newObjectId) ||
             canAssign(newObjectId, objects)
 
+    /**
+     * Car stock is independent of an object. Materials recorded at an object
+     * require a valid destination, except for preserving an unchanged legacy link.
+     */
+    fun canSaveMaterialAssignment(
+        storage: String,
+        newObjectId: String,
+        previousObjectId: String?,
+        objects: Collection<ObjectRef>
+    ): Boolean =
+        if (storage == "car") newObjectId.isBlank()
+        else newObjectId.isNotBlank() &&
+            canSaveAssignment(newObjectId, previousObjectId, objects)
+
     /** Keep archived objects addressable for historical views. */
     fun canResolveHistory(objectId: String, objects: Collection<ObjectRef>): Boolean =
         objectId.isNotBlank() && objects.any { it.id == objectId }
