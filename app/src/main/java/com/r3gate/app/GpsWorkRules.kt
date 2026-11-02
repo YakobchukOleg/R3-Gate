@@ -63,9 +63,17 @@ object GpsWorkRules {
         return matches.firstOrNull()
     }
     fun traveling(previous:Point,current:Point,settings:Settings=Settings()):Boolean {
-        if(!settings.enabled||!settings.autoTravel) return false
-        val elapsed=(current.timestampMs-previous.timestampMs)/1000.0
-        if(elapsed<=0||elapsed>1800||previous.accuracyM>100||current.accuracyM>100) return false
+        if(!settings.enabled || !settings.autoTravel) return false
+        if(listOf(previous,current).any { p ->
+                !p.latitude.isFinite() || p.latitude !in -90.0..90.0 ||
+                !p.longitude.isFinite() || p.longitude !in -180.0..180.0 ||
+                !p.accuracyM.isFinite() || p.accuracyM<=0.0 || p.accuracyM>100.0
+            }) return false
+        val deltaMs=current.timestampMs-previous.timestampMs
+        // Movement after a GPS outage requires fresh fixes, not an average
+        // speed inferred over an unobserved part of the route.
+        if(deltaMs<=0 || deltaMs>GpsTripRules.MAX_EVIDENCE_GAP_MS) return false
+        val elapsed=deltaMs/1000.0
         val d=distanceM(previous.latitude,previous.longitude,current.latitude,current.longitude)
         val conservative=(d-previous.accuracyM-current.accuracyM).coerceAtLeast(0.0)
         return conservative/elapsed>=settings.minimumTravelSpeedMps
