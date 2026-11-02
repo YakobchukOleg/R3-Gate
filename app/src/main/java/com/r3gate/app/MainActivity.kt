@@ -799,6 +799,30 @@ class MainActivity : Activity() {
                     " · "+fmt.format(Date(event.optLong("time"))))
             }
         }
+        label("Powiadomienie o dłuższym postoju")
+        val stopMinutes=prefs.getInt("gps_stop_minutes",10)
+        button("Próg postoju: "+stopMinutes+" min — zmień") {
+            val options=intArrayOf(5,10,15,30)
+            AlertDialog.Builder(this,R.style.WorkMeterDialogTheme)
+                .setTitle("Próg postoju")
+                .setSingleChoiceItems(arrayOf("5 min","10 min","15 min","30 min"),options.indexOf(stopMinutes)) { dialog,index ->
+                    prefs.edit().putInt("gps_stop_minutes",options[index]).apply()
+                    dialog.dismiss(); gpsScreen()
+                }.setNegativeButton("Anuluj",null).show()
+        }
+        val trips=try { JSONArray(prefs.getString("gps_trip_events","[]") ?: "[]") } catch(_:Exception) { JSONArray() }
+        if(trips.length()>0) {
+            label("Ostatnie przejazdy i postoje")
+            for(i in trips.length()-1 downTo maxOf(0,trips.length()-5)) {
+                val event=trips.optJSONObject(i) ?: continue
+                val title=when(event.optString("event")) {
+                    "TRIP_START" -> "Rozpoczęto przejazd"
+                    "TRIP_STOP" -> "Zakończono przejazd"
+                    else -> "Dłuższy postój"
+                }
+                label(title+" · "+fmt.format(Date(event.optLong("time"))))
+            }
+        }
         val fix=JSONObject(prefs.getString("gps_last_fix","{}") ?: "{}")
         val time=fix.optLong("time")
         if(time>0) {
