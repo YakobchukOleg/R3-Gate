@@ -11,6 +11,7 @@ object JournalRestoreStore {
     private val restoreLock = Any()
 
     enum class Outcome { UNCHANGED, RESTORED }
+    private const val CHECKPOINT = "restore_checkpoint_data"
 
     fun restore(context: Context, preview: RestorePlan.Preview, confirmed: Boolean): Outcome =
         synchronized(restoreLock) {
@@ -20,12 +21,18 @@ object JournalRestoreStore {
                 ?: throw IllegalStateException("Missing current journal")
             val replacement = RestorePlan.confirmedReplacement(preview, current, true)
             if (replacement == current) return@synchronized Outcome.UNCHANGED
-            // commit() blocks until the preference write finishes; apply() would not.
-            check(preferences.edit().putString("data", replacement).commit()) {
-                "Restore write failed"
+            // Keep the previous journal recoverable if replacement fails.
+            check(preferences.edit().putString(CHECKPOINT, current).commit()) {
+                "Cannot save recovery checkpoint"
             }
-            check(preferences.getString("data", null) == replacement) {
-                "Restore verification failed"
+            check(preferences.getString(CHECKPOINT, null) == current) {
+                "Recovery checkpoint verification failed"
+            }
+            // commit() blocks until the preference write finishes; apply() would not.
+            if (!preferences.edit().putString("data", replacement).commit() ||
+                preferences.getString("data", null) != replacement) {
+                preferences.edit().putString("data", current).commit()
+                error("Restore failed; recovery checkpoint retained")
             }
             Outcome.RESTORED
         }
