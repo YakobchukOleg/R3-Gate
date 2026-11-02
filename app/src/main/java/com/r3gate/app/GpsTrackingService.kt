@@ -32,6 +32,11 @@ class GpsTrackingService : Service(), LocationListener {
         null -> null
     }
     private fun updateSubscription() {
+        if(checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)!=PackageManager.PERMISSION_GRANTED &&
+            checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)!=PackageManager.PERMISSION_GRANTED) {
+            prefs.edit().putString("gps_service_problem","permission").apply()
+            throw SecurityException("Location permission revoked")
+        }
         val chosen=providerChoice()
         if(chosen==null) {
             prefs.edit().putString("gps_service_problem","no_provider").apply()
