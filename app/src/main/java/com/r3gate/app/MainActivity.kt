@@ -799,6 +799,7 @@ class MainActivity : Activity() {
         label("Pomiary w tej sesji: "+quality.samples)
         label("Odrzucone pomiary (niska jakość): "+prefs.getInt("gps_rejected_quality_count",0))
         label("Odrzucone pomiary (powtórzone lub opóźnione): "+prefs.getInt("gps_rejected_order_count",0))
+        label("Odrzucone skoki lokalizacji GPS: "+prefs.getInt("gps_rejected_jump_count",0))
         label("Liczniki dotyczą bieżącej sesji i nie wpływają na zapisane godziny.")
         val requestedMs=prefs.getLong("gps_requested_interval_ms",30_000L)
         val cadence=GpsCadenceStats.assess(samples,prefs.getLong("gps_session_start",0),
