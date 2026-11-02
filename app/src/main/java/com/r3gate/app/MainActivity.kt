@@ -986,8 +986,25 @@ class MainActivity : Activity() {
                                             ". Czy potwierdzasz zakupy materiałów? "+
                                             "Zmiana dotyczy tylko kategorii szacunku GPS, nie ewidencji pracy.")
                                         .setPositiveButton("Potwierdź") { _,_ ->
-                                            if(prefs.getString(categoryKey,"UNKNOWN")=="UNKNOWN")
+                                            val freshLog=try {
+                                                JSONArray(prefs.getString("gps_trip_events","[]") ?: "[]")
+                                            } catch(_:Exception) { JSONArray() }
+                                            val freshEvents=mutableListOf<GpsShiftEstimate.Event>()
+                                            for(i in 0 until freshLog.length()) {
+                                                val e=freshLog.optJSONObject(i) ?: continue
+                                                freshEvents.add(GpsShiftEstimate.Event(
+                                                    e.optString("event"),e.optLong("time")))
+                                            }
+                                            val stillMatching=GpsShopTripMatch.matchingTrip(
+                                                freshEvents,matched.endMs,
+                                                prefs.getString("gps_place_kind_"+shopId,"WORKSITE")=="SHOPPING")
+                                            if(stillMatching?.startMs==matched.startMs &&
+                                                prefs.getString(categoryKey,"UNKNOWN")=="UNKNOWN") {
                                                 prefs.edit().putString(categoryKey,"SHOPPING").apply()
+                                                toast("Zatwierdzono kategorię zakupów")
+                                            } else {
+                                                toast("Nie zapisano: przejazd lub oznaczenie miejsca uległo zmianie")
+                                            }
                                             gpsScreen()
                                         }
                                         .setNegativeButton("Anuluj",null).show()
