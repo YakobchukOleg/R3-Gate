@@ -14,7 +14,9 @@ object GpsMotionOutlierRules {
                 !it.accuracyM.isFinite() || it.accuracyM<=0.0 || it.accuracyM>100.0
             }) return false
         val seconds=(current.timestampMs-previous.timestampMs)/1000.0
-        if(seconds<5.0) return false
+        // Sub-five-second fixes can still reveal a teleport; only sub-second
+        // intervals are too short for a dependable speed estimate.
+        if(seconds<1.0) return false
         val distance=GpsWorkRules.distanceM(previous.latitude,previous.longitude,
             current.latitude,current.longitude)
         val minimumDisplacement=(distance-previous.accuracyM-current.accuracyM).coerceAtLeast(0.0)
