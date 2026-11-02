@@ -2,6 +2,7 @@ package com.r3gate.app
 
 /** GPS movement classifier. Requires sustained evidence; never edits a work shift by itself. */
 object GpsTripRules {
+    const val MAX_EVIDENCE_GAP_MS=4*60_000L
     enum class Mode { UNKNOWN, MOVING, STOPPED }
     data class State(
         val mode:Mode=Mode.UNKNOWN,
@@ -21,6 +22,10 @@ object GpsTripRules {
         longStopMs:Long=600_000L
     ):Result {
         if(nowMs<=state.lastFixMs || nowMs<=0) return Result(state)
+        // Do not treat time without valid fixes as observed movement or stationary dwell.
+        if(state.lastFixMs>0 && nowMs-state.lastFixMs>MAX_EVIDENCE_GAP_MS)
+            return Result(State(candidate=if(moving) Mode.MOVING else Mode.STOPPED,
+                candidateSinceMs=nowMs,lastFixMs=nowMs))
         val observed=if(moving) Mode.MOVING else Mode.STOPPED
         if(state.mode==observed) {
             val endLongStop=observed==Mode.STOPPED && !state.longStopReported &&
