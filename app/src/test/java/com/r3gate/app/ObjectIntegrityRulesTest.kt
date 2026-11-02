@@ -67,4 +67,17 @@ class ObjectIntegrityRulesTest {
         assertTrue(ObjectIntegrityRules.canSaveAssignment("obj-1", "obj-2", objects))
         assertTrue(ObjectIntegrityRules.canSaveAssignment("obj-1", "missing-legacy", objects))
     }
+    @Test fun carStockMustNotPointToAnObject() {
+        assertTrue(ObjectIntegrityRules.canSaveMaterialAssignment("car", "", null, objects))
+        assertFalse(ObjectIntegrityRules.canSaveMaterialAssignment("car", "obj-1", null, objects))
+    }
+
+    @Test fun objectMaterialRequiresAnActiveDestinationExceptLegacyUnchanged() {
+        assertFalse(ObjectIntegrityRules.canSaveMaterialAssignment("object", "", null, objects))
+        assertTrue(ObjectIntegrityRules.canSaveMaterialAssignment("object", "obj-1", null, objects))
+        assertFalse(ObjectIntegrityRules.canSaveMaterialAssignment("object", "obj-2", null, objects))
+        assertTrue(ObjectIntegrityRules.canSaveMaterialAssignment("object", "obj-2", "obj-2", objects))
+        assertTrue(ObjectIntegrityRules.canSaveMaterialAssignment("object", "missing", "missing", objects))
+        assertFalse(ObjectIntegrityRules.canSaveMaterialAssignment("object", "missing", "obj-1", objects))
+    }
 }
