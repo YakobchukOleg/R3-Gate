@@ -350,7 +350,9 @@ class GpsTrackingService : Service(), LocationListener {
             for(i in maxOf(0,history.length()-100) until history.length()) limited.put(history.opt(i))
             editor.putString("gps_events",limited.toString())
         }
-        editor.apply()
+        // Persist the arrival state together with its event: a process death must not
+        // advance the arrival state while losing the corresponding journal entry.
+        if(!editor.commit()) return
         // Travel events are kept apart from work shifts until the user confirms billing rules.
         val previous=try { JSONObject(prefs.getString("gps_motion_point","{}") ?: "{}") } catch(_:Exception) { JSONObject() }
         val lastTime=previous.optLong("time")
@@ -404,13 +406,20 @@ class GpsTrackingService : Service(), LocationListener {
                 for(i in maxOf(0,journal.length()-100) until journal.length()) recent.put(journal.opt(i))
                 motionEditor.putString("gps_trip_events",recent.toString())
             }
-            motionEditor.apply()
+            // The motion evidence point, classifier state, and generated event form
+            // one durable transaction. Avoid replaying the same transition after a crash.
+            motionEditor.putString("gps_motion_point",JSONObject()
+                .put("lat",location.latitude).put("lon",location.longitude)
+                .put("accuracy",location.accuracy.toDouble()).put("time",now).toString())
+            if(!motionEditor.commit()) return
         } else if(lastTime>0 && now-lastTime>1_800_000L) {
             prefs.edit().remove("gps_trip_state").apply()
         }
-        prefs.edit().putString("gps_motion_point",JSONObject()
-            .put("lat",location.latitude).put("lon",location.longitude)
-            .put("accuracy",location.accuracy.toDouble()).put("time",now).toString()).apply()
+        if(!GpsMotionContinuityRules.contiguous(lastTime,now)) {
+            if(!prefs.edit().putString("gps_motion_point",JSONObject()
+                .put("lat",location.latitude).put("lon",location.longitude)
+                .put("accuracy",location.accuracy.toDouble()).put("time",now).toString()).commit()) return
+        }
         if(prefs.getBoolean("gps_adaptive_sampling",false)) {
             val desired=safeSamplingInterval(now)
             if(desired!=samplingIntervalMs) {
