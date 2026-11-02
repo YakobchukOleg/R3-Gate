@@ -426,6 +426,7 @@ class MainActivity : Activity() {
             screen=="sectionSettings" -> settings()
             screen=="gps" -> sectionSettings("Obiekty")
             screen=="gpsCategories" -> report()
+            screen=="gpsDiagnostics" -> gpsScreen()
             screen=="gpsPay" -> settings()
             screen.startsWith("menuFeature:") -> menu()
             screen in listOf("drive","logs","about","widgetSettings","wallet","language") -> settings()
@@ -767,10 +768,49 @@ class MainActivity : Activity() {
             Toast.makeText(this,"Nie można uruchomić GPS: "+e.javaClass.simpleName,Toast.LENGTH_LONG).show()
         }
     }
+    private fun gpsDeviceDiagnostics() {
+        base("GPS · diagnostyka Android"); screen="gpsDiagnostics"; nav()
+        val fine=checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED
+        val coarse=checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION)==PackageManager.PERMISSION_GRANTED
+        val locationManager=getSystemService(LOCATION_SERVICE) as LocationManager
+        val locationEnabled=locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
+            locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+        val power=getSystemService(POWER_SERVICE) as PowerManager
+        val batteryUnrestricted=power.isIgnoringBatteryOptimizations(packageName)
+        val snapshot=GpsDeviceDiagnostics.Snapshot(fine || coarse,locationEnabled,batteryUnrestricted,
+            prefs.getBoolean("gps_enabled",false),prefs.getBoolean("gps_service_active",false))
+        label("Lokalizacja: "+if(locationEnabled) "włączona" else "wyłączona")
+        label("Uprawnienie GPS: "+if(fine) "dokładne" else if(coarse) "przybliżone" else "brak")
+        label("Ograniczenia baterii: "+if(batteryUnrestricted) "bez optymalizacji Android" else "możliwe ograniczenia")
+        label("Usługa GPS: "+if(snapshot.serviceReportedActive) "zgłosiła uruchomienie" else "nie zgłasza uruchomienia")
+        for(issue in GpsDeviceDiagnostics.issues(snapshot)) {
+            label(when(issue) {
+                GpsDeviceDiagnostics.Issue.LOCATION_PERMISSION -> "Wymagane pozwolenie GPS"
+                GpsDeviceDiagnostics.Issue.LOCATION_SWITCH -> "Lokalizacja telefonu jest wyłączona"
+                GpsDeviceDiagnostics.Issue.BATTERY_RESTRICTIONS -> "Android może ograniczać działanie GPS przy zgaszonym ekranie"
+                GpsDeviceDiagnostics.Issue.SERVICE_NOT_ACTIVE -> "Usługa GPS nie zgłasza działania"
+            })
+        }
+        button("Ustawienia lokalizacji telefonu") {
+            startActivity(Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+        }
+        button("Ustawienia baterii WorkMeter") {
+            startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:"+packageName)))
+        }
+        button("Uprawnienia WorkMeter") {
+            startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:"+packageName)))
+        }
+        label("Te informacje nie zastępują testu GPS na zablokowanym telefonie.")
+        button("Odśwież diagnostykę") { gpsDeviceDiagnostics() }
+    }
+
     private fun gpsScreen() {
         base("GPS · WorkMeter"); screen="gps"; nav()
         label("GPS aktywny działa w tle z widocznym powiadomieniem. Wyłącz GPS, aby zakończyć rejestrację.")
         gpsResumePrompt()
+        button("Diagnostyka GPS i baterii Android") { gpsDeviceDiagnostics() }
         val enabled = prefs.getBoolean("gps_enabled",false)
         button(if(enabled) "GPS: włączony — wyłącz" else "GPS: wyłączony — włącz") {
             setGpsEnabled(!enabled); gpsScreen()
