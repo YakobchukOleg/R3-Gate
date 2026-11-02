@@ -425,6 +425,7 @@ class MainActivity : Activity() {
             screen=="menu" -> home()
             screen=="sectionSettings" -> settings()
             screen=="gps" -> sectionSettings("Obiekty")
+            screen=="gpsCategories" -> report()
             screen=="gpsPay" -> settings()
             screen.startsWith("menuFeature:") -> menu()
             screen in listOf("drive","logs","about","widgetSettings","wallet","language") -> settings()
@@ -1085,9 +1086,42 @@ class MainActivity : Activity() {
             val d=data(); walletConfig(d).put("openingCents",amount); save(d,"OPENING_BALANCE_EDIT",""); dialog.dismiss(); wallet()
         } }; dialog.show()
     }
+    private fun gpsTripCategories() {
+        base("GPS · kategorie przejazdów"); screen="gpsCategories"; nav()
+        label("Wybierz kategorię przejazdu. Nie zmienia to zapisanych godzin pracy.")
+        val events=try { JSONArray(prefs.getString("gps_trip_events","[]") ?: "[]") } catch(_:Exception) { JSONArray() }
+        val list=mutableListOf<GpsShiftEstimate.Event>()
+        for(i in 0 until events.length()) {
+            val event=events.optJSONObject(i) ?: continue
+            list.add(GpsShiftEstimate.Event(event.optString("event"),event.optLong("time")))
+        }
+        val trips=GpsTripBilling.pair(list,emptyMap()).takeLast(25).asReversed()
+        val categories=listOf(
+            GpsTripBilling.Category.UNKNOWN to "Nieustalony",
+            GpsTripBilling.Category.OUTBOUND to "Dojazd z domu",
+            GpsTripBilling.Category.RETURN to "Powrót do domu",
+            GpsTripBilling.Category.BETWEEN to "Między obiektami",
+            GpsTripBilling.Category.SHOPPING to "Zakupy materiałów",
+            GpsTripBilling.Category.PRIVATE to "Prywatny"
+        )
+        if(trips.isEmpty()) label("Brak zakończonych przejazdów GPS.")
+        for(trip in trips) {
+            val key="gps_trip_category_"+trip.startMs
+            val current=categories.find { it.first.name==prefs.getString(key,"UNKNOWN") }?.second ?: "Nieustalony"
+            button(fmt.format(Date(trip.startMs))+" · "+duration(trip.endMs-trip.startMs)+" · "+current) {
+                AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Rodzaj przejazdu")
+                    .setItems(categories.map { it.second }.toTypedArray()) { _,index ->
+                        prefs.edit().putString(key,categories[index].first.name).apply()
+                        gpsTripCategories()
+                    }.setNegativeButton("Anuluj",null).show()
+            }
+        }
+    }
+
     private fun gpsPaySettings() {
         base("GPS · rozliczanie czasu"); screen="gpsPay"; nav()
         label("Ustawienia dotyczą tylko szacunków GPS. Nie zmieniają zapisanych godzin pracy.")
+        button("Przypisz kategorie przejazdów GPS") { gpsTripCategories() }
         val choices=listOf(
             "gps_pay_outbound" to "Dojazd z domu",
             "gps_pay_return" to "Powrót do domu",
@@ -1111,14 +1145,25 @@ class MainActivity : Activity() {
             val event=events.optJSONObject(i) ?: continue
             list.add(GpsShiftEstimate.Event(event.optString("event"),event.optLong("time")))
         }
-        // A trip of unknown type is not assigned to a payable commute category automatically.
-        return GpsShiftEstimate.calculate(list,
-            GpsShiftEstimate.Window(sh.optLong("start"),endMs),false)
+        val trips=GpsTripBilling.pair(list,emptyMap()).map { trip ->
+            val category=GpsTripBilling.Category.entries.find {
+                it.name==prefs.getString("gps_trip_category_"+trip.startMs,"UNKNOWN")
+            } ?: GpsTripBilling.Category.UNKNOWN
+            trip.copy(category=category)
+        }
+        val totals=GpsTripBilling.calculate(trips,GpsShiftEstimate.Window(sh.optLong("start"),endMs),
+            GpsTripBilling.Rules(
+                outbound=prefs.getBoolean("gps_pay_outbound",false),
+                returnTrip=prefs.getBoolean("gps_pay_return",false),
+                between=prefs.getBoolean("gps_pay_between",true),
+                shopping=prefs.getBoolean("gps_pay_shopping",true)))
+        return GpsShiftEstimate.Summary(totals.elapsedMs,totals.payableMs,totals.trips)
     }
     private fun report() {
         base("Mój czas"); screen="report"; nav()
         button("GENERUJ RAPORT SMS") { weeklySms("report") }
         button("GPS · zasady rozliczania") { gpsPaySettings() }
+        button("GPS · kategorie przejazdów") { gpsTripCategories() }
         val currentShift=active(data()) ?: rows(data(),"shifts").lastOrNull()
         if(currentShift!=null) {
             val end=if(currentShift.has("end")) currentShift.optLong("end") else System.currentTimeMillis()
