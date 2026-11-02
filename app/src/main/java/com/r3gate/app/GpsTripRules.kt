@@ -41,6 +41,13 @@ object GpsTripRules {
             return Result(state.copy(lastFixMs=nowMs))
         val next=State(mode=observed,lastFixMs=nowMs,
             stoppedSinceMs=if(observed==Mode.STOPPED) state.candidateSinceMs else 0)
-        return Result(next,if(observed==Mode.MOVING) "TRIP_START" else "TRIP_STOP")
+        // A stationary phone on service startup (or after a coverage gap) is
+        // not the end of an observed trip. Only MOVING -> STOPPED emits TRIP_STOP.
+        val event=when {
+            observed==Mode.MOVING -> "TRIP_START"
+            state.mode==Mode.MOVING -> "TRIP_STOP"
+            else -> null
+        }
+        return Result(next,event)
     }
 }
