@@ -37,5 +37,21 @@ class EvidenceTest(unittest.TestCase):
             self.assertEqual(files, 0)
             self.assertEqual(len(invalid), 1)
 
+    def test_invalid_counts_cannot_be_reported_as_success(self):
+        with TemporaryDirectory() as temp:
+            p = Path(temp) / "TEST-inconsistent.xml"
+            p.write_text('<testsuite tests="1" failures="2" errors="0" skipped="0"/>')
+            files, _, invalid = mod.summarize([p])
+            self.assertEqual(files, 0)
+            self.assertEqual(len(invalid), 1)
+
+    def test_negative_counts_are_rejected(self):
+        with TemporaryDirectory() as temp:
+            p = Path(temp) / "TEST-negative.xml"
+            p.write_text('<testsuite tests="-1" failures="0" errors="0" skipped="0"/>')
+            files, _, invalid = mod.summarize([p])
+            self.assertEqual(files, 0)
+            self.assertEqual(len(invalid), 1)
+
 if __name__ == "__main__":
     unittest.main()
