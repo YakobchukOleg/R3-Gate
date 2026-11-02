@@ -2,6 +2,16 @@
 
 Status: **decision rules + unit tests added; Android Bluetooth integration NOT yet enabled**.
 
+## Product decision — 2026-11-02 (supersedes earlier implementation priority)
+
+**Complete and personally test the entire GPS module first. Defer Bluetooth integration until afterward.** The existing pure decision-rule prototype is dormant; do not add Bluetooth permissions, receivers, settings controls, prompts or tracking at this stage.
+
+Bluetooth-assisted departure detection will be **optional and OFF by default**, with a user-accessible on/off switch in settings when implemented. The user explicitly selects their car device; unrecognized devices have no effect.
+
+**Parking / break scenario:** Connecting to the car does not imply travel. The person may be resting, taking a break, waiting in a parked car or playing music. Remain in the existing work/break state unless independent GPS evidence confirms actual displacement and stable departure from the site. Do not repeatedly prompt a stationary user. After confirmation, ask for user approval before changing activity; never infer paid hours solely from Bluetooth.
+
+The exact delay, low-power wake-up strategy and prompts will be refined and tested **after GPS completion**. No background collection or Bluetooth listening before explicit opt-in.
+
 ## Intended user flow
 1. User explicitly enables Bluetooth-assisted detection and chooses a paired **car** device (not arbitrary headphones or watches).
 2. On connection, wait about 20 seconds before requesting GPS verification. Debounce duplicate connections; limit prompts to once per 10 minutes.
