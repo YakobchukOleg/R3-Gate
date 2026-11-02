@@ -425,6 +425,7 @@ class MainActivity : Activity() {
             screen=="menu" -> home()
             screen=="sectionSettings" -> settings()
             screen=="gps" -> sectionSettings("Obiekty")
+            screen=="gpsPlaceKinds" -> gpsScreen()
             screen=="gpsCategories" -> report()
             screen=="gpsDiagnostics" -> gpsScreen()
             screen=="gpsPay" -> settings()
