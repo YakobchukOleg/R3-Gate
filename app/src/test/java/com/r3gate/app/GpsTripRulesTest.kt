@@ -70,4 +70,37 @@ class GpsTripRulesTest {
         assertEquals("TRIP_STOP",stop.event)
         assertEquals(GpsTripRules.Mode.STOPPED,stop.state.mode)
     }
+    @Test fun shortGpsDropoutDoesNotCreateTripEndOrNewTrip() {
+        val moving=GpsTripRules.State(mode=GpsTripRules.Mode.MOVING,lastFixMs=1_000)
+        val briefStop=GpsTripRules.advance(moving,false,91_000)
+        assertNull(briefStop.event)
+        assertEquals(GpsTripRules.Mode.MOVING,briefStop.state.mode)
+        val resumed=GpsTripRules.advance(briefStop.state,true,181_000)
+        assertNull(resumed.event)
+        assertEquals(GpsTripRules.Mode.MOVING,resumed.state.mode)
+    }
+    @Test fun repeatedRegularStationaryFixesLeadToExactlyOneLongStop() {
+        var state=GpsTripRules.State(mode=GpsTripRules.Mode.STOPPED,
+            lastFixMs=1_000,stoppedSinceMs=1_000)
+        var reports=0
+        for(time in 91_000L..721_000L step 90_000L) {
+            val next=GpsTripRules.advance(state,false,time)
+            if(next.event=="LONG_STOP") reports++
+            state=next.state
+        }
+        assertEquals(1,reports)
+        assertTrue(state.longStopReported)
+    }
+    @Test fun gapDuringStopCandidateForcesFreshStopConfirmation() {
+        val first=GpsTripRules.advance(
+            GpsTripRules.State(mode=GpsTripRules.Mode.MOVING,lastFixMs=1_000),
+            false,91_000)
+        val afterGap=GpsTripRules.advance(first.state,false,400_000)
+        assertNull(afterGap.event)
+        assertEquals(GpsTripRules.Mode.UNKNOWN,afterGap.state.mode)
+        val again=GpsTripRules.advance(afterGap.state,false,490_000)
+        assertNull(again.event)
+        val confirmed=GpsTripRules.advance(again.state,false,580_000)
+        assertEquals("TRIP_STOP",confirmed.event)
+    }
 }
