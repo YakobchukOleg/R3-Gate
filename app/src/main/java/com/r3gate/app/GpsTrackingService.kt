@@ -24,6 +24,22 @@ class GpsTrackingService : Service(), LocationListener {
     private val manager by lazy { getSystemService(LOCATION_SERVICE) as LocationManager }
     private var subscribed=false
     private var currentProvider:String?=null
+    private val providerReceiver=object:BroadcastReceiver() {
+        override fun onReceive(context:Context?,intent:Intent?) {
+            if(intent?.action!=LocationManager.PROVIDERS_CHANGED_ACTION ||
+                !prefs.getBoolean("gps_enabled",false) ||
+                !prefs.getBoolean("gps_service_active",false)) return
+            try { updateSubscription() }
+            catch(_:SecurityException) {
+                prefs.edit().putString("gps_service_problem","permission").apply()
+                shutdown()
+            }
+            catch(_:RuntimeException) {
+                prefs.edit().putString("gps_service_problem","provider").apply()
+            }
+        }
+    }
+
     private fun providerChoice():String? = when(GpsProviderRules.preferred(
         manager.isProviderEnabled(LocationManager.GPS_PROVIDER),
         manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER))) {
@@ -71,6 +87,7 @@ class GpsTrackingService : Service(), LocationListener {
         super.onCreate()
         val channel=NotificationChannel(CHANNEL,"WorkMeter · lokalizacja",NotificationManager.IMPORTANCE_LOW)
         (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(channel)
+        registerReceiver(providerReceiver,IntentFilter(LocationManager.PROVIDERS_CHANGED_ACTION))
     }
     private fun notification():Notification {
         val stop=PendingIntent.getService(this,1,Intent(this,GpsTrackingService::class.java).setAction(ACTION_STOP),
@@ -99,14 +116,12 @@ class GpsTrackingService : Service(), LocationListener {
         try {
             if(Build.VERSION.SDK_INT>=29) startForeground(NOTIFICATION_ID,notification(),ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
             else startForeground(NOTIFICATION_ID,notification())
-            if(!subscribed) {
-                // Repeated START intents must not reset the current sampling session.
+            if(!prefs.getBoolean("gps_service_active",false)) {
                 prefs.edit().putBoolean("gps_service_active",true)
-                    .putLong("gps_session_start",System.currentTimeMillis())
-                    .remove("gps_service_problem").apply()
-                updateSubscription()
-                if(!subscribed) { shutdown();return START_NOT_STICKY }
+                    .putLong("gps_session_start",System.currentTimeMillis()).apply()
             }
+            // With no provider keep the visible foreground service listening for location changes.
+            updateSubscription()
         } catch(_:SecurityException) { prefs.edit().putString("gps_service_problem","permission").apply(); shutdown() }
         catch(_:IllegalArgumentException) { prefs.edit().putString("gps_service_problem","provider").apply(); shutdown() }
         catch(_:RuntimeException) {
@@ -222,6 +237,7 @@ class GpsTrackingService : Service(), LocationListener {
         stopSelf()
     }
     override fun onDestroy() {
+        unregisterReceiver(providerReceiver)
         if(subscribed) { manager.removeUpdates(this);subscribed=false;currentProvider=null }
         prefs.edit().putBoolean("gps_service_active",false).apply()
         super.onDestroy()
