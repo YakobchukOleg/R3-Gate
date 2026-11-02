@@ -263,6 +263,22 @@ class GpsTrackingService : Service(), LocationListener {
             val previousPoint=GpsWorkRules.Point(previous.optDouble("lat"),previous.optDouble("lon"),
                 previous.optDouble("accuracy"),lastTime)
             val moving=GpsWorkRules.traveling(previousPoint,point)
+            if(moving && prefs.getBoolean("gps_adaptive_sampling",false)) {
+                samplingState=GpsAdaptiveSampling.gpsTravel(samplingState,now)
+                val desired=GpsAdaptiveSampling.interval(samplingState,now,true)
+                if(desired!=samplingIntervalMs) {
+                    samplingIntervalMs=desired
+                    try { updateSubscription() }
+                    catch(_:SecurityException) {
+                        prefs.edit().putString("gps_service_problem","permission").apply()
+                        shutdown()
+                        return
+                    }
+                    catch(_:RuntimeException) {
+                        prefs.edit().putString("gps_service_problem","provider").apply()
+                    }
+                }
+            }
             val previousState=try { JSONObject(prefs.getString("gps_trip_state","{}") ?: "{}") } catch(_:Exception) { JSONObject() }
             val tripState=GpsTripRules.State(
                 mode=GpsTripRules.Mode.entries.find { it.name==previousState.optString("mode") } ?: GpsTripRules.Mode.UNKNOWN,
