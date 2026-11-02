@@ -76,7 +76,7 @@ class GpsTrackingService : Service(), LocationListener {
         if(location.accuracy<=0f || location.accuracy>100f || !location.latitude.isFinite() || !location.longitude.isFinite()) return
         val now=System.currentTimeMillis()
         val point=GpsWorkRules.Point(location.latitude,location.longitude,location.accuracy.toDouble(),now)
-        val raw=try { JSONObject(prefs.getString("workmeter_data","{}") ?: "{}") } catch(_:Exception) { JSONObject() }
+        val raw=try { JSONObject(prefs.getString("data","{}") ?: "{}") } catch(_:Exception) { JSONObject() }
         val objects=raw.optJSONArray("objects") ?: JSONArray()
         val places=mutableListOf<GpsWorkRules.Place>()
         for(i in 0 until objects.length()) {
