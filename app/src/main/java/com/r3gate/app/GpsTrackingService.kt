@@ -23,6 +23,43 @@ class GpsTrackingService : Service(), LocationListener {
     private val prefs by lazy { getSharedPreferences("r3_gate",MODE_PRIVATE) }
     private val manager by lazy { getSystemService(LOCATION_SERVICE) as LocationManager }
     private var subscribed=false
+    private var currentProvider:String?=null
+    private fun providerChoice():String? = when(GpsProviderRules.preferred(
+        manager.isProviderEnabled(LocationManager.GPS_PROVIDER),
+        manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER))) {
+        GpsProviderRules.Provider.GPS -> LocationManager.GPS_PROVIDER
+        GpsProviderRules.Provider.NETWORK -> LocationManager.NETWORK_PROVIDER
+        null -> null
+    }
+    private fun updateSubscription() {
+        val chosen=providerChoice()
+        if(chosen==null) {
+            prefs.edit().putString("gps_service_problem","no_provider").apply()
+            if(subscribed) manager.removeUpdates(this)
+            subscribed=false; currentProvider=null
+            return
+        }
+        if(subscribed && chosen==currentProvider) return
+        if(subscribed) manager.removeUpdates(this)
+        subscribed=false;currentProvider=null
+        manager.requestLocationUpdates(chosen,30_000L,0f,this,Looper.getMainLooper())
+        currentProvider=chosen;subscribed=true
+        prefs.edit().remove("gps_service_problem").apply()
+    }
+    override fun onProviderDisabled(provider:String) {
+        try { updateSubscription() } catch(_:SecurityException) {
+            prefs.edit().putString("gps_service_problem","permission").apply(); shutdown()
+        } catch(_:RuntimeException) {
+            prefs.edit().putString("gps_service_problem","provider").apply()
+        }
+    }
+    override fun onProviderEnabled(provider:String) {
+        try { updateSubscription() } catch(_:SecurityException) {
+            prefs.edit().putString("gps_service_problem","permission").apply(); shutdown()
+        } catch(_:RuntimeException) {
+            prefs.edit().putString("gps_service_problem","provider").apply()
+        }
+    }
 
     override fun onBind(intent:Intent?):IBinder? = null
     override fun onCreate() {
@@ -62,14 +99,8 @@ class GpsTrackingService : Service(), LocationListener {
                 prefs.edit().putBoolean("gps_service_active",true)
                     .putLong("gps_session_start",System.currentTimeMillis())
                     .remove("gps_service_problem").apply()
-                val provider=when {
-                    manager.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
-                    manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
-                    else -> null
-                }
-                if(provider==null) { shutdown();return START_NOT_STICKY }
-                manager.requestLocationUpdates(provider,30_000L,0f,this,Looper.getMainLooper())
-                subscribed=true
+                updateSubscription()
+                if(!subscribed) { shutdown();return START_NOT_STICKY }
             }
         } catch(_:SecurityException) { prefs.edit().putString("gps_service_problem","permission").apply(); shutdown() }
         catch(_:IllegalArgumentException) { prefs.edit().putString("gps_service_problem","provider").apply(); shutdown() }
@@ -180,13 +211,13 @@ class GpsTrackingService : Service(), LocationListener {
             .put("accuracy",location.accuracy.toDouble()).put("time",now).toString()).apply()
     }
     private fun shutdown() {
-        if(subscribed) { manager.removeUpdates(this);subscribed=false }
+        if(subscribed) { manager.removeUpdates(this);subscribed=false;currentProvider=null }
         prefs.edit().putBoolean("gps_service_active",false).apply()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
     override fun onDestroy() {
-        if(subscribed) { manager.removeUpdates(this);subscribed=false }
+        if(subscribed) { manager.removeUpdates(this);subscribed=false;currentProvider=null }
         prefs.edit().putBoolean("gps_service_active",false).apply()
         super.onDestroy()
     }
