@@ -7,7 +7,7 @@ import kotlin.math.*
  * Android location permissions and foreground/background collection must be handled separately.
  */
 object GpsWorkRules {
-    const val MAX_PLAUSIBLE_GROUND_SPEED_MPS=100.0
+    const val MAX_PLAUSIBLE_GROUND_SPEED_MPS=150.0
     enum class Kind { OBJECT, SHOP, BASE, HOME }
     enum class Activity { OBJECT, TRAVEL, SHOPPING, BREAK, STOP }
     data class Point(val latitude:Double,val longitude:Double,val accuracyM:Double,val timestampMs:Long)
