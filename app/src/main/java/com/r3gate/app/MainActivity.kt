@@ -2090,8 +2090,7 @@ class MainActivity : Activity() {
             val assigned=draft.optString("objectId")
             if(assigned.isNotBlank()) {
                 val old=rows(d,formKind).find { it.optString("id")==draft.optString("id") }
-                val unchanged=old?.optString("objectId")==assigned
-                if(!unchanged && !ObjectIntegrityRules.canAssign(assigned,objectRefs)) {
+                if(!ObjectIntegrityRules.canSaveAssignment(assigned,old?.optString("objectId"),objectRefs)) {
                     toast("Wybierz aktywny obiekt"); return
                 }
             }
