@@ -73,6 +73,11 @@ class GpsTrackingService : Service(), LocationListener {
             }
         } catch(_:SecurityException) { prefs.edit().putString("gps_service_problem","permission").apply(); shutdown() }
         catch(_:IllegalArgumentException) { prefs.edit().putString("gps_service_problem","provider").apply(); shutdown() }
+        catch(_:RuntimeException) {
+            // Android may reject a foreground service or provider update at runtime.
+            prefs.edit().putString("gps_service_problem","runtime").apply()
+            shutdown()
+        }
         return START_NOT_STICKY
     }
     override fun onLocationChanged(location:Location) {
