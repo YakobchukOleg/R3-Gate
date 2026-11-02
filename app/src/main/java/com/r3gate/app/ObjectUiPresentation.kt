@@ -12,7 +12,7 @@ object ObjectUiPresentation {
             .filter(String::isNotEmpty)
             .joinToString(" · ")
 
-    fun status(archived: Boolean): String =
+    fun accessibilityLabel(title: String, archived: Boolean): String =\n        listOf(title.trim(), status(archived)).filter(String::isNotEmpty).joinToString(\", \" )\n\n    fun status(archived: Boolean): String =
         if (archived) "Zarchiwizowany" else "Aktywny"
 
     fun archiveAction(archived: Boolean): String =
