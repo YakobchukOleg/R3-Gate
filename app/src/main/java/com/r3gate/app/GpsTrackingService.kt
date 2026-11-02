@@ -187,7 +187,7 @@ class GpsTrackingService : Service(), LocationListener {
                 val safeArrival=JSONObject().put("confirmed",confirmed)
                     .put("candidate","").put("since",0L).put("last",0L)
                 prefs.edit().remove("gps_trip_state").remove("gps_motion_point")
-                    .remove("gps_last_provider")
+                    .remove("gps_last_provider").remove("gps_last_source_fix_time")
                     .putString("gps_arrival_state",safeArrival.toString())
                     .putLong("gps_requested_interval_ms",GpsAdaptiveSampling.ACTIVE_INTERVAL_MS)
                     .putBoolean("gps_service_active",true)
@@ -225,6 +225,10 @@ class GpsTrackingService : Service(), LocationListener {
         val previousFix=try { JSONObject(prefs.getString("gps_last_fix","{}") ?: "{}") } catch(_:Exception) { JSONObject() }
         val lastRecorded=previousFix.optLong("time")
         if(lastRecorded>=now) return
+        val sourceTime=location.time
+        if(!GpsFixOrderRules.accept(sourceTime,
+                prefs.getLong("gps_last_source_fix_time",0L))) return
+        prefs.edit().putLong("gps_last_source_fix_time",sourceTime).commit()
         val source=location.provider ?: ""
         val transition=GpsSourceTransitionRules.compare(
             prefs.getString("gps_last_provider",null),source)
