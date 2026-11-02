@@ -783,6 +783,22 @@ class MainActivity : Activity() {
             button("Zezwól na GPS") { requestPermissions(arrayOf(android.Manifest.permission.ACCESS_COARSE_LOCATION,android.Manifest.permission.ACCESS_FINE_LOCATION),307) }
             return
         }
+        val lastGps=try { JSONObject(prefs.getString("gps_last_fix","{}") ?: "{}") } catch(_:Exception) { JSONObject() }
+        val status=GpsServiceStatusRules.status(enabled,permission,
+            prefs.getBoolean("gps_resume_pending",false),lastGps.optLong("time"),System.currentTimeMillis())
+        label(when(status) {
+            GpsServiceStatusRules.Status.NO_RECENT_FIX ->
+                "Brak aktualnego pomiaru GPS. Może to oznaczać słaby sygnał lub zatrzymanie usługi."
+            GpsServiceStatusRules.Status.RECENT_FIX -> "Ostatni pomiar GPS jest aktualny."
+            GpsServiceStatusRules.Status.PERMISSION_REQUIRED -> "Brak pozwolenia na GPS."
+            GpsServiceStatusRules.Status.RESUME_AFTER_REBOOT -> "GPS wymaga wznowienia."
+            GpsServiceStatusRules.Status.OFF -> "GPS wyłączony."
+        })
+        button("Uruchom ponownie śledzenie GPS") {
+            stopService(Intent(this,GpsTrackingService::class.java))
+            setGpsEnabled(true)
+            gpsScreen()
+        }
         button("Sprawdź aktualną pozycję") {
             val manager=getSystemService(LOCATION_SERVICE) as LocationManager
             val provider=when {
