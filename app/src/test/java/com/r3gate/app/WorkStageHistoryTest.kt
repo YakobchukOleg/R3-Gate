@@ -39,4 +39,26 @@ class WorkStageHistoryTest {
         assertEquals(100L,result.slices.sumOf { it.end-it.start })
         assertEquals(3,listOf(s(150,150),s(180,120),s(100,200)).size)
     }
+    @Test fun diagnosticTotalsDoNotDoubleCountOverlap() {
+        val d=WorkStageHistory.diagnose(100,300,listOf(s(100,250),s(200,300,"Przejazd","")))
+        assertEquals(200L,d.shiftMillis)
+        assertEquals(150L,d.attributedMillis)
+        assertEquals(50L,d.overlapMillis)
+        assertTrue(d.hasWarnings)
+    }
+
+    @Test fun completeHistoryHasNoWarnings() {
+        val d=WorkStageHistory.diagnose(100,300,listOf(s(100,200),s(200,300)))
+        assertEquals(200L,d.attributedMillis)
+        assertFalse(d.hasWarnings)
+    }
+
+    @Test fun emptyAndInvalidShiftHistoryTriggersWarning() {
+        val empty=WorkStageHistory.diagnose(100,300,emptyList())
+        assertEquals(200L,empty.gapMillis)
+        assertTrue(empty.hasWarnings)
+        val invalid=WorkStageHistory.diagnose(300,100,listOf(s(100,200)))
+        assertEquals(0L,invalid.shiftMillis)
+        assertTrue(invalid.hasWarnings)
+    }
 }
