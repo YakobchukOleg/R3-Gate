@@ -7,6 +7,7 @@ import kotlin.math.*
  * Android location permissions and foreground/background collection must be handled separately.
  */
 object GpsWorkRules {
+    const val MAX_PLAUSIBLE_GROUND_SPEED_MPS=100.0
     enum class Kind { OBJECT, SHOP, BASE, HOME }
     enum class Activity { OBJECT, TRAVEL, SHOPPING, BREAK, STOP }
     data class Point(val latitude:Double,val longitude:Double,val accuracyM:Double,val timestampMs:Long)
@@ -81,7 +82,11 @@ object GpsWorkRules {
         val elapsed=deltaMs/1000.0
         val d=distanceM(previous.latitude,previous.longitude,current.latitude,current.longitude)
         val conservative=(d-previous.accuracyM-current.accuracyM).coerceAtLeast(0.0)
-        return conservative/elapsed>=settings.minimumTravelSpeedMps
+        // Even the most conservative displacement cannot exceed plausible
+        // ground speed. Reject teleports caused by a bad GPS fix.
+        val speed=conservative/elapsed
+        return speed>=settings.minimumTravelSpeedMps &&
+            speed<=MAX_PLAUSIBLE_GROUND_SPEED_MPS
     }
     fun stable(previousDetectedAt:Long?,now:Long,dwellMs:Long)=previousDetectedAt!=null && now>=previousDetectedAt && now-previousDetectedAt>=dwellMs
     fun longStop(startMs:Long,nowMs:Long,settings:Settings):Boolean =
