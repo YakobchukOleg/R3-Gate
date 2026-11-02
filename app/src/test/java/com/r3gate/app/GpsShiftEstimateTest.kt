@@ -31,4 +31,15 @@ class GpsShiftEstimateTest {
         assertEquals(GpsShiftEstimate.Summary(100,100,1),
             GpsShiftEstimate.calculate(events,shift,true))
     }
+    @Test fun restartRecoveryUsesLatestStartInsteadOfOrphanStart() {
+        val events=listOf(e("TRIP_START",200),e("TRIP_START",600),e("TRIP_STOP",900))
+        assertEquals(GpsShiftEstimate.Summary(300,300,1),
+            GpsShiftEstimate.calculate(events,shift,true))
+    }
+    @Test fun gapAndLaterStartNeverChargeMissingGpsCoverage() {
+        val events=listOf(e("TRIP_START",100),e("GPS_GAP",300),
+            e("TRIP_START",800),e("TRIP_STOP",1000))
+        assertEquals(GpsShiftEstimate.Summary(200,0,1),
+            GpsShiftEstimate.calculate(events,shift,false))
+    }
 }
