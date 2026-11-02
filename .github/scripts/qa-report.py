@@ -17,6 +17,10 @@ def summarize(paths):
             for suite in suites:
                 for key in totals:
                     totals[key] += int(suite.get(key, "0"))
+            if any(int(suite.get(key, "0")) < 0 for suite in suites for key in totals):
+                raise ValueError("Negative JUnit count")
+            if any(int(suite.get("tests", "0")) < sum(int(suite.get(k, "0")) for k in ("failures", "errors", "skipped")) for suite in suites):
+                raise ValueError("JUnit result counts exceed number of tests")
             files += 1
         except (OSError, ET.ParseError, ValueError) as exc:
             invalid.append(f"{path}: {exc}")
@@ -40,6 +44,8 @@ def main():
     Path(args.output).write_text("\n".join(lines)+"\n", encoding="utf-8")
     print("\n".join(lines))
     if invalid: raise SystemExit(2)
+    if files == 0: raise SystemExit(3)
+    if totals["failures"] or totals["errors"]: raise SystemExit(1)
 
 if __name__ == "__main__":
     main()
