@@ -1768,6 +1768,11 @@ class MainActivity : Activity() {
     }
     override fun onRequestPermissionsResult(requestCode:Int,permissions:Array<out String>,grantResults:IntArray) {
         super.onRequestPermissionsResult(requestCode,permissions,grantResults)
+        if(requestCode==307) {
+            if(grantResults.any { it==PackageManager.PERMISSION_GRANTED }) setGpsEnabled(true)
+            else toast("Bez pozwolenia na lokalizację GPS pozostanie wyłączony.")
+            if(screen=="gps") gpsScreen()
+        }
         if(requestCode in listOf(204,205)) {
             if(grantResults.firstOrNull()==android.content.pm.PackageManager.PERMISSION_GRANTED) UploadNotifications.shortcut(this)
             else toast("Powiadomienia są wyłączone. Możesz włączyć je w ustawieniach telefonu.")
