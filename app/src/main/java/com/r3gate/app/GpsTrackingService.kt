@@ -254,9 +254,15 @@ class GpsTrackingService : Service(), LocationListener {
             val savedArrival=try {
                 JSONObject(prefs.getString("gps_arrival_state","{}") ?: "{}")
             } catch(_:Exception) { JSONObject() }
+            val reset=GpsSessionBoundaryRules.resetArrival(
+                GpsSessionBoundaryRules.ArrivalCheckpoint(
+                    savedArrival.optString("confirmed").ifBlank { null },
+                    savedArrival.optString("candidate").ifBlank { null },
+                    savedArrival.optLong("since"),savedArrival.optLong("last")))
             val safeArrival=JSONObject()
-                .put("confirmed",savedArrival.optString("confirmed"))
-                .put("candidate","").put("since",0L).put("last",0L)
+                .put("confirmed",reset.confirmedId ?: "")
+                .put("candidate",reset.candidateId ?: "")
+                .put("since",reset.candidateSinceMs).put("last",reset.lastFixMs)
             if(!prefs.edit().remove("gps_last_fix").remove("gps_last_source_fix_time")
                 .remove("gps_motion_point").remove("gps_trip_state")
                 .remove("gps_last_provider")
