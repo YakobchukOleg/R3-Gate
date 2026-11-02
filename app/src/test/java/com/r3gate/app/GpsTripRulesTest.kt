@@ -30,4 +30,22 @@ class GpsTripRulesTest {
         assertNull(GpsTripRules.advance(a.state,false,602000).event)
         assertEquals(a.state,GpsTripRules.advance(a.state,true,500).state)
     }
+    @Test fun movementAfterLongGpsSilenceNeedsFreshConfirmation() {
+        val previous=GpsTripRules.State(mode=GpsTripRules.Mode.MOVING,
+            lastFixMs=1_000,candidate=GpsTripRules.Mode.STOPPED,candidateSinceMs=2_000)
+        val resumed=GpsTripRules.advance(previous,true,300_000)
+        assertNull(resumed.event)
+        assertEquals(GpsTripRules.Mode.UNKNOWN,resumed.state.mode)
+        assertEquals(GpsTripRules.Mode.MOVING,resumed.state.candidate)
+        assertNull(GpsTripRules.advance(resumed.state,true,350_000).event)
+        assertEquals("TRIP_START",GpsTripRules.advance(resumed.state,true,361_000).event)
+    }
+    @Test fun staleStationaryEvidenceNeverProducesAutomaticTripStop() {
+        val state=GpsTripRules.State(mode=GpsTripRules.Mode.MOVING,
+            candidate=GpsTripRules.Mode.STOPPED,candidateSinceMs=2_000,lastFixMs=30_000)
+        val resumed=GpsTripRules.advance(state,false,320_000)
+        assertNull(resumed.event)
+        assertEquals(GpsTripRules.Mode.UNKNOWN,resumed.state.mode)
+        assertEquals(GpsTripRules.Mode.STOPPED,resumed.state.candidate)
+    }
 }
