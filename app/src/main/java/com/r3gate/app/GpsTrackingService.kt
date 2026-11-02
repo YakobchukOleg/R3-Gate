@@ -304,7 +304,7 @@ class GpsTrackingService : Service(), LocationListener {
             saved.optLong("since"), saved.optLong("last"))
         // Inaccurate border fixes cannot count as a confirmed departure.
         val decision=if(zoneEvidence.status==GpsGeofenceEvidence.Status.UNCERTAIN)
-            GpsArrivalRules.Decision(state)
+            GpsArrivalRules.uncertain(state,now)
         else GpsArrivalRules.advance(state,observed,now)
         val next=decision.state
         val editor=prefs.edit().putString("gps_last_fix",JSONObject()
