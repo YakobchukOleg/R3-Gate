@@ -35,9 +35,12 @@ class GpsTrackingService : Service(), LocationListener {
         val journal=try { JSONArray(prefs.getString("gps_trip_events","[]") ?: "[]") }
             catch(_:Exception) { JSONArray() }
         val eventId=GpsEventIdentity.id("GPS_GAP",now)
-        if(!GpsEventIdentity.shouldAppend((0 until journal.length()).map {
-                journal.optJSONObject(it)?.optString("eventId").orEmpty()
-            },eventId)) return
+        if(!(0 until journal.length()).none {
+                val existing=journal.optJSONObject(it)
+                GpsEventIdentity.sameEvent(existing?.optString("eventId"),
+                    existing?.optString("event"),existing?.optLong("time") ?: 0L,
+                    null,"GPS_GAP",now)
+            }) return
         journal.put(JSONObject().put("event","GPS_GAP").put("time",now).put("eventId",eventId))
         val retained=JSONArray()
         for(i in maxOf(0,journal.length()-100) until journal.length()) retained.put(journal.opt(i))
@@ -336,9 +339,12 @@ class GpsTrackingService : Service(), LocationListener {
         if(decision.event!=null) {
             val history=try { JSONArray(prefs.getString("gps_events","[]") ?: "[]") } catch(_:Exception) { JSONArray() }
             val eventId=GpsEventIdentity.id(decision.event,now,decision.placeId)
-            if(GpsEventIdentity.shouldAppend((0 until history.length()).map {
-                    history.optJSONObject(it)?.optString("eventId").orEmpty()
-                },eventId)) history.put(JSONObject().put("event",decision.event)
+            if((0 until history.length()).none {
+                    val existing=history.optJSONObject(it)
+                    GpsEventIdentity.sameEvent(existing?.optString("eventId"),
+                        existing?.optString("event"),existing?.optLong("time") ?: 0L,
+                        existing?.optString("objectId"),decision.event,now,decision.placeId)
+                }) history.put(JSONObject().put("event",decision.event)
                 .put("objectId",decision.placeId ?: "").put("time",now).put("eventId",eventId))
             val limited=JSONArray()
             for(i in maxOf(0,history.length()-100) until history.length()) limited.put(history.opt(i))
@@ -387,9 +393,12 @@ class GpsTrackingService : Service(), LocationListener {
             if(transition.event!=null) {
                 val journal=try { JSONArray(prefs.getString("gps_trip_events","[]") ?: "[]") } catch(_:Exception) { JSONArray() }
                 val eventId=GpsEventIdentity.id(transition.event,now)
-                if(GpsEventIdentity.shouldAppend((0 until journal.length()).map {
-                        journal.optJSONObject(it)?.optString("eventId").orEmpty()
-                    },eventId)) journal.put(JSONObject().put("event",transition.event)
+                if((0 until journal.length()).none {
+                        val existing=journal.optJSONObject(it)
+                        GpsEventIdentity.sameEvent(existing?.optString("eventId"),
+                            existing?.optString("event"),existing?.optLong("time") ?: 0L,
+                            null,transition.event,now)
+                    }) journal.put(JSONObject().put("event",transition.event)
                     .put("time",now).put("eventId",eventId))
                 val recent=JSONArray()
                 for(i in maxOf(0,journal.length()-100) until journal.length()) recent.put(journal.opt(i))
