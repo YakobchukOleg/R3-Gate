@@ -26,4 +26,16 @@ class GpsAdaptiveSamplingTest {
         val state=GpsAdaptiveSampling.observe(GpsAdaptiveSampling.State(),1000,0.0)
         assertEquals(30_000L,GpsAdaptiveSampling.interval(state,800_000,false))
     }
+    @Test fun carTravelKeepsFrequentGpsDespiteStillPhone() {
+        val still=GpsAdaptiveSampling.observe(GpsAdaptiveSampling.State(),1000,0.0)
+        assertEquals(90_000L,GpsAdaptiveSampling.interval(still,400_000,true))
+        val traveling=GpsAdaptiveSampling.gpsTravel(still,400_000)
+        assertEquals(30_000L,GpsAdaptiveSampling.interval(traveling,550_000,true))
+        assertEquals(90_000L,GpsAdaptiveSampling.interval(traveling,701_000,true))
+    }
+    @Test fun outOfOrderTravelEvidenceCannotDelayQuietMode() {
+        val current=GpsAdaptiveSampling.gpsTravel(
+            GpsAdaptiveSampling.observe(GpsAdaptiveSampling.State(),1000,0.0),500_000)
+        assertEquals(current,GpsAdaptiveSampling.gpsTravel(current,499_000))
+    }
 }
