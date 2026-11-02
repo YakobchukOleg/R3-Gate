@@ -23,12 +23,12 @@ class GpsWorkRulesTest {
         assertFalse(GpsWorkRules.longStop(0,300000,GpsWorkRules.Settings(notifyLongStops=false)))
     }
     @Test fun commutePayRulesSeparateElapsedAndPayableHours() {
-        val a=GpsWorkRules.Activity
+        val activity=GpsWorkRules.Activity.OBJECT
         val segments=listOf(
-            GpsWorkRules.Segment(0,3600000,a.TRAVEL,"outbound"),
-            GpsWorkRules.Segment(3600000,7200000,a.OBJECT),
-            GpsWorkRules.Segment(7200000,9000000,a.SHOPPING),
-            GpsWorkRules.Segment(9000000,10800000,a.TRAVEL,"return"))
+            GpsWorkRules.Segment(0,3600000,GpsWorkRules.Activity.TRAVEL,"outbound"),
+            GpsWorkRules.Segment(3600000,7200000,GpsWorkRules.Activity.OBJECT),
+            GpsWorkRules.Segment(7200000,9000000,GpsWorkRules.Activity.SHOPPING),
+            GpsWorkRules.Segment(9000000,10800000,GpsWorkRules.Activity.TRAVEL,"return"))
         assertEquals(10800000L to 5400000L,GpsWorkRules.totals(segments,GpsWorkRules.PayRules()))
         assertEquals(10800000L to 10800000L,GpsWorkRules.totals(segments,GpsWorkRules.PayRules(outboundCommute=true,returnCommute=true)))
     }
