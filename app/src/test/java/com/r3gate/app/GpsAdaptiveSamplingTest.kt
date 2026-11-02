@@ -38,4 +38,49 @@ class GpsAdaptiveSamplingTest {
             GpsAdaptiveSampling.observe(GpsAdaptiveSampling.State(),1000,0.0),500_000)
         assertEquals(current,GpsAdaptiveSampling.gpsTravel(current,499_000))
     }
+    @Test fun firstSensorSamplePreservesEarlierGpsTravelHint() {
+        val gps=GpsAdaptiveSampling.gpsTravel(GpsAdaptiveSampling.State(),300_000)
+        val sensed=GpsAdaptiveSampling.observe(gps,310_000,0.1)
+        assertEquals(300_000L,sensed.lastGpsTravelMs)
+        assertEquals(310_000L,sensed.startedMs)
+        assertEquals(30_000L,GpsAdaptiveSampling.interval(sensed,400_000,true))
+    }
+
+    @Test fun firstMovingSensorSamplePreservesGpsEvidenceToo() {
+        val gps=GpsAdaptiveSampling.gpsTravel(GpsAdaptiveSampling.State(),300_000)
+        val sensed=GpsAdaptiveSampling.observe(gps,310_000,2.5)
+        assertEquals(300_000L,sensed.lastGpsTravelMs)
+        assertEquals(310_000L,sensed.lastMotionMs)
+    }
+
+    @Test fun sensorInitializationWithoutGpsEvidenceStartsNormally() {
+        val result=GpsAdaptiveSampling.observe(GpsAdaptiveSampling.State(),5_000,0.2)
+        assertEquals(5_000L,result.startedMs)
+        assertEquals(0L,result.lastMotionMs)
+        assertEquals(0L,result.lastGpsTravelMs)
+    }
+
+    @Test fun clockRollbackBeforeTravelEvidenceKeepsFrequentGps() {
+        val state=GpsAdaptiveSampling.State(startedMs=1000,lastGpsTravelMs=600_000)
+        assertEquals(30_000L,GpsAdaptiveSampling.interval(state,400_000,true))
+    }
+
+    @Test fun quietSamplingStartsExactlyFiveMinutesAfterLastEvidence() {
+        val state=GpsAdaptiveSampling.State(startedMs=1000,lastMotionMs=61_000)
+        assertEquals(30_000L,GpsAdaptiveSampling.interval(state,360_999,true))
+        assertEquals(90_000L,GpsAdaptiveSampling.interval(state,361_000,true))
+    }
+
+    @Test fun initialGpsTravelCannotEnableQuietBeforeSensorInitialization() {
+        val state=GpsAdaptiveSampling.gpsTravel(GpsAdaptiveSampling.State(),100_000)
+        assertEquals(30_000L,GpsAdaptiveSampling.interval(state,600_000,true))
+    }
+
+    @Test fun rejectedInvalidSensorValuesDoNotDiscardGpsEvidence() {
+        val gps=GpsAdaptiveSampling.gpsTravel(GpsAdaptiveSampling.State(),300_000)
+        val invalid=GpsAdaptiveSampling.observe(gps,310_000,Double.NaN)
+        assertEquals(gps,invalid)
+        assertEquals(300_000L,invalid.lastGpsTravelMs)
+    }
+
 }
