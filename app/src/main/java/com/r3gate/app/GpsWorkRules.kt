@@ -63,7 +63,9 @@ object GpsWorkRules {
         return matches.firstOrNull()
     }
     fun traveling(previous:Point,current:Point,settings:Settings=Settings()):Boolean {
-        if(!settings.enabled || !settings.autoTravel) return false
+        if(!settings.enabled || !settings.autoTravel ||
+            !settings.minimumTravelSpeedMps.isFinite() ||
+            settings.minimumTravelSpeedMps<=0.0) return false
         if(listOf(previous,current).any { p ->
                 !p.latitude.isFinite() || p.latitude !in -90.0..90.0 ||
                 !p.longitude.isFinite() || p.longitude !in -180.0..180.0 ||
@@ -72,7 +74,10 @@ object GpsWorkRules {
         val deltaMs=current.timestampMs-previous.timestampMs
         // Movement after a GPS outage requires fresh fixes, not an average
         // speed inferred over an unobserved part of the route.
-        if(deltaMs<=0 || deltaMs>GpsTripRules.MAX_EVIDENCE_GAP_MS) return false
+        // Fixes only milliseconds apart exaggerate GPS jitter into impossible speed.
+        // Require two real observations at least five seconds apart.
+        if(previous.timestampMs<=0 || deltaMs<5_000L ||
+            deltaMs>GpsTripRules.MAX_EVIDENCE_GAP_MS) return false
         val elapsed=deltaMs/1000.0
         val d=distanceM(previous.latitude,previous.longitude,current.latitude,current.longitude)
         val conservative=(d-previous.accuracyM-current.accuracyM).coerceAtLeast(0.0)
