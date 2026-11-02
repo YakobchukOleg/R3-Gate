@@ -908,6 +908,24 @@ class MainActivity : Activity() {
             label("Ręczny odczyt (podgląd, bez zapisu zdarzeń): "+
                 "%.5f".format(preview.optDouble("lat"))+", "+"%.5f".format(preview.optDouble("lon"))+
                 " · dokładność ok. "+preview.optInt("accuracy")+" m")
+        val arrivalLog=try { JSONArray(prefs.getString("gps_events","[]") ?: "[]") } catch(_:Exception) { JSONArray() }
+        val travelLog=try { JSONArray(prefs.getString("gps_trip_events","[]") ?: "[]") } catch(_:Exception) { JSONArray() }
+        val activityEvents=mutableListOf<GpsWorkActivityHints.Event>()
+        for(i in 0 until arrivalLog.length()) {
+            val event=arrivalLog.optJSONObject(i) ?: continue
+            activityEvents.add(GpsWorkActivityHints.Event(event.optString("event"),
+                event.optLong("time"),event.optString("objectId")))
+        }
+        for(i in 0 until travelLog.length()) {
+            val event=travelLog.optJSONObject(i) ?: continue
+            activityEvents.add(GpsWorkActivityHints.Event(event.optString("event"),event.optLong("time")))
+        }
+        val hint=GpsWorkActivityHints.suggest(activityEvents,System.currentTimeMillis())
+        if(hint!=null) {
+            label("GPS · możliwy przyjazd na obiekt: "+
+                (objectById(hint.objectId)?.let { objectName(it) } ?: hint.objectId))
+            label("To tylko sugestia. Potwierdź rozpoczęcie pracy ręcznie; GPS nie zmienia godzin ani wypłat.")
+        }
         val current=JSONObject(prefs.getString("gps_arrival_state","{}") ?: "{}").optString("confirmed")
         if(current.isNotBlank()) label("Potwierdzona strefa: "+(objectById(current)?.let { objectName(it) } ?: current))
         val gpsEvents=try { JSONArray(prefs.getString("gps_events","[]") ?: "[]") } catch(_:Exception) { JSONArray() }
