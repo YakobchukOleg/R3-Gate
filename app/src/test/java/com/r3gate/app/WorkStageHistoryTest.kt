@@ -17,8 +17,8 @@ class WorkStageHistoryTest {
 
     @Test fun gapsAreReportedWithoutInventingTime() {
         val result=WorkStageHistory.inspect(100,400,listOf(s(120,200),s(250,350)))
-        assertEquals(150L,result.gapMillis)
-        assertEquals(130L,result.slices.sumOf { it.end-it.start })
+        assertEquals(120L,result.gapMillis)
+        assertEquals(180L,result.slices.sumOf { it.end-it.start })
     }
 
     @Test fun overlapsAreReportedRatherThanDoubleCounted() {
