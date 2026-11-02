@@ -1171,6 +1171,24 @@ class MainActivity : Activity() {
             label("GPS · szacunkowy czas przejazdów: "+duration(estimate.actualTravelMs)+
                 " · zatwierdzone do wypłaty: "+duration(estimate.payableTravelMs))
             label("Wykryto "+estimate.completeTrips+" zakończonych przejazdów. Szacunek GPS nie zmienia ewidencji pracy.")
+            val tripEvents=try { JSONArray(prefs.getString("gps_trip_events","[]") ?: "[]") } catch(_:Exception) { JSONArray() }
+            val observed=mutableListOf<GpsShiftEstimate.Event>()
+            for(i in 0 until tripEvents.length()) {
+                val entry=tripEvents.optJSONObject(i) ?: continue
+                observed.add(GpsShiftEstimate.Event(entry.optString("event"),entry.optLong("time")))
+            }
+            val fixArray=try { JSONArray(prefs.getString("gps_fix_times","[]") ?: "[]") } catch(_:Exception) { JSONArray() }
+            val fixes=(0 until fixArray.length()).map { fixArray.optLong(it) }
+            val review=GpsShiftReconciliation.review(observed,
+                GpsShiftReconciliation.Window(currentShift.optLong("start"),end),fixes)
+            label("GPS · kontrola jakości danych: "+
+                if(review.requiresReview) "wymaga sprawdzenia" else "bez wykrytych problemów")
+            label("Braki pomiarów: "+review.missingLocationIntervals+
+                " · niezakończone przejazdy: "+review.incompleteTripStarts+
+                " · nakładające się przejazdy: "+review.overlappingTrips)
+            label("Przejazdy poza zmianą: "+duration(review.travelOutsideMs)+
+                ". GPS nie zmienia zapisanych godzin ani wypłat.")
+
         }
 
         val from=prefs.getString("reportFrom","").orEmpty(); val to=prefs.getString("reportTo","").orEmpty()
