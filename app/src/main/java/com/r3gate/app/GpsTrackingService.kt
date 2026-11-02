@@ -188,8 +188,13 @@ class GpsTrackingService : Service(), LocationListener {
                 val lastFix=try {
                     JSONObject(prefs.getString("gps_last_fix","{}") ?: "{}").optLong("time")
                 } catch(_:Exception) { 0L }
-                if(GpsSessionBoundaryRules.shouldRecordStartupGap(lastFix,startupMs))
+                if(GpsSessionBoundaryRules.clockRolledBack(lastFix,startupMs)) {
+                    // Reset the obsolete wall-clock checkpoint; retain historical
+                    // GPS journals and any user-confirmed work records.
+                    prefs.edit().remove("gps_last_fix").commit()
+                } else if(GpsSessionBoundaryRules.shouldRecordStartupGap(lastFix,startupMs)) {
                     recordTripBoundary(startupMs)
+                }
                 // A new foreground service session must not join motion evidence from
                 // a previous run, even if the device was switched off only briefly.
                 val savedArrival=try {
