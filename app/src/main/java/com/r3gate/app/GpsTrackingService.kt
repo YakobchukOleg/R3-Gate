@@ -294,9 +294,10 @@ class GpsTrackingService : Service(), LocationListener {
                     geo.getDouble("lat"),geo.getDouble("lon"),geo.optDouble("radius",100.0)))
             } catch(_:Exception) { }
         }
-        val zoneEvidence=GpsGeofenceEvidence.observe(point,places)
-        val observed=zoneEvidence.placeId
         val saved=try { JSONObject(prefs.getString("gps_arrival_state","{}") ?: "{}") } catch(_:Exception) { JSONObject() }
+        val confirmedId=saved.optString("confirmed").ifBlank { null }
+        val zoneEvidence=GpsGeofenceEvidence.observe(point,places,confirmedId)
+        val observed=zoneEvidence.placeId
         val state=GpsArrivalRules.State(
             saved.optString("confirmed").ifBlank { null },
             saved.optString("candidate").ifBlank { null },
