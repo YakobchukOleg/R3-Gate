@@ -251,9 +251,16 @@ class GpsTrackingService : Service(), LocationListener {
         if(previousRecorded>=now && !rollback) return
         if(rollback) {
             // Discard only stale GPS evidence. Never edit historical events or work.
+            val savedArrival=try {
+                JSONObject(prefs.getString("gps_arrival_state","{}") ?: "{}")
+            } catch(_:Exception) { JSONObject() }
+            val safeArrival=JSONObject()
+                .put("confirmed",savedArrival.optString("confirmed"))
+                .put("candidate","").put("since",0L).put("last",0L)
             if(!prefs.edit().remove("gps_last_fix").remove("gps_last_source_fix_time")
                 .remove("gps_motion_point").remove("gps_trip_state")
-                .remove("gps_last_provider").commit()) return
+                .remove("gps_last_provider")
+                .putString("gps_arrival_state",safeArrival.toString()).commit()) return
         }
         val lastRecorded=if(rollback) 0L else previousRecorded
         val sourceTime=location.time
