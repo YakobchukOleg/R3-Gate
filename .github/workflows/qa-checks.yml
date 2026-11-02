@@ -63,7 +63,10 @@ jobs:
           gradle-version: '8.9'
       - name: Prepare verified publisher fonts
         run: python3 .github/scripts/prepare-fonts.py
-      - name: Validate QA reporting logic (when present)\n        run: |\n          if [ -f .github/scripts/test-qa-report.py ]; then python3 .github/scripts/test-qa-report.py; fi\n      - name: JVM unit tests and lint (no APK)
+      - name: Validate QA reporting logic (when present)
+        run: |
+          if [ -f .github/scripts/test-qa-report.py ]; then python3 .github/scripts/test-qa-report.py; fi
+      - name: JVM unit tests and lint (no APK)
         run: gradle --no-daemon testDebugUnitTest lintDebug
       - name: Android instrumentation tests (on demand only)
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.suite == 'device' }}
@@ -76,12 +79,21 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: bash .github/scripts/device-tests.sh
-      - name: Aggregate JUnit evidence (when present)\n        if: always()\n        run: |\n          if [ -f .github/scripts/qa-report.py ]; then\n            python3 .github/scripts/qa-report.py --sha \"$(cat tested-sha.txt 2>/dev/null || echo unknown)\"\n          else\n            echo 'Reporting utility not present in the selected branch; inspect raw JUnit XML artifacts.' > qa-summary.md\n          fi\n      - uses: actions/upload-artifact@v4
+      - name: Aggregate JUnit evidence (when present)
+        if: always()
+        run: |
+          if [ -f .github/scripts/qa-report.py ]; then
+            python3 .github/scripts/qa-report.py --sha "$(cat tested-sha.txt 2>/dev/null || echo unknown)"
+          else
+            echo 'Reporting utility not present in the selected branch; inspect raw JUnit XML artifacts.' > qa-summary.md
+          fi
+      - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: qa-reports
           path: |
-            tested-sha.txt\n            qa-summary.md
+            tested-sha.txt
+            qa-summary.md
             app/build/reports/tests/testDebugUnitTest/
             app/build/test-results/testDebugUnitTest/
             app/build/reports/lint-results-debug.html
