@@ -145,4 +145,12 @@ class WorkMeterArchiveTest {
         assertTrue(WorkMeterArchive.inspect(ByteArrayInputStream(bytes)).files.isEmpty())
     }
 
+    @Test fun writerRejectsManifestThatInspectorCouldNotRead() {
+        val sources = (0 until 20).map { index ->
+            val path = "photos/" + index.toString().padStart(3, '0') + "x".repeat(40_000)
+            WorkMeterArchive.Source(path) { ByteArrayInputStream(byteArrayOf()) }
+        }
+        fails { WorkMeterArchive.write(ByteArrayOutputStream(), sources) }
+    }
+
 }
