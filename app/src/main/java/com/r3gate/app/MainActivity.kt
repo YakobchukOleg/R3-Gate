@@ -1762,13 +1762,6 @@ class MainActivity : Activity() {
         val obj=objectById(id) ?: run { objects(); return }
         base(obj.optString("TAG")); screen="object:"+id; nav()
         val period=JSONObject()
-        label(objectName(obj)); label(obj.optString("notes",obj.optString("Opis")))
-        button("Edytuj obiekt") { newForm("objects",id) }
-        button("Otwórz w Google Maps") {
-            val link=obj.optString("maps")
-            openLink(if(link.isNotBlank()) link else "https://www.google.com/maps/search/?api=1&query="+URLEncoder.encode(obj.optString("city")+" "+obj.optString("Adres"),"UTF-8"))
-        }
-        label("Czas na obiekcie")
         val totals=sortedMapOf<String,Long>()
         val shifts=rows(data(),"shifts")+listOfNotNull(active(data()))
         var unassigned=0
@@ -1785,12 +1778,32 @@ class MainActivity : Activity() {
                 }
             }
         }
-        label("Razem: "+duration(totals.values.sum()))
-        for((day,ms) in totals.toSortedMap(reverseOrder())) label(dateText(day)+" · "+duration(ms))
-        if(unassigned>0) label("Starsze zmiany bez etapów nie są przypisywane automatycznie do obiektu.")
-        button("Materiały") { openScreen("list:materials:"+id) }
-        button("Zdjęcia") { openScreen("list:links:"+id) }
-        button("Notatki obiektu") { openScreen("list:notes:"+id) }
+        val details=ObjectDetailsUiModel.Content(
+            tag=obj.optString("TAG"),
+            name=obj.optString("name",obj.optString("Opis")),
+            city=obj.optString("city"),
+            address=obj.optString("Adres"),
+            organization=obj.optString("organization"),
+            notes=obj.optString("notes",obj.optString("Opis")),
+            archived=obj.optBoolean("archived"),
+            duration=duration(totals.values.sum()),
+            days=totals.toSortedMap(reverseOrder()).map { (day,ms) ->
+                ObjectDetailsUiModel.Day(dateText(day),duration(ms))
+            },
+            hasUnassignedLegacyShifts=unassigned>0
+        )
+        val detailsPanel=ObjectDetailsPanel(
+            this,details,
+            onEdit={ newForm("objects",id) },
+            onMaps={
+                val link=obj.optString("maps")
+                openLink(if(link.isNotBlank()) link else "https://www.google.com/maps/search/?api=1&query="+URLEncoder.encode(obj.optString("city")+" "+obj.optString("Adres"),"UTF-8"))
+            },
+            onPhotos={ openScreen("list:links:"+id) },
+            onMaterials={ openScreen("list:materials:"+id) },
+            onNotes={ openScreen("list:notes:"+id) }
+        )
+        root.addView(detailsPanel,LinearLayout.LayoutParams(-1,-2))
         button(if(obj.optBoolean("archived")) "Przywróć obiekt" else "Usuń z listy aktywnych") {
             confirmAction {
                 val d=data(); val o=rows(d,"objects").find { it.optString("id")==id } ?: return@confirmAction
@@ -1798,7 +1811,6 @@ class MainActivity : Activity() {
                 save(d,"OBJECT_ARCHIVE",id); objects()
             }
         }
-        label("Usunięcie z listy archiwizuje obiekt. Historia pracy i wpisy pozostają dostępne.")
     }
     private fun recordList(key:String,objectId:String="",onlyActive:Boolean=false) {
         val target=screen
