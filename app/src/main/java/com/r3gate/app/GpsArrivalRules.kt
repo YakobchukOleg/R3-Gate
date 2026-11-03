@@ -17,9 +17,15 @@ object GpsArrivalRules {
 
     fun advance(state:State,observedId:String?,fixMs:Long,dwellMs:Long=60_000L):Decision {
         if(fixMs<=state.lastFixMs || dwellMs<0) return Decision(state)
-        if(state.lastFixMs>0 && fixMs-state.lastFixMs>MAX_EVIDENCE_GAP_MS)
+        if(state.lastFixMs>0 && fixMs-state.lastFixMs>MAX_EVIDENCE_GAP_MS) {
+            // The confirmed site survives an outage. Returning to it is not
+            // a pending new arrival, and must clear a pre-outage candidate.
+            if(observedId==state.confirmedId)
+                return Decision(state.copy(candidateId=null,
+                    candidateSinceMs=0L,lastFixMs=fixMs))
             return Decision(state.copy(candidateId=observedId,
                 candidateSinceMs=fixMs,lastFixMs=fixMs))
+        }
         if(observedId==state.confirmedId) return Decision(state.copy(candidateId=null,candidateSinceMs=0,lastFixMs=fixMs))
         val candidateMatches=state.candidateSinceMs>0 && state.candidateId==observedId
         if(!candidateMatches) return Decision(state.copy(candidateId=observedId,candidateSinceMs=fixMs,lastFixMs=fixMs))
