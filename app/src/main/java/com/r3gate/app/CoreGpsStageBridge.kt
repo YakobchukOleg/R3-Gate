@@ -33,6 +33,7 @@ object CoreGpsStageBridge {
     /** Recheck GPS coverage at notification time and immediately before approval. */
     fun hasContinuousCoverage(context: Context, eventMs: Long, nowMs: Long): Boolean {
         val prefs = context.getSharedPreferences("r3_gate", Context.MODE_PRIVATE)
+        if (!prefs.getBoolean("gps_enabled", false)) return false
         val events = try { JSONArray(prefs.getString("gps_trip_events", "[]") ?: "[]") }
             catch (_: Exception) { return false }
         val gaps = try { JSONArray(prefs.getString("gps_coverage_gaps", "[]") ?: "[]") }
@@ -56,6 +57,14 @@ object CoreGpsStageBridge {
         val nowMs = System.currentTimeMillis()
         val shiftStart = active.optLong("start")
         val stageStart = maxOf(shiftStart, active.optLong("stageStart", shiftStart))
+        val session = CoreGpsSessionGate.Snapshot(
+            prefs.getBoolean("gps_enabled", false), true,
+            active.optString("kind", "Obiekt"), shiftStart, stageStart, nowMs
+        )
+        if (!CoreGpsSessionGate.isEligible(session)) {
+            dismiss(context)
+            return
+        }
         val objects = data.optJSONArray("objects") ?: JSONArray()
         val activeIds = (0 until objects.length()).mapNotNull { i ->
             objects.optJSONObject(i)?.takeIf { !it.optBoolean("archived") }
