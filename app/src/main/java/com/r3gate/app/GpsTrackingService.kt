@@ -170,15 +170,26 @@ class GpsTrackingService : Service(), LocationListener {
             .build()
     }
     override fun onStartCommand(intent:Intent?,flags:Int,startId:Int):Int {
-        if(intent?.action==ACTION_STOP || !prefs.getBoolean("gps_enabled",false)) {
-            if(intent?.action==ACTION_STOP) prefs.edit().putBoolean("gps_enabled",false).apply()
+        if(intent?.action==ACTION_STOP) {
+            prefs.edit().putBoolean("gps_enabled",false).apply()
             shutdown()
             return START_NOT_STICKY
         }
-        if(checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)!=PackageManager.PERMISSION_GRANTED &&
-            checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)!=PackageManager.PERMISSION_GRANTED) {
-            shutdown()
-            return START_NOT_STICKY
+        when(GpsStartPermissionRules.decide(
+            prefs.getBoolean("gps_enabled",false),
+            checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED,
+            checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)==PackageManager.PERMISSION_GRANTED)) {
+            GpsStartPermissionRules.Decision.STOP_DISABLED -> {
+                shutdown()
+                return START_NOT_STICKY
+            }
+            GpsStartPermissionRules.Decision.STOP_PERMISSION -> {
+                // Keep user intent, but never present a failed service as active.
+                prefs.edit().putString("gps_service_problem","permission").commit()
+                shutdown()
+                return START_NOT_STICKY
+            }
+            GpsStartPermissionRules.Decision.START -> Unit
         }
         try {
             if(Build.VERSION.SDK_INT>=29) startForeground(NOTIFICATION_ID,notification(),ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
