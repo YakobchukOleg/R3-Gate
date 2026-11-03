@@ -38,4 +38,32 @@ class GpsGeofenceProbeRulesTest {
     @Test fun resolvedTransitionCanBeginNewProbe() {
         assertTrue(r.shouldBegin(200_000,0,true,true))
     }
+
+    @Test fun largeClockRollbackRearmsUnresolvedProbe() {
+        assertTrue(GpsGeofenceProbeRules.clockRollbackRequiresReset(400_000L,460_000L))
+        assertTrue(GpsGeofenceProbeRules.shouldBegin(400_000L,0L,true,true))
+    }
+    @Test fun minorClockReorderingDoesNotRearm() {
+        assertFalse(GpsGeofenceProbeRules.clockRollbackRequiresReset(400_000L,459_999L))
+        assertFalse(GpsGeofenceProbeRules.shouldBegin(400_000L,459_999L,true,true))
+    }
+    @Test fun normalForwardTimeDoesNotReset() {
+        assertFalse(GpsGeofenceProbeRules.clockRollbackRequiresReset(400_000L,390_000L))
+    }
+    @Test fun zeroClockCannotReset() {
+        assertFalse(GpsGeofenceProbeRules.clockRollbackRequiresReset(0L,460_000L))
+    }
+    @Test fun zeroCheckpointCannotReset() {
+        assertFalse(GpsGeofenceProbeRules.clockRollbackRequiresReset(400_000L,0L))
+    }
+    @Test fun extremeFutureCheckpointRequiresResetWithoutOverflow() {
+        assertTrue(GpsGeofenceProbeRules.clockRollbackRequiresReset(400_000L,Long.MAX_VALUE))
+    }
+    @Test fun unresolvedProbeAtRollbackStillUsesFiniteWindow() {
+        assertEquals(15_000L,GpsGeofenceProbeRules.interval(400_000L,400_000L,90_000L))
+        assertEquals(90_000L,GpsGeofenceProbeRules.interval(490_001L,400_000L,90_000L))
+    }
+    @Test fun resetDoesNotStartWithoutRelevantZone() {
+        assertFalse(GpsGeofenceProbeRules.shouldBegin(400_000L,0L,true,false))
+    }
 }
