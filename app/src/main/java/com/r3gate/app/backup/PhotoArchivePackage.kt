@@ -17,7 +17,7 @@ object PhotoArchivePackage {
         json: String, photoUris: Iterable<String>,
         openPhoto: (String) -> InputStream, destination: OutputStream
     ): WorkMeterArchive.Inspection {
-        require(json.trimStart().startsWith('{') && json.trimEnd().endsWith('}')) { "Invalid journal" }
+        require(JournalValidator.inspect(json).canRestore) { "Invalid journal" }
         val journal = json.toByteArray(Charsets.UTF_8)
         require(journal.size <= 32 * 1024 * 1024) { "Journal too large" }
         val entries = PhotoArchiveIndex.build(photoUris)
