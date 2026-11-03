@@ -78,4 +78,32 @@ class CoreGpsStageRulesTest {
         assertFalse(CoreGpsStageRules.shouldNotify(event(CoreGpsProposalInbox.Kind.DEPARTURE),
             shift("Obiekt"), ids, 0L))
     }
+
+    @Test fun staleDepartureIsNotEligibleForNotification() {
+        val departure=event(CoreGpsProposalInbox.Kind.DEPARTURE,at=1_000L)
+        assertFalse(CoreGpsStageRules.shouldNotify(departure,shift("Obiekt"),ids,500L,
+            1_000L+CoreGpsStageRules.MAX_REVIEW_AGE_MS+1))
+    }
+
+    @Test fun recentDepartureCanStillBeReviewed() {
+        val departure=event(CoreGpsProposalInbox.Kind.DEPARTURE,at=1_000L)
+        assertTrue(CoreGpsStageRules.shouldNotify(departure,shift("Obiekt"),ids,500L,
+            1_000L+CoreGpsStageRules.MAX_REVIEW_AGE_MS))
+    }
+
+    @Test fun clockRollbackCannotTreatFutureEvidenceAsValid() {
+        val departure=event(CoreGpsProposalInbox.Kind.DEPARTURE,at=1_000L)
+        assertFalse(CoreGpsStageRules.shouldNotify(departure,shift("Obiekt"),ids,500L,999L))
+    }
+
+    @Test fun staleArrivalCannotChangeTripAfterLongParking() {
+        val arrival=event(CoreGpsProposalInbox.Kind.ARRIVAL,at=1_000L)
+        assertFalse(CoreGpsStageRules.shouldNotify(arrival,shift("Przejazd",""),ids,500L,
+            1_000L+CoreGpsStageRules.MAX_REVIEW_AGE_MS+10))
+    }
+
+    @Test fun unchangedCurrentStageCanReviewAtEventTime() {
+        val arrival=event(CoreGpsProposalInbox.Kind.ARRIVAL,at=1_000L)
+        assertTrue(CoreGpsStageRules.shouldNotify(arrival,shift("Przejazd",""),ids,500L,1_000L))
+    }
 }
