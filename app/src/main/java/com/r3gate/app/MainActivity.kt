@@ -1979,29 +1979,36 @@ class MainActivity : Activity() {
         }
     }
     private fun objects() {
-        base("Obiekty"); screen="objects"; nav()
-        val all=rows(data(),"objects")
-        val showArchived=prefs.getBoolean("archived_objects",false)
-        button(if(showArchived) "Pokaż aktywne" else "Archiwum obiektów") {
-            prefs.edit().putBoolean("archived_objects",!showArchived).apply(); objects()
+        screen="objects"
+        base("Obiekty")
+        nav()
+        val items=rows(data(),"objects").map { obj ->
+            ObjectListUiModel.Item(
+                id=obj.optString("id"),
+                tag=obj.optString("TAG"),
+                organization=obj.optString("organization",obj.optString("Opis")),
+                city=obj.optString("city"),
+                address=obj.optString("Adres"),
+                archived=obj.optBoolean("archived"),
+                name=obj.optString("name",obj.optString("Opis"))
+            )
         }
-        button("+ Dodaj obiekt") { newForm("objects") }
-        for(o in all.filter { it.optBoolean("archived")==showArchived }.sortedBy { objectName(it) }) {
-            button(objectName(o)) { openScreen("object:"+o.optString("id")) }
-        }
-        if(all.isEmpty()) label("Dodaj pierwszy obiekt, aby przypisywać pracę, materiały i zdjęcia.")
+        val panel=ObjectListPanel(
+            this,
+            onOpenObject={ id -> openScreen("object:"+id) },
+            onAddObject={ newForm("objects") },
+            onArchiveChanged={ archived ->
+                prefs.edit().putBoolean("archived_objects",archived).apply()
+            }
+        )
+        root.addView(panel,LinearLayout.LayoutParams(-1,-2))
+        panel.submitObjects(items)
+        panel.showArchivedObjects(prefs.getBoolean("archived_objects",false))
     }
     private fun objectDetails(id:String) {
         val obj=objectById(id) ?: run { objects(); return }
         base(obj.optString("TAG")); screen="object:"+id; nav()
         val period=JSONObject()
-        label(objectName(obj)); label(obj.optString("notes",obj.optString("Opis")))
-        button("Edytuj obiekt") { newForm("objects",id) }
-        button("Otwórz w Google Maps") {
-            val link=obj.optString("maps")
-            openLink(if(link.isNotBlank()) link else "https://www.google.com/maps/search/?api=1&query="+URLEncoder.encode(obj.optString("city")+" "+obj.optString("Adres"),"UTF-8"))
-        }
-        label("Czas na obiekcie")
         val totals=sortedMapOf<String,Long>()
         val shifts=rows(data(),"shifts")+listOfNotNull(active(data()))
         var unassigned=0
@@ -2018,12 +2025,39 @@ class MainActivity : Activity() {
                 }
             }
         }
-        label("Razem: "+duration(totals.values.sum()))
-        for((day,ms) in totals.toSortedMap(reverseOrder())) label(dateText(day)+" · "+duration(ms))
-        if(unassigned>0) label("Starsze zmiany bez etapów nie są przypisywane automatycznie do obiektu.")
-        button("Materiały") { openScreen("list:materials:"+id) }
-        button("Zdjęcia") { openScreen("list:links:"+id) }
-        button("Notatki obiektu") { openScreen("list:notes:"+id) }
+        val details=ObjectDetailsUiModel.Content(
+            tag=obj.optString("TAG"),
+            name=obj.optString("name",obj.optString("Opis")),
+            city=obj.optString("city"),
+            address=obj.optString("Adres"),
+            organization=obj.optString("organization"),
+            notes=obj.optString("notes",obj.optString("Opis")),
+            archived=obj.optBoolean("archived"),
+            duration=duration(totals.values.sum()),
+            days=totals.toSortedMap(reverseOrder()).map { (day,ms) ->
+                ObjectDetailsUiModel.Day(dateText(day),duration(ms))
+            },
+            hasUnassignedLegacyShifts=unassigned>0
+        )
+        val detailsPanel=ObjectDetailsPanel(
+            this,details,
+            onEdit={ newForm("objects",id) },
+            onMaps={
+                val link=obj.optString("maps")
+                openLink(if(link.isNotBlank()) link else "https://www.google.com/maps/search/?api=1&query="+URLEncoder.encode(obj.optString("city")+" "+obj.optString("Adres"),"UTF-8"))
+            },
+            onPhotos={ openScreen("list:links:"+id) },
+            onMaterials={ openScreen("list:materials:"+id) },
+            onNotes={ openScreen("list:notes:"+id) },
+            counts=ObjectDetailsTabs.Counts(
+                photos=rows(data(),"links").count { it.optString("objectId")==id },
+                materials=rows(data(),"materials").count {
+                    it.optString("objectId")==id && it.optString("storage")!="car"
+                },
+                notes=rows(data(),"notes").count { it.optString("objectId")==id }
+            )
+        )
+        root.addView(detailsPanel,LinearLayout.LayoutParams(-1,-2))
         button(if(obj.optBoolean("archived")) "Przywróć obiekt" else "Usuń z listy aktywnych") {
             confirmAction {
                 val d=data(); val o=rows(d,"objects").find { it.optString("id")==id } ?: return@confirmAction
@@ -2031,7 +2065,6 @@ class MainActivity : Activity() {
                 save(d,"OBJECT_ARCHIVE",id); objects()
             }
         }
-        label("Usunięcie z listy archiwizuje obiekt. Historia pracy i wpisy pozostają dostępne.")
     }
     private fun recordList(key:String,objectId:String="",onlyActive:Boolean=false) {
         val target=screen
@@ -2068,7 +2101,16 @@ class MainActivity : Activity() {
             (!f.optBoolean("shoppingOnly") || it.optBoolean("shopping")) &&
             DomainRules.inRange(day,f.optString("from"),f.optString("to"))
         }.let { list -> if(f.optBoolean("nameSort")) list.sortedBy { it.optString("name",it.optString("text")).lowercase(Locale.ROOT) } else list.sortedByDescending { recordDate(it)+it.optString("created") } }
-        if(list.isEmpty()) label("Brak wpisów dla wybranych filtrów.")
+        val listKind=WorkRecordListUi.kind(key)
+        if(listKind!=null) {
+            val filtered=f.optString("from").isNotBlank() || f.optString("to").isNotBlank() ||
+                f.optString("objectId").isNotBlank() || f.optBoolean("shoppingOnly")
+            val header=WorkRecordListUi.header(listKind,list.size,filtered)
+            label(header.heading)
+            label(header.description)
+            label(header.countLabel)
+            if(list.isEmpty()) label(header.emptyMessage)
+        } else if(list.isEmpty()) label("Brak wpisów dla wybranych filtrów.")
         if(key=="materials") {
             val used=list.filter { it.optString("storage")!="car" }
             label("Podsumowanie materiałów dla wybranego zakresu")
@@ -2082,7 +2124,10 @@ class MainActivity : Activity() {
             for((group,items) in used.groupBy { recordDate(it) to it.optString("objectId") }) {
                 label("── "+dateText(group.first)+" ──")
                 val obj=objectById(group.second)?.let { objectName(it) } ?: "Bez obiektu"
-                button(obj+"\n"+items.joinToString("\n") { materialLine(it) }) { materialGroup(group.first,group.second) }
+                val card=WorkRecordListUi.materialsGroup(dateText(group.first),obj,items.size)
+                root.addView(WorkRecordListCard(this,card) {
+                    materialGroup(group.first,group.second)
+                },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
             }
             return
         }
@@ -2096,10 +2141,14 @@ class MainActivity : Activity() {
                 "notes" -> (if(r.optBoolean("shopping")) "🛒 " else "")+(if(r.optBoolean("done")) "✓ " else if(r.optBoolean("aktualne")) "● " else "")+r.optString("text").ifBlank { "Notatka ze zdjęciem" }.take(100)
                 else -> "Zdjęcia: "+arr(r,"photos").length()+" · "+r.optString("Link Google Drive")
             }
-            if(key=="links" && arr(r,"photos").length()>0) {
-                val status=PhotoQueue.status(this,key,r)
-                root.addView(makeButton(summary+"\n"+obj+"\n"+status.caption) { recordDetails(key,r.optString("id"),target) }.apply { background=background(status.color) },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
-            } else button(summary+"\n"+obj) { recordDetails(key,r.optString("id"),target) }
+            if(key=="links") {
+                val status=if(arr(r,"photos").length()>0) PhotoQueue.status(this,key,r).caption else ""
+                val card=WorkRecordListUi.photos(arr(r,"photos").length(),
+                    r.optString("Link Google Drive"),obj,status)
+                root.addView(WorkRecordListCard(this,card) {
+                    recordDetails(key,r.optString("id"),target)
+                },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
+            } else button(summary+"\\n"+obj) { recordDetails(key,r.optString("id"),target) }
         }
     }
     private var detailParent="home"
@@ -2167,25 +2216,46 @@ class MainActivity : Activity() {
         try { startActivity(Intent(Intent.ACTION_VIEW,u)) } catch (_:Exception) { toast("Nie można otworzyć linku") }
     }
     private fun showPhotos(r:JSONObject) {
-        for(i in 0 until arr(r,"photos").length()) {
-            val uri=arr(r,"photos").optString(i)
+        val photos=arr(r,"photos")
+        if(photos.length()==0) return
+        label(PhotoPreviewUi.summary(photos.length()))
+        for(i in 0 until photos.length()) {
+            val uri=photos.optString(i)
             val card=FrameLayout(this).apply {
-                background=background(0xFFECEFF1.toInt()); clipToOutline=true; elevation=dp(2).toFloat()
+                background=background(0xFFECEFF1.toInt())
+                clipToOutline=true
+                elevation=dp(2).toFloat()
+                contentDescription=PhotoPreviewUi.state(i,photos.length(),true).heading
             }
-            val thumb=ImageView(this).apply { scaleType=ImageView.ScaleType.CENTER_CROP; contentDescription="Zdjęcie "+(i+1); adjustViewBounds=true }
+            val thumb=ImageView(this).apply {
+                scaleType=ImageView.ScaleType.CENTER_CROP
+                adjustViewBounds=true
+            }
             try {
                 val bitmap=PhotoPreview.decode(this,Uri.parse(uri))
+                val viewState=PhotoPreviewUi.state(i,photos.length(),true)
+                thumb.contentDescription=viewState.accessibilityLabel
                 thumb.scaleType=ImageView.ScaleType.FIT_CENTER
                 thumb.setImageBitmap(bitmap)
                 val width=resources.displayMetrics.widthPixels-dp(32)
                 card.addView(thumb,FrameLayout.LayoutParams(-1,width*9/16))
+                thumb.isFocusable=true
                 thumb.setOnClickListener { openPhoto(uri) }
-                root.addView(card,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(16); topMargin=dp(4) })
             } catch(_:Exception) {
-                val placeholder=ImageView(this).apply { setImageResource(android.R.drawable.ic_menu_gallery); contentDescription="Zdjęcie niedostępne"; setPadding(dp(32),dp(32),dp(32),dp(32)); setOnClickListener { toast("Oryginał zdjęcia nie jest dostępny na tym urządzeniu") } }
+                val viewState=PhotoPreviewUi.state(i,photos.length(),false)
+                val placeholder=ImageView(this).apply {
+                    setImageResource(android.R.drawable.ic_menu_gallery)
+                    contentDescription=viewState.accessibilityLabel
+                    setPadding(dp(32),dp(32),dp(32),dp(32))
+                    isFocusable=true
+                    setOnClickListener { toast(viewState.message ?: "Zdjęcie niedostępne") }
+                }
                 card.addView(placeholder,FrameLayout.LayoutParams(-1,dp(120)))
-                root.addView(card,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(16) })
             }
+            root.addView(card,LinearLayout.LayoutParams(-1,-2).apply {
+                bottomMargin=dp(16)
+                topMargin=dp(4)
+            })
         }
     }
     private fun newForm(key:String,id:String="",objectId:String="",sendAfterSave:Boolean=false) {
@@ -2262,11 +2332,21 @@ class MainActivity : Activity() {
         base(when(formKind) { "objects" -> "Obiekt"; "expenses" -> "Zakup za własne pieniądze"; "materials" -> "Zużyty materiał"; "links" -> "Dodaj zdjęcia"; else -> "Notatka" })
         screen="form"; nav()
         if(formKind=="objects") {
-            label("TAG: "+draft.optString("TAG").ifBlank { "automatycznie po zapisaniu miasta" })
-            field("Miasto","city")
-            if(draft.optString("TAG").isBlank()) field("Tag (opcjonalnie)","tagPrefix") else label("Tag (stały): "+draft.optString("TAG"))
-            field("Adres","Adres"); field("Nazwa organizacji","organization")
-            field("Notatki / kontakt","notes",true); field("Link Google Maps (opcjonalnie)","maps")
+            val editing=rows(data(),"objects").any { it.optString("id")==draft.optString("id") }
+            label(ObjectFormUiModel.title(editing))
+            label(ObjectFormUiModel.requiredHint())
+            label(ObjectFormUiModel.tagHint(draft.optString("TAG")))
+            val location=ObjectFormUiModel.sections[0]
+            label(location.title)
+            field(location.fields[0].caption,location.fields[0].key)
+            if(draft.optString("TAG").isBlank()) field("Tag (opcjonalnie)","tagPrefix")
+            else label(ObjectFormUiModel.tagHint(draft.optString("TAG")))
+            field(location.fields[1].caption,location.fields[1].key)
+            val information=ObjectFormUiModel.sections[1]
+            label(information.title)
+            for(spec in information.fields) field(spec.caption,spec.key,spec.multiline)
+            label(ObjectFormUiModel.mapHint())
+            label(ObjectFormUiModel.footer(editing))
             val savedGeo=prefs.getString("gps_object_"+draft.optString("id"),null)
             val pendingGeo=draft.optJSONObject("_gps_capture")
             label(when {
@@ -2276,6 +2356,13 @@ class MainActivity : Activity() {
             })
             button("📍 Zapisz lokalizację GPS") { captureObjectGps() }
         } else {
+            val uiKind=WorkRecordFormUi.kind(formKind)
+            if(uiKind!=null) {
+                label(WorkRecordFormUi.title(uiKind))
+                val assignment=WorkRecordFormUi.assignment(uiKind)
+                label(assignment.title)
+                label(assignment.hint)
+            }
             button("Data: "+recordDate(draft).let { if(it.isBlank()) "Wybierz datę" else dateText(it) }) {
                 pickReportDate(try { LocalDate.parse(recordDate(draft)) } catch (_:Exception) { LocalDate.now() }) {
                     draft.put("date",it.toString()); renderForm()
@@ -2286,6 +2373,11 @@ class MainActivity : Activity() {
             }
             button("Obiekt: "+(objectById(draft.optString("objectId"))?.let { objectName(it) } ?: if(formKind in listOf("notes","expenses")) "Bez obiektu" else "Wybierz")) {
                 chooseObject(formKind in listOf("notes","expenses") || (formKind=="materials" && draft.optString("storage")=="car")) { draft.put("objectId",it?.optString("id") ?: ""); draft.remove("Obiekt"); renderForm() }
+            }
+            if(uiKind!=null) {
+                val details=WorkRecordFormUi.details(uiKind)
+                label(details.title)
+                label(details.hint)
             }
             if(formKind=="expenses") {
                 if(!draft.has("amount") && draft.has("cents")) draft.put("amount",BigDecimal.valueOf(draft.optLong("cents"),2).toPlainString())
@@ -2320,6 +2412,7 @@ class MainActivity : Activity() {
                 button("Dodaj zdjęcia z galerii") { pickPhotos() }; button("Zrób zdjęcie") { camera() }
                 if(formKind=="links") field("Link Google Disk (opcjonalnie)","Link Google Drive")
             }
+            if(uiKind!=null) label(WorkRecordFormUi.attachments(arr(draft,"photos").length()))
             showPhotos(draft)
             if(arr(draft,"photos").length()>0) button("Usuń zdjęcie ze szkicu") {
                 val photos=arr(draft,"photos")
@@ -2330,6 +2423,7 @@ class MainActivity : Activity() {
         }
         if(formKind=="materials" && rows(data(),"materials").none { it.optString("id")==draft.optString("id") }) button("+ DODAJ MATERIAŁ") { addBatchLine() }
         button(if(quickPhotoUpload) "Zapisz i wyślij zdjęcia" else "Zapisz") { saveForm() }
+        if(formKind=="materials") label(WorkRecordFormUi.pendingBatch(rows(draft,"batch").size))
         if(formKind=="materials") for((i,row) in rows(draft,"batch").withIndex()) {
             label(materialLine(row))
             button("EDYTUJ · "+row.optString("name")) {
