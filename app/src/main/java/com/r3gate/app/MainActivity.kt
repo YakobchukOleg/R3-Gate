@@ -891,10 +891,16 @@ class MainActivity : Activity() {
         try {
             androidx.core.content.ContextCompat.startForegroundService(
                 this,Intent(this,GpsTrackingService::class.java).setAction(GpsTrackingService.ACTION_START))
-            requestGpsStageNotificationsIfNeeded()
         } catch(e:Exception) {
             prefs.edit().putBoolean("gps_enabled",false).apply()
+            CoreGpsStageBridge.dismiss(this)
             Toast.makeText(this,"Nie można uruchomić GPS: "+e.javaClass.simpleName,Toast.LENGTH_LONG).show()
+            return
+        }
+        // Notification permission is separate from location tracking: never
+        // disable GPS if Android cannot show the optional prompt.
+        try { requestGpsStageNotificationsIfNeeded() } catch (_: RuntimeException) {
+            toast("Powiadomienia GPS możesz włączyć później w ustawieniach.")
         }
     }
     private fun gpsDeviceDiagnostics() {
