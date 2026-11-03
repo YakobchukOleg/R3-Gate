@@ -102,7 +102,18 @@ class GpsRecoveryMonitorWorker(context:Context,params:WorkerParameters):Worker(c
             })
             .setContentIntent(pending)
             .setAutoCancel(true).build()
-        notifications.notify(NOTIFICATION_ID,notification)
+        // Preparing the notification takes time: GPS may have recovered, the
+        // user may have disabled tracking, or WorkManager may have cancelled us.
+        if(!GpsRecoveryAlertGuard.mayDeliver(isStopped,decision,
+                currentDecision(prefs,System.currentTimeMillis(),inspectedSession),
+                inspectedSession,prefs.getLong("gps_session_start",0L),
+                prefs.getBoolean("gps_enabled",false),System.currentTimeMillis()))
+            return Result.success()
+        try { notifications.notify(NOTIFICATION_ID,notification) }
+        catch(_:SecurityException) {
+            // POST_NOTIFICATIONS could be revoked between permission check and send.
+            return Result.success()
+        }
         GpsRecoveryMonitorRules.alertJournalEvent(decision)?.let { event ->
             GpsTraceJournal.append(prefs,event,System.currentTimeMillis(),
                 JSONObject().put("lastHeartbeat",prefs.getLong("gps_service_heartbeat_ms",0)))
