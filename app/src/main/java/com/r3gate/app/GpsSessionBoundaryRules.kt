@@ -21,5 +21,8 @@ object GpsSessionBoundaryRules {
     /** Each new session needs its own recovery reminder budget. */
     fun resetRecoveryAlertForNewSession(newSession:Boolean):Boolean = newSession
 
+    /** Never claim a tracking service is running unless the startup checkpoint persisted. */
+    fun mayActivateAfterPersist(saved:Boolean):Boolean = saved
+
     fun shouldRecordShutdownGap(sessionStarted:Boolean):Boolean = sessionStarted
 }
