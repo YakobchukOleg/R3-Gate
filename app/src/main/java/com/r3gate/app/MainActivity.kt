@@ -106,7 +106,7 @@ class MainActivity : Activity() {
         }
         if (prefs.getString("pin", null) == null) setupPin() else handleLaunch()
     }
-    override fun onResume() { super.onResume(); prefs.registerOnSharedPreferenceChangeListener(uploadChanges); ticker.removeCallbacks(tick); ticker.postDelayed(tick, 60000) }
+    override fun onResume() { super.onResume(); prefs.registerOnSharedPreferenceChangeListener(uploadChanges); ticker.removeCallbacks(tick); ticker.postDelayed(tick, 60000); CoreGpsStageBridge.refresh(this) }
     override fun onPause() { prefs.unregisterOnSharedPreferenceChangeListener(uploadChanges); ticker.removeCallbacks(refreshUploads); ticker.removeCallbacks(tick); super.onPause() }
     override fun onStop() { walletUnlocked=false; super.onStop() }
     override fun onRestart() { super.onRestart(); if(screen=="wallet" || screen=="payment" || screen=="expenses" || screen.startsWith("detail:expenses:")) settings() else if(screen!="form") openScreen(screen) }
@@ -136,6 +136,9 @@ class MainActivity : Activity() {
         val action=intent?.getStringExtra("widget_action")
         intent?.removeExtra("widget_action")
         home()
+        val gpsProposal=intent?.getStringExtra(CoreGpsStageBridge.INTENT_EVENT)
+        intent?.removeExtra(CoreGpsStageBridge.INTENT_EVENT)
+        if(!gpsProposal.isNullOrBlank()) { reviewGpsStageProposal(gpsProposal); return }
         val uploadReference=intent?.getStringExtra("upload_retry")
         intent?.removeExtra("upload_retry")
         if(!uploadReference.isNullOrBlank()) { pendingUpload=uploadReference; authorizeDrive(); return }
@@ -147,6 +150,63 @@ class MainActivity : Activity() {
             "travel" -> toggleTravel()
             "shopping" -> toggleShopping()
         }
+    }
+    private fun reviewGpsStageProposal(eventId: String) {
+        val storage=AndroidCoreGpsProposalStorage(this)
+        val current=CoreGpsProposalStore.read(storage) as? CoreGpsProposalStore.ReadResult.Success ?: return
+        val event=current.events.find { it.eventId==eventId &&
+            it.decision==CoreGpsProposalInbox.Decision.PROVISIONAL } ?: return
+        val d=data(); val active=active(d) ?: return
+        val activeIds=rows(d,"objects").filter { !it.optBoolean("archived") }
+            .map { it.optString("id") }.toSet()
+        val shift=CoreGpsStageRules.Shift(true,active.optString("kind","Obiekt"),active.optString("objectId"))
+        if(!CoreGpsStageRules.shouldNotify(event,shift,activeIds,active.optLong("start"))) return
+        val obj=rows(d,"objects").find { it.optString("id")==event.objectId } ?: return
+        val stage=CoreGpsStageRules.proposal(event.kind,event.objectId,shift,activeIds) ?: return
+        val title=if(stage==CoreGpsStageRules.Proposal.START_TRAVEL)
+            "Rozpocząć przejazd?" else "Potwierdzić przyjazd?"
+        val message=if(stage==CoreGpsStageRules.Proposal.START_TRAVEL)
+            "GPS wykrył wyjazd z: "+objectName(obj)+"\\nZmienimy etap od chwili potwierdzenia."
+        else "GPS wykrył przyjazd: "+objectName(obj)+"\\nZmienimy etap od chwili potwierdzenia."
+        AlertDialog.Builder(this,R.style.WorkMeterDialogTheme)
+            .setTitle(title).setMessage(message).setNegativeButton("Odrzuć") { _,_ ->
+                CoreGpsProposalStore.decide(storage,eventId,CoreGpsProposalInbox.Decision.USER_REJECTED)
+            }.setPositiveButton("Potwierdź") { _,_ ->
+                val latest=data(); val nowActive=active(latest) ?: return@setPositiveButton
+                val available=rows(latest,"objects").filter { !it.optBoolean("archived") }
+                    .map { it.optString("id") }.toSet()
+                val currentShift=CoreGpsStageRules.Shift(true,nowActive.optString("kind","Obiekt"),
+                    nowActive.optString("objectId"))
+                if(!CoreGpsStageRules.shouldNotify(event,currentShift,available,nowActive.optLong("start")) ||
+                    (CoreGpsProposalStore.read(storage) as? CoreGpsProposalStore.ReadResult.Success)
+                        ?.events?.find { it.eventId==eventId }?.decision !=
+                            CoreGpsProposalInbox.Decision.PROVISIONAL) {
+                    toast("Propozycja jest już nieaktualna"); return@setPositiveButton
+                }
+                val selected=rows(latest,"objects").find { it.optString("id")==event.objectId &&
+                    !it.optBoolean("archived") } ?: return@setPositiveButton
+                val now=System.currentTimeMillis()
+                if(now<=nowActive.optLong("stageStart",nowActive.optLong("start"))) return@setPositiveButton
+                if(stage==CoreGpsStageRules.Proposal.START_TRAVEL) {
+                    closeStage(nowActive,now)
+                    val origin=nowActive.optString("object")
+                    nowActive.put("stageStart",now).put("kind","Przejazd")
+                        .put("object","").put("objectId","")
+                        .put("stageMeta",JSONObject().put("fromObject",origin)
+                            .put("fromObjectId",event.objectId))
+                } else {
+                    if(nowActive.optString("kind")=="Przejazd")
+                        nowActive.optJSONObject("stageMeta")?.put("toObject",objectName(selected))
+                            ?.put("toObjectId",event.objectId)
+                    closeStage(nowActive,now)
+                    nowActive.remove("stageMeta")
+                    nowActive.put("stageStart",now).put("kind","Obiekt")
+                        .put("object",objectName(selected)).put("objectId",event.objectId)
+                }
+                save(latest,"GPS_STAGE_CONFIRMED",eventId)
+                CoreGpsProposalStore.decide(storage,eventId,CoreGpsProposalInbox.Decision.USER_CONFIRMED)
+                home()
+            }.show()
     }
     private fun data(): JSONObject = try { JSONObject(prefs.getString("data","{}")!!) } catch (_: Exception) { JSONObject() }
     private fun arr(d:JSONObject,key:String):JSONArray = d.optJSONArray(key) ?: JSONArray().also { d.put(key,it) }
