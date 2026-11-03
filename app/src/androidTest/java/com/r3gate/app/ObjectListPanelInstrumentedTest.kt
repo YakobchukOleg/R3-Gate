@@ -242,4 +242,43 @@ class ObjectListPanelInstrumentedTest {
         }
     }
 
+    @Test fun materialsFormShowsAssignmentQuantityAndBatchSections() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                openActiveDetails(activity)
+                val materials=views(activity).filterIsInstance<Button>()
+                    .first { it.text.toString()=="Materiały" }
+                materials.performClick()
+                val add=views(activity).filterIsInstance<Button>()
+                    .first { it.text.toString()=="+ Dodaj" }
+                add.performClick()
+                val labels=texts(activity)
+                assertTrue(labels.contains("Materiał na obiekcie"))
+                assertTrue(labels.contains("Przypisanie"))
+                assertTrue(labels.contains("Materiał i ilość"))
+                assertTrue(labels.contains("Materiały w zestawie: 0"))
+                assertTrue(labels.contains("Brak dołączonych zdjęć"))
+            }
+        }
+    }
+
+    @Test fun photoFormShowsAttachmentGuidanceWithoutFakePhotos() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                openActiveDetails(activity)
+                val photos=views(activity).filterIsInstance<Button>()
+                    .first { it.text.toString()=="Zdjęcia" }
+                photos.performClick()
+                val add=views(activity).filterIsInstance<Button>()
+                    .first { it.text.toString()=="+ Dodaj" }
+                add.performClick()
+                val labels=texts(activity)
+                assertTrue(labels.contains("Zdjęcia i dokumentacja"))
+                assertTrue(labels.contains("Załączniki"))
+                assertTrue(labels.contains("Brak dołączonych zdjęć"))
+                assertTrue(labels.contains("Dodaj zdjęcia z galerii"))
+            }
+        }
+    }
+
 }
