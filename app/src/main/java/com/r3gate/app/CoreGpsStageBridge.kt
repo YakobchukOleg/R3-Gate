@@ -65,17 +65,24 @@ object CoreGpsStageBridge {
         val storage = AndroidCoreGpsProposalStorage(context)
         val updated = CoreGpsProposalStore.import(storage, incoming, activeIds)
         if (updated.state !is CoreGpsProposalStore.ReadResult.Success) return
-        val notifier = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        if (Build.VERSION.SDK_INT >= 33 &&
-            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
-        notifier.createNotificationChannel(NotificationChannel(CHANNEL, "WorkMeter · etapy GPS", NotificationManager.IMPORTANCE_HIGH))
-        if (!notifier.areNotificationsEnabled() ||
-            notifier.getNotificationChannel(CHANNEL)?.importance == NotificationManager.IMPORTANCE_NONE) return
-        // Only the newest unambiguous suggestion can be shown for this stage.
+        // First reconcile the durable inbox and dismiss stale prompts, even if
+        // notification permission or a user-disabled channel blocks new alerts.
         val choice = CoreGpsStageReviewQueue.choose(
             updated.state.events, shift, activeIds, stageStart, nowMs
         )
         val event = choice.event ?: run { dismiss(context); return }
+        val notifier = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (Build.VERSION.SDK_INT >= 33 &&
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            dismiss(context)
+            return
+        }
+        notifier.createNotificationChannel(NotificationChannel(CHANNEL, "WorkMeter · etapy GPS", NotificationManager.IMPORTANCE_HIGH))
+        if (!notifier.areNotificationsEnabled() ||
+            notifier.getNotificationChannel(CHANNEL)?.importance == NotificationManager.IMPORTANCE_NONE) {
+            dismiss(context)
+            return
+        }
         val flagged = prefs.getStringSet("core_gps_notified", emptySet())?.toSet() ?: emptySet()
         if (event.eventId in flagged) {
             // Never leave an older, now-inapplicable notification visible.
