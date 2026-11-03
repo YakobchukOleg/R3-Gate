@@ -7,6 +7,12 @@ package com.r3gate.app
 object GpsSensorBurstRules {
     const val REARM_MS=5*60_000L
 
+    /** Re-arm hints after a real device clock rollback, not a minor out-of-order sample. */
+    fun clockRollbackRequiresReset(nowMs:Long,lastStartMs:Long,currentBurstSinceMs:Long):Boolean =
+        nowMs>0L && listOf(lastStartMs,currentBurstSinceMs).any {
+            it>nowMs && it-nowMs>=GpsAdaptiveSampling.CLOCK_ROLLBACK_RESET_MS
+        }
+
     fun mayStart(nowMs:Long,lastStartMs:Long,currentBurstSinceMs:Long):Boolean {
         if(nowMs<=0L || lastStartMs>nowMs || currentBurstSinceMs>nowMs) return false
         if(currentBurstSinceMs>0L &&
