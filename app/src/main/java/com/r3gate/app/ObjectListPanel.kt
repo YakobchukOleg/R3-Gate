@@ -28,10 +28,8 @@ class ObjectListPanel(
     private val bg = Color.rgb(244, 247, 247)
     private val green = Color.rgb(37, 136, 109)
     private var items: List<ObjectListUiModel.Item> = emptyList()
-    private var archived = false
-    private var grouped = true
+    private var filterState = ObjectFilterUiState.State()
     private var query = ""
-    private var selectedCity: String? = null
     private val cityChips = LinearLayout(context).apply { orientation = HORIZONTAL }
     private val results = LinearLayout(context).apply { orientation = VERTICAL }
     private val archiveToggle = TextView(context)
@@ -71,7 +69,7 @@ class ObjectListPanel(
             setTextColor(ink)
             setPadding(dp(10), dp(10), dp(10), dp(10))
             background = rounded(Color.WHITE, 20)
-            setOnClickListener { archived = !archived; onArchiveChanged(archived); render() }
+            setOnClickListener { filterState = ObjectFilterUiState.toggleArchive(filterState); onArchiveChanged(filterState.archived); render() }
         }
         groupToggle.apply {
             textSize = 13f
@@ -79,7 +77,7 @@ class ObjectListPanel(
             setTextColor(ink)
             setPadding(dp(10), dp(10), dp(10), dp(10))
             background = rounded(Color.WHITE, 20)
-            setOnClickListener { grouped = !grouped; render() }
+            setOnClickListener { filterState = ObjectFilterUiState.toggleGrouping(filterState); render() }
         }
         options.addView(archiveToggle, LayoutParams(0, dp(44), 1f))
         options.addView(groupToggle, LayoutParams(0, dp(44), 1f).apply { leftMargin = dp(8) })
@@ -114,31 +112,32 @@ class ObjectListPanel(
 
     fun submitObjects(value: List<ObjectListUiModel.Item>) {
         items = value.toList()
-        if (selectedCity != null && selectedCity !in ObjectListUiModel.activeCities(items)) selectedCity = null
+        filterState = ObjectFilterUiState.restore(filterState, ObjectListUiModel.activeCities(items))
         render()
     }
 
     fun showArchivedObjects(value: Boolean) {
-        archived = value
+        filterState = filterState.copy(archived = value, city = null)
         render()
     }
 
     fun setCityFilter(city: String?) {
-        selectedCity = city
+        filterState = ObjectFilterUiState.city(filterState, city)
         render()
     }
 
     private fun render() {
+        val archived = filterState.archived
+        val grouped = filterState.grouped
         archiveToggle.text = if (archived) "Archiwum ✓" else "Wszystkie"
         groupToggle.text = if (grouped) "▤ Grupuj: miasta" else "☷ Lista"
         archiveToggle.contentDescription = if (archived) "Pokaż aktywne obiekty" else "Pokaż archiwum obiektów"
         groupToggle.contentDescription = if (grouped) "Wyłącz grupowanie" else "Grupuj według miast"
         cityChips.removeAllViews()
         val cities = if (archived) emptyList() else ObjectListUiModel.activeCities(items)
-        if (archived) selectedCity = null
         val choices: List<String?> = listOf(null) + cities
         for (city in choices) {
-            val active = selectedCity == city
+            val active = filterState.city == city
             val chip = label(city ?: "Wszystkie miasta", if (active) Color.WHITE else ink, 12f).apply {
                 gravity = Gravity.CENTER
                 setPadding(dp(12), dp(7), dp(12), dp(7))
@@ -146,13 +145,14 @@ class ObjectListPanel(
                 isClickable = true
                 isFocusable = true
                 contentDescription = if (city == null) "Wszystkie miasta" else "Filtr miasta: " + city
-                setOnClickListener { selectedCity = city; render() }
+                isSelected = active
+                setOnClickListener { filterState = ObjectFilterUiState.city(filterState, city); render() }
             }
             cityChips.addView(chip, LayoutParams(LayoutParams.WRAP_CONTENT, dp(38)).apply {
                 rightMargin = dp(8)
             })
         }
-        val display = ObjectListUiModel.display(items, archived, query, selectedCity)
+        val display = ObjectListUiModel.display(items, archived, query, filterState.city)
         count.text = ObjectCountLabel.format(display.rows.size, archived)
         results.removeAllViews()
         if (display.emptyMessage != null) {
