@@ -69,8 +69,7 @@ class GpsRecoveryMonitorWorker(context:Context,params:WorkerParameters):Worker(c
         val permission=decision==GpsRecoveryMonitorRules.Decision.ALERT_PERMISSION
         val providerOff=decision==GpsRecoveryMonitorRules.Decision.ALERT_PROVIDER_OFF
         val providerUnusable=decision==GpsRecoveryMonitorRules.Decision.ALERT_PROVIDER_UNUSABLE
-        prefs.edit().putLong("gps_recovery_alert_at",now)
-            .putString("gps_service_problem",when {
+        prefs.edit().putString("gps_service_problem",when {
                 permission -> "permission"
                 providerOff -> "no_provider"
                 providerUnusable -> "provider_unusable"
@@ -88,8 +87,8 @@ class GpsRecoveryMonitorWorker(context:Context,params:WorkerParameters):Worker(c
         val notifications=applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notifications.createNotificationChannel(NotificationChannel(
             CHANNEL,"WorkMeter · GPS monitor",NotificationManager.IMPORTANCE_DEFAULT))
-        if(Build.VERSION.SDK_INT>=33 &&
-            applicationContext.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)
+        if(!GpsRecoveryMonitorRules.shouldMarkAlertSent(Build.VERSION.SDK_INT>=33,
+                applicationContext.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)==PackageManager.PERMISSION_GRANTED))
             return Result.success()
         val intent=Intent(applicationContext,MainActivity::class.java).apply {
             putExtra("gps_resume_alert",true)
@@ -110,6 +109,7 @@ class GpsRecoveryMonitorWorker(context:Context,params:WorkerParameters):Worker(c
             .setContentIntent(pending)
             .setAutoCancel(true).build()
         notifications.notify(NOTIFICATION_ID,notification)
+        prefs.edit().putLong("gps_recovery_alert_at",System.currentTimeMillis()).apply()
         return Result.success()
     }
     companion object {
