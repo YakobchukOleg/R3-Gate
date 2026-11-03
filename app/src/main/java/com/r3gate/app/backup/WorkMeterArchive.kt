@@ -23,6 +23,7 @@ object WorkMeterArchive {
     private const val MANIFEST = "workmeter-manifest.txt"
     private const val HEADER = "WORKMETER-ARCHIVE/1"
     private const val MAX_ENTRIES = 10000
+    private const val MAX_MANIFEST_BYTES = 1024 * 1024
     private const val MAX_ENTRY_BYTES = 1024L * 1024 * 1024 * 2
     private const val MAX_TOTAL_BYTES = 1024L * 1024 * 1024 * 8
     data class Source(val path: String, val open: () -> InputStream)
@@ -78,7 +79,9 @@ object WorkMeterArchive {
             }
             val manifest = (listOf(HEADER) + entries.map { "${encoded(it.path)}\t${it.size}\t${it.sha256}" }).joinToString("\n", postfix = "\n")
             zip.putNextEntry(ZipEntry(MANIFEST))
-            zip.write(manifest.toByteArray(Charsets.UTF_8))
+            val manifestBytes = manifest.toByteArray(Charsets.UTF_8)
+            require(manifestBytes.size <= MAX_MANIFEST_BYTES) { "Manifest too large" }
+            zip.write(manifestBytes)
             zip.closeEntry()
         }
         return Inspection(VERSION, entries, total)
@@ -150,7 +153,7 @@ object WorkMeterArchive {
                     while (true) {
                         val n = zip.read(buffer)
                         if (n < 0) break
-                        require(bytes.size() + n <= 1024 * 1024) { "Manifest too large" }
+                        require(bytes.size() + n <= MAX_MANIFEST_BYTES) { "Manifest too large" }
                         bytes.write(buffer, 0, n)
                     }
                     manifest = strictUtf8(bytes.toByteArray())
