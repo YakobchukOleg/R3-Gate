@@ -49,4 +49,24 @@ class CoreGpsCoverageRulesTest {
         assertFalse(safe(gaps=gaps))
         assertFalse(safe(gaps=gaps))
     }
+
+    @Test fun missingGpsGapTimestampFailsClosed() {
+        assertFalse(safe(outages=listOf(0L)))
+    }
+
+    @Test fun negativeGpsGapTimestampFailsClosed() {
+        assertFalse(safe(outages=listOf(-1L)))
+    }
+
+    @Test fun corruptedOutageAmongValidEntriesFailsClosed() {
+        assertFalse(safe(outages=listOf(100L,0L,3000L)))
+    }
+
+    @Test fun historicalValidOutageOutsideWindowRemainsSafe() {
+        assertTrue(safe(outages=listOf(100L,900L)))
+    }
+
+    @Test fun malformedOutageIsRejectedEvenWhenOutsideWindow() {
+        assertFalse(safe(outages=listOf(-100L,900L)))
+    }
 }
