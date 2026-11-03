@@ -2123,8 +2123,8 @@ class MainActivity : Activity() {
             capturedGeo.optString("objectId"),capturedGeo.optDouble("lat"),
             capturedGeo.optDouble("lon"),capturedGeo.optDouble("accuracy"),
             capturedGeo.optLong("time")) else null
-        if(geoCapture!=null && !GpsObjectLocationRules.belongsTo(geoCapture,objectId,System.currentTimeMillis())) {
-            toast("Lokalizacja GPS straciła ważność. Zapisz obiekt bez lokalizacji lub pobierz GPS ponownie.")
+        if(geoCapture!=null && !GpsObjectLocationRules.belongsTo(geoCapture,objectId,geoCapture.fixTimeMs)) {
+            toast("Lokalizacja GPS nie pasuje do obiektu. Pobierz GPS ponownie.")
             return
         }
         draft.remove("_gps_capture")
