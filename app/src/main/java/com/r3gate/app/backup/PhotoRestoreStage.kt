@@ -25,8 +25,8 @@ object PhotoRestoreStage {
         val directory = java.nio.file.Files.createTempDirectory(parent.toPath(), "restore-").toFile()
         val paths = expected.associateBy { it.path }
         val outputs = LinkedHashMap<String, File>()
-        val digests = openArchive().use { WorkMeterArchive.inspect(it) }.files.associateBy { it.path }
         try {
+            val digests = openArchive().use { WorkMeterArchive.inspect(it) }.files.associateBy { it.path }
             openArchive().use { input ->
                 ZipInputStream(input).use { zip ->
                     val buffer = ByteArray(65536)
