@@ -15,6 +15,18 @@ object CoreGpsStageReviewQueue {
         val ambiguous: Boolean
     )
 
+    /** A notification tap must still refer to the newest unambiguous suggestion. */
+    fun isCurrent(
+        eventId: String,
+        events: Collection<CoreGpsProposalInbox.Event>,
+        shift: CoreGpsStageRules.Shift,
+        activeObjectIds: Set<String>,
+        currentStageStartMs: Long,
+        nowMs: Long
+    ): Boolean = eventId.isNotBlank() &&
+        choose(events, shift, activeObjectIds, currentStageStartMs, nowMs)
+            .event?.eventId == eventId
+
     fun choose(
         events: Collection<CoreGpsProposalInbox.Event>,
         shift: CoreGpsStageRules.Shift,
