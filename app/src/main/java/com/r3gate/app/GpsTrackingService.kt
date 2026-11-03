@@ -245,8 +245,20 @@ class GpsTrackingService : Service(), LocationListener {
         return START_NOT_STICKY
     }
     override fun onLocationChanged(location:Location) {
-        if(!prefs.getBoolean("gps_enabled",false)) { shutdown();return }
-        if(!GpsFixSourceRules.accept(currentProvider,location.provider,true)) return
+        when(GpsLocationCallbackRules.decide(
+            prefs.getBoolean("gps_enabled",false),
+            checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED,
+            checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)==PackageManager.PERMISSION_GRANTED,
+            GpsFixSourceRules.accept(currentProvider,location.provider,true))) {
+            GpsLocationCallbackRules.Action.STOP_DISABLED -> { shutdown();return }
+            GpsLocationCallbackRules.Action.STOP_PERMISSION -> {
+                prefs.edit().putString("gps_service_problem","permission").commit()
+                shutdown()
+                return
+            }
+            GpsLocationCallbackRules.Action.IGNORE_SOURCE -> return
+            GpsLocationCallbackRules.Action.PROCESS -> Unit
+        }
         val now=System.currentTimeMillis()
         if(!GpsLocationQuality.acceptable(now,location.time,location.accuracy.toDouble(),
                 location.latitude,location.longitude)) {
