@@ -13,6 +13,7 @@ import java.time.format.DateTimeFormatter
 /** Read-only reports from existing JSON; never changes journal, wages, or stage types. */
 object JournalCsvExport {
     enum class Report { WORK_TIME, BY_OBJECT, MATERIALS }
+    data class Table(val headers: List<String>, val rows: List<List<String>>)
     data class Period(val from: LocalDate? = null, val to: LocalDate? = null) {
         init { require(from == null || to == null || !from.isAfter(to)) }
         fun includes(day: LocalDate) = (from == null || !day.isBefore(from)) &&
@@ -36,6 +37,11 @@ object JournalCsvExport {
         .divide(BigDecimal.valueOf(3600000), 2, RoundingMode.HALF_UP).toPlainString()
 
     fun write(json: String, report: Report, period: Period, destination: OutputStream) {
+        val table = table(json, report, period)
+        WorkMeterCsv.write(destination, table.headers, table.rows.asSequence())
+    }
+
+    fun table(json: String, report: Report, period: Period): Table {
         val data = JSONObject(json)
         val names = list(data, "objects").associate {
             it.optString("id") to it.optString("name", it.optString("title"))
@@ -53,9 +59,7 @@ object JournalCsvExport {
                             id, name(id, shift.optString("object")))
                     }
                 }
-                WorkMeterCsv.write(destination,
-                    listOf("Data", "Początek", "Koniec", "Godziny", "ID obiektu", "Obiekt"),
-                    rows.asSequence())
+                Table(listOf("Data", "Początek", "Koniec", "Godziny", "ID obiektu", "Obiekt"), rows)
             }
             Report.BY_OBJECT -> {
                 val totals = linkedMapOf<Pair<String, String>, Long>()
@@ -79,11 +83,7 @@ object JournalCsvExport {
                         totals[key] = (totals[key] ?: 0) + b - a
                     }
                 }
-                WorkMeterCsv.write(destination,
-                    listOf("ID obiektu", "Obiekt", "Godziny na obiekcie"),
-                    totals.asSequence().map { (key, value) ->
-                        listOf(key.first, key.second, hours(value))
-                    })
+                Table(listOf("ID obiektu", "Obiekt", "Godziny na obiekcie"), totals.map { (key, value) -> listOf(key.first, key.second, hours(value)) })
             }
             Report.MATERIALS -> {
                 val rows = list(data, "materials").mapNotNull { item ->
@@ -100,9 +100,7 @@ object JournalCsvExport {
                             item.optString("unit"))
                     }
                 }
-                WorkMeterCsv.write(destination,
-                    listOf("Data", "ID obiektu", "Obiekt", "Materiał", "Ilość", "Jednostka"),
-                    rows.asSequence())
+                Table(listOf("Data", "ID obiektu", "Obiekt", "Materiał", "Ilość", "Jednostka"), rows)
             }
         }
     }
