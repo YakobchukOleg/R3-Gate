@@ -48,4 +48,32 @@ class JournalValidatorTest {
         assertTrue(report.canRestore)
     }
 
+    @Test fun numericOrNullObjectIdsCannotBeSilentlyCoerced() {
+        for (raw in listOf("42", "null", "true", "{}")) {
+            val report = JournalValidator.inspect("""{"objects":[{"id":$raw}]}""")
+            assertFalse("id=$raw silently accepted", report.canRestore)
+        }
+    }
+
+    @Test fun invalidArchivedFlagCannotBeSilentlyCoerced() {
+        for (raw in listOf("\"true\"", "1", "null")) {
+            val report = JournalValidator.inspect("""{"objects":[{"id":"obj","archived":$raw}]}""")
+            assertFalse("archived=$raw silently accepted", report.canRestore)
+        }
+    }
+
+    @Test fun mistypedReferencesFailInsteadOfBeingOrphanWarnings() {
+        for (raw in listOf("123", "null", "false", "[]")) {
+            val report = JournalValidator.inspect("""{"objects":[{"id":"obj"}],"shifts":[{"objectId":$raw}]}""")
+            assertFalse("objectId=$raw silently accepted", report.canRestore)
+        }
+    }
+
+    @Test fun stringReferencesAndMissingOptionalFieldsRemainCompatible() {
+        val report = JournalValidator.inspect("""{"objects":[{"id":"007"},{"id":"archive","archived":true}],"shifts":[{"objectId":"007"},{}]}""")
+        assertTrue(report.errors.toString(), report.canRestore)
+        assertEquals(1, report.archivedCount)
+        assertEquals(1, report.referenceCount)
+    }
+
 }
