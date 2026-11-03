@@ -16,14 +16,19 @@ class JournalRestoreStoreTest {
     private val context: Context get() = ApplicationProvider.getApplicationContext()
     private val prefs get() = context.getSharedPreferences("r3_gate", Context.MODE_PRIVATE)
     private var original: String? = null
+    private val checkpoint get() = java.io.File(context.noBackupFilesDir, "journal-before-restore.wmb.zip")
+    private var originalCheckpoint: ByteArray? = null
     private val before = """{"objects":[{"id":"existing"}]}"""
     private val incoming = """{"objects":[{"id":"archived","archived":true}],"shifts":[{"objectId":"archived"}]}"""
 
     @Before fun setUp() {
         original = prefs.getString("data", null)
+        originalCheckpoint = if (checkpoint.exists()) checkpoint.readBytes() else null
         assertTrue(prefs.edit().putString("data", before).commit())
     }
     @After fun tearDown() {
+        if (originalCheckpoint == null) checkpoint.delete()
+        else checkpoint.writeBytes(originalCheckpoint!!)
         assertTrue(prefs.edit().apply {
             if (original == null) remove("data") else putString("data", original)
         }.commit())
@@ -65,12 +70,32 @@ class JournalRestoreStoreTest {
     }
     @Test fun checkpointPreservesPreviousJournal() {
         JournalRestoreStore.restore(context, plan(), true)
-        assertEquals(before, prefs.getString("restore_checkpoint_data", null))
+        assertTrue(checkpoint.isFile)
+        assertEquals(before, JournalRecoveryCheckpoint.readVerified(checkpoint))
         assertEquals(incoming, prefs.getString("data", null))
     }
     @Test fun rejectedRestoreDoesNotOverwriteExistingJournal() {
         try { JournalRestoreStore.restore(context, plan(), false) }
         catch (_: IllegalArgumentException) { }
+        assertEquals(before, prefs.getString("data", null))
+    }
+
+    @Test fun corruptedCheckpointIsDetected() {
+        JournalRestoreStore.restore(context, plan(), true)
+        checkpoint.writeText("damaged", Charsets.UTF_8)
+        try {
+            JournalRecoveryCheckpoint.readVerified(checkpoint)
+            fail("Corrupted recovery archive accepted")
+        } catch (_: Exception) { }
+    }
+
+    @Test fun refusedRestoreDoesNotCreateRecoveryFile() {
+        checkpoint.delete()
+        try {
+            JournalRestoreStore.restore(context, plan(), false)
+            fail("Unconfirmed restore accepted")
+        } catch (_: IllegalArgumentException) { }
+        assertFalse(checkpoint.exists())
         assertEquals(before, prefs.getString("data", null))
     }
 
