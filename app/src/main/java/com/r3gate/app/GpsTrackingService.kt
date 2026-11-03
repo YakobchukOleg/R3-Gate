@@ -40,6 +40,7 @@ class GpsTrackingService : Service(), LocationListener {
         override fun run() {
             if(!sessionStarted || !prefs.getBoolean("gps_enabled",false)) return
             val now=System.currentTimeMillis()
+            prefs.edit().putLong("gps_service_heartbeat_ms",now).apply()
             val lastFix=try { JSONObject(prefs.getString("gps_last_fix","{}") ?: "{}").optLong("time") }
                 catch(_:Exception) { 0L }
             val decision=GpsWatchdogRules.decide(now,
@@ -220,6 +221,7 @@ class GpsTrackingService : Service(), LocationListener {
     }
     override fun onStartCommand(intent:Intent?,flags:Int,startId:Int):Int {
         if(intent?.action==ACTION_STOP) {
+            GpsRecoveryMonitorWorker.cancel(this)
             trace("MANUAL_STOP")
             prefs.edit().putBoolean("gps_enabled",false).apply()
             shutdown()
@@ -273,7 +275,8 @@ class GpsTrackingService : Service(), LocationListener {
                     .putString("gps_arrival_state",safeArrival.toString())
                     .putLong("gps_requested_interval_ms",GpsAdaptiveSampling.ACTIVE_INTERVAL_MS)
                     .putBoolean("gps_service_active",true)
-                    .putLong("gps_session_start",System.currentTimeMillis()).commit()
+                    .putLong("gps_session_start",System.currentTimeMillis())
+                    .putLong("gps_service_heartbeat_ms",System.currentTimeMillis()).commit()
                 samplingState=GpsAdaptiveSampling.State()
                 samplingIntervalMs=GpsAdaptiveSampling.ACTIVE_INTERVAL_MS
                 motionWakeState=GpsMotionWakeRules.State()
@@ -292,6 +295,7 @@ class GpsTrackingService : Service(), LocationListener {
             updateSubscription()
             watchdogHandler.removeCallbacks(watchdogTick)
             watchdogHandler.postDelayed(watchdogTick,GpsWatchdogRules.CHECK_INTERVAL_MS)
+            GpsRecoveryMonitorWorker.schedule(this)
             trace("SERVICE_START",details=JSONObject()
                 .put("provider",currentProvider ?: "").put("intervalMs",samplingIntervalMs))
         } catch(_:SecurityException) { prefs.edit().putString("gps_service_problem","permission").apply(); shutdown() }
