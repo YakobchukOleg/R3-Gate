@@ -117,4 +117,41 @@ class ObjectListPanelInstrumentedTest {
         }
     }
 
+    private fun openActiveDetails(activity: Activity) {
+        goToObjects(activity)
+        val card = views(activity).firstOrNull {
+            it.contentDescription?.toString()?.contains("TCZ-01") == true && it.isClickable
+        }
+        assertNotNull("Object card should be clickable", card)
+        card!!.performClick()
+    }
+
+    @Test fun nativeDetailsShowsMetadataAndEmptyHistory() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                openActiveDetails(activity)
+                assertEquals(1, views(activity).filterIsInstance<ObjectDetailsPanel>().size)
+                assertTrue(texts(activity).contains("Główna 3").not()) // Location includes the city
+                assertTrue(texts(activity).any { it.contains("Tczew, Główna 3") })
+                assertTrue(texts(activity).contains("Czas na obiekcie"))
+                assertTrue(texts(activity).contains("Brak zarejestrowanego czasu na tym obiekcie."))
+                assertTrue(texts(activity).contains("Ważne informacje"))
+                assertTrue(texts(activity).contains("Otwórz w Google Maps"))
+            }
+        }
+    }
+
+    @Test fun nativeDetailsQuickActionsNavigateToExistingScreens() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                openActiveDetails(activity)
+                val materials = views(activity).filterIsInstance<Button>()
+                    .firstOrNull { it.text.toString() == "Materiały" }
+                assertNotNull("Materials shortcut", materials)
+                materials!!.performClick()
+                assertTrue(texts(activity).any { it.contains("Materiały") })
+            }
+        }
+    }
+
 }
