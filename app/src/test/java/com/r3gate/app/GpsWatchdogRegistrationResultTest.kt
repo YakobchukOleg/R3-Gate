@@ -28,6 +28,24 @@ class GpsWatchdogRegistrationResultTest {
     @Test fun missingCurrentProviderIsNotSuccessful() {
         assertFalse(rules.registrationSucceeded("gps",true,null))
     }
+    @Test fun gpsToNetworkTransitionMustNotClaimOldProviderRestored() {
+        assertTrue(rules.registrationSucceeded("gps",true,"gps"))
+        assertFalse(rules.registrationSucceeded("network",true,"gps"))
+        assertTrue(rules.registrationSucceeded("network",true,"network"))
+    }
+    @Test fun networkToGpsTransitionMustNotClaimOldProviderRestored() {
+        assertTrue(rules.registrationSucceeded("network",true,"network"))
+        assertFalse(rules.registrationSucceeded("gps",true,"network"))
+        assertTrue(rules.registrationSucceeded("gps",true,"gps"))
+    }
+    @Test fun providerUnavailableDuringRetryMustNotClaimRecovery() {
+        assertFalse(rules.registrationSucceeded("gps",false,null))
+        assertFalse(rules.registrationSucceeded(null,false,null))
+    }
+    @Test fun previouslyActiveSubscriptionDoesNotMaskMissingNewSubscription() {
+        assertTrue(rules.registrationSucceeded("gps",true,"gps"))
+        assertFalse(rules.registrationSucceeded("gps",false,null))
+    }
     @Test fun caseMismatchIsNotSuccessful() {
         assertFalse(rules.registrationSucceeded("gps",true,"GPS"))
     }
