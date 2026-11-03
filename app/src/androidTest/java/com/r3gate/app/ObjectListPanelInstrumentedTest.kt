@@ -111,7 +111,7 @@ class ObjectListPanelInstrumentedTest {
                 assertNotNull("Tczew filter", cityChip)
                 cityChip!!.performClick()
                 assertTrue(texts(activity).any { it.contains("TCZ-01") })
-                assertTrue(texts(activity).any { it.contains("1 obiektów") })
+                assertTrue(texts(activity).any { it.contains("1 obiekt") })
                 assertFalse(texts(activity).any { it.contains("GDA-02") })
             }
         }
