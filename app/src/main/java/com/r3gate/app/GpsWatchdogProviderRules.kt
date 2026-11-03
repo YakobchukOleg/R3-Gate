@@ -19,6 +19,12 @@ object GpsWatchdogProviderRules {
                               currentProvider:String?):Boolean =
         status(!selectedProvider.isNullOrBlank(),subscribed,currentProvider,selectedProvider)==Status.ACTIVE
 
+    /** A requested sampling cadence is applied only after a matching live subscription. */
+    fun cadenceApplied(selectedProvider:String?,subscribed:Boolean,
+                       currentProvider:String?,requestedMs:Long,registeredMs:Long):Boolean =
+        requestedMs>0L && registeredMs==requestedMs &&
+            registrationSucceeded(selectedProvider,subscribed,currentProvider)
+
     fun shouldReacquire(
         status:Status,
         noFixProbe:Boolean,
