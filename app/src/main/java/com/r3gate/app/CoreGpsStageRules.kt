@@ -24,6 +24,8 @@ object CoreGpsStageRules {
     fun canApply(event: CoreGpsProposalInbox.Event, shift: Shift,
                  activeObjectIds: Set<String>): Boolean =
         event.decision == CoreGpsProposalInbox.Decision.PROVISIONAL &&
+            event.confidence == CoreGpsProposalInbox.Confidence.HIGH &&
+            event.source == "gps-v1" && event.eventId.isNotBlank() && event.timestampMs > 0L &&
             proposal(event.kind, event.objectId, shift, activeObjectIds) != null
 
     fun shouldNotify(event: CoreGpsProposalInbox.Event, shift: Shift,
