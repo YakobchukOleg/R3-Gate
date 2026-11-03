@@ -94,9 +94,12 @@ object JournalCsvExport {
                         date == null && (period.from != null || period.to != null)) null
                     else {
                         val id = item.optString("objectId")
+                        val quantity = item.optString("quantity", item.optString("Ilość")).trim()
+                        val amount = quantity.replace(',', '.').toBigDecimalOrNull()
+                        require(amount != null && amount.signum() > 0) { "Invalid material quantity" }
                         listOf(raw, id, name(id, item.optString("object")),
                             item.optString("name", item.optString("Materiał")),
-                            item.optString("quantity", item.optString("Ilość")),
+                            quantity,
                             item.optString("unit"))
                     }
                 }
