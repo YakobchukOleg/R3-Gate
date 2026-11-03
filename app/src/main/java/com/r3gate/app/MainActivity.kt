@@ -998,16 +998,14 @@ class MainActivity : Activity() {
             button("Zezwól na GPS") { requestPermissions(arrayOf(android.Manifest.permission.ACCESS_COARSE_LOCATION,android.Manifest.permission.ACCESS_FINE_LOCATION),307) }
             return
         }
-        val lastGps=try { JSONObject(prefs.getString("gps_last_fix","{}") ?: "{}") } catch(_:Exception) { JSONObject() }
-        val status=GpsServiceStatusRules.status(enabled,permission,
-            prefs.getBoolean("gps_resume_pending",false),lastGps.optLong("time"),System.currentTimeMillis())
+        val status=GpsStatusReader.read(this,pendingProposalCount=0).status
         label(when(status) {
-            GpsServiceStatusRules.Status.NO_RECENT_FIX ->
-                "Brak aktualnego pomiaru GPS. Może to oznaczać słaby sygnał lub zatrzymanie usługi."
-            GpsServiceStatusRules.Status.RECENT_FIX -> "Ostatni pomiar GPS jest aktualny."
-            GpsServiceStatusRules.Status.PERMISSION_REQUIRED -> "Brak pozwolenia na GPS."
-            GpsServiceStatusRules.Status.RESUME_AFTER_REBOOT -> "GPS wymaga wznowienia."
-            GpsServiceStatusRules.Status.OFF -> "GPS wyłączony."
+            GpsStatusContract.Status.OFF -> "GPS wyłączony."
+            GpsStatusContract.Status.ACTIVE -> "Ostatni pomiar GPS jest aktualny."
+            GpsStatusContract.Status.WAITING_FOR_FIX -> "Oczekiwanie na aktualny pomiar GPS."
+            GpsStatusContract.Status.UNAVAILABLE -> "Brak dostępnego źródła lokalizacji."
+            GpsStatusContract.Status.PERMISSION_REQUIRED -> "Brak pozwolenia na GPS."
+            GpsStatusContract.Status.ERROR -> "Sprawdź diagnostykę GPS."
         })
         button("Uruchom ponownie śledzenie GPS") {
             stopService(Intent(this,GpsTrackingService::class.java))
