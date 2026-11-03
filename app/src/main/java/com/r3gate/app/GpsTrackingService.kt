@@ -39,7 +39,16 @@ class GpsTrackingService : Service(), LocationListener {
     private var lastSensorBurstStartMs=0L
     private val watchdogTick=object:Runnable {
         override fun run() {
-            if(!sessionStarted || !prefs.getBoolean("gps_enabled",false)) return
+            when(GpsWatchdogLifecycleRules.onTick(
+                sessionStarted,prefs.getBoolean("gps_enabled",false))) {
+                GpsWatchdogLifecycleRules.Action.IGNORE -> return
+                GpsWatchdogLifecycleRules.Action.STOP -> {
+                    trace("TRACKING_DISABLED_WATCHDOG")
+                    shutdown()
+                    return
+                }
+                GpsWatchdogLifecycleRules.Action.TICK -> Unit
+            }
             val now=System.currentTimeMillis()
             prefs.edit().putLong("gps_service_heartbeat_ms",now).apply()
             // Temporary 15-second geofence probes must end even with zero new GPS fixes.
