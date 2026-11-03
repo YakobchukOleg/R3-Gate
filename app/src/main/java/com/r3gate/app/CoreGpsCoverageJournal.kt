@@ -19,12 +19,10 @@ object CoreGpsCoverageJournal {
     ): Evidence? {
         val outages = ArrayList<Long>()
         for (boundary in boundaries) {
-            if (boundary == null) return null
-            if (boundary.kind == "GPS_GAP") {
-                val time = boundary.timestampMs ?: return null
-                if (time <= 0L) return null
-                outages.add(time)
-            }
+            if (boundary == null || boundary.kind.isNullOrBlank()) return null
+            val time = boundary.timestampMs ?: return null
+            if (time <= 0L) return null
+            if (boundary.kind == "GPS_GAP") outages.add(time)
         }
         val gaps = ArrayList<CoreGpsCoverageRules.Gap>()
         for (interval in intervals) {
