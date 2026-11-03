@@ -160,7 +160,9 @@ class MainActivity : Activity() {
         val activeIds=rows(d,"objects").filter { !it.optBoolean("archived") }
             .map { it.optString("id") }.toSet()
         val shift=CoreGpsStageRules.Shift(true,running.optString("kind","Obiekt"),running.optString("objectId"))
-        if(!CoreGpsStageRules.shouldNotify(event,shift,activeIds,maxOf(running.optLong("start"),running.optLong("stageStart",running.optLong("start"))),System.currentTimeMillis())) return
+        val stageStart=maxOf(running.optLong("start"),running.optLong("stageStart",running.optLong("start")))
+        if(!CoreGpsStageReviewQueue.isCurrent(eventId,current.events,shift,activeIds,
+                stageStart,System.currentTimeMillis())) return
         val obj=rows(d,"objects").find { it.optString("id")==event.objectId } ?: return
         val stage=CoreGpsStageRules.proposal(event.kind,event.objectId,shift,activeIds) ?: return
         val title=if(stage==CoreGpsStageRules.Proposal.START_TRAVEL)
@@ -171,16 +173,19 @@ class MainActivity : Activity() {
         AlertDialog.Builder(this,R.style.WorkMeterDialogTheme)
             .setTitle(title).setMessage(message).setNegativeButton("Odrzuć") { _,_ ->
                 CoreGpsProposalStore.decide(storage,eventId,CoreGpsProposalInbox.Decision.USER_REJECTED)
+                CoreGpsStageBridge.dismiss(this)
             }.setPositiveButton("Potwierdź") { _,_ ->
                 val latest=data(); val nowActive=active(latest) ?: return@setPositiveButton
                 val available=rows(latest,"objects").filter { !it.optBoolean("archived") }
                     .map { it.optString("id") }.toSet()
                 val currentShift=CoreGpsStageRules.Shift(true,nowActive.optString("kind","Obiekt"),
                     nowActive.optString("objectId"))
-                if(!CoreGpsStageRules.shouldNotify(event,currentShift,available,maxOf(nowActive.optLong("start"),nowActive.optLong("stageStart",nowActive.optLong("start"))),System.currentTimeMillis()) ||
-                    (CoreGpsProposalStore.read(storage) as? CoreGpsProposalStore.ReadResult.Success)
-                        ?.events?.find { it.eventId==eventId }?.decision !=
-                            CoreGpsProposalInbox.Decision.PROVISIONAL) {
+                val latestEvents=(CoreGpsProposalStore.read(storage) as?
+                    CoreGpsProposalStore.ReadResult.Success)?.events ?: return@setPositiveButton
+                val stageStart=maxOf(nowActive.optLong("start"),
+                    nowActive.optLong("stageStart",nowActive.optLong("start")))
+                if(!CoreGpsStageReviewQueue.isCurrent(eventId,latestEvents,currentShift,
+                        available,stageStart,System.currentTimeMillis())) {
                     toast("Propozycja jest już nieaktualna"); return@setPositiveButton
                 }
                 val selected=rows(latest,"objects").find { it.optString("id")==event.objectId &&
@@ -218,6 +223,7 @@ class MainActivity : Activity() {
                     return@setPositiveButton
                 }
                 GateWidget.refresh(this)
+                CoreGpsStageBridge.dismiss(this)
                 home()
             }.show()
     }
@@ -226,6 +232,8 @@ class MainActivity : Activity() {
     private fun save(d:JSONObject, kind:String, detail:String) {
         val log=arr(d,"logs"); log.put(JSONObject().put("at",fmt.format(Date())).put("type",kind).put("detail",detail)); d.put("logs",log)
         prefs.edit().putString("data",d.toString()).apply(); GateWidget.refresh(this)
+        if(kind=="START" || kind=="STOP" || kind=="STAGE" || kind=="ARRIVAL")
+            CoreGpsStageBridge.dismiss(this)
     }
     private fun active(d:JSONObject):JSONObject? = d.optJSONObject("active")
     private fun startShift() {
