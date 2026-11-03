@@ -16,7 +16,9 @@ object GpsRecoveryMonitorRules {
         lastAlertMs:Long
     ):Decision {
         if(!desiredTracking || nowMs<=0L) return Decision.IGNORE
-        val baseline=if(lastHeartbeatMs in 1..nowMs) lastHeartbeatMs else startedMs
+        // A newly started session supersedes an old heartbeat from a prior run.
+        val baseline=maxOf(startedMs,
+            if(lastHeartbeatMs in 1..nowMs) lastHeartbeatMs else 0L)
         if(baseline<=0L || baseline>nowMs) return Decision.IGNORE
         if(nowMs-baseline<STALE_HEARTBEAT_MS) return Decision.HEALTHY
         if(lastAlertMs>nowMs || lastAlertMs>0L && nowMs-lastAlertMs<NOTICE_COOLDOWN_MS)
