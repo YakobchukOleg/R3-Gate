@@ -156,11 +156,11 @@ class MainActivity : Activity() {
         val current=CoreGpsProposalStore.read(storage) as? CoreGpsProposalStore.ReadResult.Success ?: return
         val event=current.events.find { it.eventId==eventId &&
             it.decision==CoreGpsProposalInbox.Decision.PROVISIONAL } ?: return
-        val d=data(); val active=active(d) ?: return
+        val d=data(); val running=active(d) ?: return
         val activeIds=rows(d,"objects").filter { !it.optBoolean("archived") }
             .map { it.optString("id") }.toSet()
-        val shift=CoreGpsStageRules.Shift(true,active.optString("kind","Obiekt"),active.optString("objectId"))
-        if(!CoreGpsStageRules.shouldNotify(event,shift,activeIds,active.optLong("start"))) return
+        val shift=CoreGpsStageRules.Shift(true,running.optString("kind","Obiekt"),running.optString("objectId"))
+        if(!CoreGpsStageRules.shouldNotify(event,shift,activeIds,running.optLong("start"))) return
         val obj=rows(d,"objects").find { it.optString("id")==event.objectId } ?: return
         val stage=CoreGpsStageRules.proposal(event.kind,event.objectId,shift,activeIds) ?: return
         val title=if(stage==CoreGpsStageRules.Proposal.START_TRAVEL)
