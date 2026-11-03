@@ -90,7 +90,7 @@ object WorkMeterArchive {
             }
             return count
         }
-        fun finish() {
+        fun finish(expectedEntries: Int) {
             val buffer = ByteArray(65536)
             while (read(buffer, 0, buffer.size) >= 0) { }
             require(position >= 22) { "ZIP end record missing" }
@@ -105,8 +105,14 @@ object WorkMeterArchive {
             fun ushort(index: Int) = byte(index) or (byte(index + 1) shl 8)
             fun uint(index: Int): Long = ushort(index).toLong() or (ushort(index + 2).toLong() shl 16)
             val entries = ushort(10)
-            val centralEnd = uint(16) + uint(12)
-            require(entries != 65535 && centralEnd == position - 22) { "ZIP central directory inconsistent" }
+            require(ushort(8) == entries && entries == expectedEntries) {
+                "ZIP central directory entry count differs"
+            }
+            val centralSize = uint(12)
+            val centralOffset = uint(16)
+            require(entries != 65535 && centralSize > 0L && centralOffset + centralSize == position - 22) {
+                "ZIP central directory inconsistent"
+            }
         }
     }
 
@@ -152,7 +158,7 @@ object WorkMeterArchive {
                 }
                 zip.closeEntry()
             }
-            tracked.finish()
+            tracked.finish(found.size + if (manifest != null) 1 else 0)
         }
         val lines = requireNotNull(manifest) { "Missing manifest" }.trimEnd('\n').split('\n')
         require(lines.firstOrNull() == HEADER) { "Unsupported archive version" }
