@@ -29,4 +29,23 @@ class JournalValidatorTest {
         val report = JournalValidator.inspect("""{"objects":[{"id":"a"}],"shifts":[{"stages":[null]}]}""")
         assertFalse(report.canRestore)
     }
+    @Test fun malformedTopLevelArraysMustBlockRestore() {
+        for (key in listOf("objects", "shifts", "materials", "photos", "links",
+            "notes", "logs", "payments", "expenses")) {
+            val report = JournalValidator.inspect("""{"$key":{}}""")
+            assertFalse("$key silently accepted", report.canRestore)
+        }
+    }
+
+    @Test fun malformedActiveAndStagesMustBlockRestore() {
+        assertFalse(JournalValidator.inspect("""{"active":"broken"}""").canRestore)
+        val invalidStages = """{"objects":[],"shifts":[{"stages":"wrong"}]}"""
+        assertFalse(JournalValidator.inspect(invalidStages).canRestore)
+    }
+
+    @Test fun emptyLegitimateArraysRemainSupported() {
+        val report = JournalValidator.inspect("""{"objects":[],"shifts":[],"materials":[]}""")
+        assertTrue(report.canRestore)
+    }
+
 }
