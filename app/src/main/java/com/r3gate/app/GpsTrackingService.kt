@@ -52,6 +52,25 @@ class GpsTrackingService : Service(), LocationListener {
             }
             val now=System.currentTimeMillis()
             prefs.edit().putLong("gps_service_heartbeat_ms",now).apply()
+            // Settings can be changed without restarting the foreground service.
+            val adaptiveEnabled=prefs.getBoolean("gps_adaptive_sampling",false)
+            when(GpsAdaptiveToggleRules.sensorAction(adaptiveEnabled,motionListenerRegistered)) {
+                GpsAdaptiveToggleRules.Action.START_SENSOR -> startMotionSensor()
+                GpsAdaptiveToggleRules.Action.STOP_SENSOR -> stopMotionSensor()
+                else -> Unit
+            }
+            if(GpsAdaptiveToggleRules.cadenceAction(adaptiveEnabled,
+                    samplingIntervalMs)==GpsAdaptiveToggleRules.Action.RESTORE_ACTIVE) {
+                samplingIntervalMs=GpsAdaptiveSampling.ACTIVE_INTERVAL_MS
+                samplingState=GpsAdaptiveSampling.State()
+                try { updateSubscription() }
+                catch(_:SecurityException) {
+                    prefs.edit().putString("gps_service_problem","permission").apply()
+                    shutdown()
+                    return
+                }
+                catch(_:RuntimeException) { trace("ADAPTIVE_DISABLED_RESTORE_FAILED",now) }
+            }
             // Temporary 15-second geofence probes must end even with zero new GPS fixes.
             val cadence=GpsProbeCadenceRules.evaluate(now,activeGeofenceProbeSinceMs,
                 GpsSamplingSafety.interval(GpsAdaptiveSampling.interval(samplingState,now,true),
