@@ -7,8 +7,8 @@ class GpsRecoveryMonitorRulesTest {
     private val r=GpsRecoveryMonitorRules
     private fun check(now:Long=1_000_000L,enabled:Boolean=true,
                       heartbeat:Long=100_000L,started:Long=100_000L,
-                      alerted:Long=0L) =
-        r.decide(now,enabled,heartbeat,started,alerted)
+                      alerted:Long=0L,lastFix:Long=heartbeat) =
+        r.decide(now,enabled,heartbeat,started,alerted,lastFix)
 
     @Test fun stalledServiceNeedsUserAlert() {
         assertEquals(GpsRecoveryMonitorRules.Decision.ALERT,check())
