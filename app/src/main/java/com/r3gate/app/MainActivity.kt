@@ -2010,11 +2010,21 @@ class MainActivity : Activity() {
         base(when(formKind) { "objects" -> "Obiekt"; "expenses" -> "Zakup za własne pieniądze"; "materials" -> "Zużyty materiał"; "links" -> "Dodaj zdjęcia"; else -> "Notatka" })
         screen="form"; nav()
         if(formKind=="objects") {
-            label("TAG: "+draft.optString("TAG").ifBlank { "automatycznie po zapisaniu miasta" })
-            field("Miasto","city")
-            if(draft.optString("TAG").isBlank()) field("Tag (opcjonalnie)","tagPrefix") else label("Tag (stały): "+draft.optString("TAG"))
-            field("Adres","Adres"); field("Nazwa organizacji","organization")
-            field("Notatki / kontakt","notes",true); field("Link Google Maps (opcjonalnie)","maps")
+            val editing=rows(data(),"objects").any { it.optString("id")==draft.optString("id") }
+            label(ObjectFormUiModel.title(editing))
+            label(ObjectFormUiModel.requiredHint())
+            label(ObjectFormUiModel.tagHint(draft.optString("TAG")))
+            val location=ObjectFormUiModel.sections[0]
+            label(location.title)
+            field(location.fields[0].caption,location.fields[0].key)
+            if(draft.optString("TAG").isBlank()) field("Tag (opcjonalnie)","tagPrefix")
+            else label(ObjectFormUiModel.tagHint(draft.optString("TAG")))
+            field(location.fields[1].caption,location.fields[1].key)
+            val information=ObjectFormUiModel.sections[1]
+            label(information.title)
+            for(field in information.fields) field(field.caption,field.key,field.multiline)
+            label(ObjectFormUiModel.mapHint())
+            label(ObjectFormUiModel.footer(editing))
         } else {
             button("Data: "+recordDate(draft).let { if(it.isBlank()) "Wybierz datę" else dateText(it) }) {
                 pickReportDate(try { LocalDate.parse(recordDate(draft)) } catch (_:Exception) { LocalDate.now() }) {
