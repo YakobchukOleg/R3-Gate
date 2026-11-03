@@ -31,6 +31,41 @@ class GpsTrackingService : Service(), LocationListener {
     private var currentProvider:String?=null
     private var subscribedIntervalMs=0L
     private var sessionStarted=false
+    private val watchdogHandler=Handler(Looper.getMainLooper())
+    private var lastWatchdogProbeMs=0L
+    private var activeGeofenceProbeSinceMs=0L
+    private var lastGeofenceProbeMs=0L
+    private var motionWakeState=GpsMotionWakeRules.State()
+    private val watchdogTick=object:Runnable {
+        override fun run() {
+            if(!sessionStarted || !prefs.getBoolean("gps_enabled",false)) return
+            val now=System.currentTimeMillis()
+            val lastFix=try { JSONObject(prefs.getString("gps_last_fix","{}") ?: "{}").optLong("time") }
+                catch(_:Exception) { 0L }
+            val decision=GpsWatchdogRules.decide(now,
+                prefs.getLong("gps_session_start",0L),lastFix,lastWatchdogProbeMs,
+                true,currentProvider!=null)
+            if(decision==GpsWatchdogRules.Action.PROBE) {
+                lastWatchdogProbeMs=now
+                trace("WATCHDOG_NO_FIX",now,JSONObject().put("lastFix",lastFix)
+                    .put("provider",currentProvider ?: ""))
+                try {
+                    // Force re-registration after a stalled stream. No synthetic fixes.
+                    subscribedIntervalMs=-1L
+                    updateSubscription()
+                    trace("WATCHDOG_RESUBSCRIBED",now)
+                } catch(_:SecurityException) {
+                    prefs.edit().putString("gps_service_problem","permission").apply()
+                    shutdown()
+                    return
+                } catch(_:RuntimeException) {
+                    trace("WATCHDOG_PROBE_FAILED",now)
+                    prefs.edit().putString("gps_service_problem","provider").apply()
+                }
+            }
+            watchdogHandler.postDelayed(this,GpsWatchdogRules.CHECK_INTERVAL_MS)
+        }
+    }
     private fun trace(kind:String,now:Long=System.currentTimeMillis(),details:JSONObject=JSONObject()) =
         GpsTraceJournal.append(prefs,kind,now,details)
     private fun recordTripBoundary(now:Long=System.currentTimeMillis()) {
@@ -60,8 +95,9 @@ class GpsTrackingService : Service(), LocationListener {
         val motion=try { JSONObject(prefs.getString("gps_trip_state","{}") ?: "{}") } catch(_:Exception) { JSONObject() }
         val confirmedTravel=motion.optString("mode")=="MOVING" &&
             now-motion.optLong("last") in 0..GpsSamplingSafety.MAX_FIX_AGE_MS
-        return GpsSamplingSafety.interval(suggested,now,last.optLong("time"),
+        val baseline=GpsSamplingSafety.interval(suggested,now,last.optLong("time"),
             last.optDouble("accuracy",Double.NaN),confirmedTravel)
+        return GpsGeofenceProbeRules.interval(now,activeGeofenceProbeSinceMs,baseline)
     }
 
     private val sensorListener=object:SensorEventListener {
@@ -75,6 +111,13 @@ class GpsTrackingService : Service(), LocationListener {
             val delta=kotlin.math.abs(sqrt(x*x+y*y+z*z)-SensorManager.GRAVITY_EARTH)
             val now=System.currentTimeMillis()
             samplingState=GpsAdaptiveSampling.observe(samplingState,now,delta)
+            val wake=GpsMotionWakeRules.observe(motionWakeState,now,delta)
+            motionWakeState=wake.state
+            if(wake.wake) {
+                trace("SENSOR_MOTION_WAKE",now)
+                // Sensor motion is only a hint to request a better fix.
+                activeGeofenceProbeSinceMs=now
+            }
             val target=safeSamplingInterval(now)
             if(target!=samplingIntervalMs) {
                 samplingIntervalMs=target
@@ -233,6 +276,10 @@ class GpsTrackingService : Service(), LocationListener {
                     .putLong("gps_session_start",System.currentTimeMillis()).commit()
                 samplingState=GpsAdaptiveSampling.State()
                 samplingIntervalMs=GpsAdaptiveSampling.ACTIVE_INTERVAL_MS
+                motionWakeState=GpsMotionWakeRules.State()
+                lastWatchdogProbeMs=0L
+                activeGeofenceProbeSinceMs=0L
+                lastGeofenceProbeMs=0L
                 sessionStarted=true
             }
             // With no provider keep the visible foreground service listening for location changes.
@@ -243,6 +290,8 @@ class GpsTrackingService : Service(), LocationListener {
                 samplingState=GpsAdaptiveSampling.State()
             }
             updateSubscription()
+            watchdogHandler.removeCallbacks(watchdogTick)
+            watchdogHandler.postDelayed(watchdogTick,GpsWatchdogRules.CHECK_INTERVAL_MS)
             trace("SERVICE_START",details=JSONObject()
                 .put("provider",currentProvider ?: "").put("intervalMs",samplingIntervalMs))
         } catch(_:SecurityException) { prefs.edit().putString("gps_service_problem","permission").apply(); shutdown() }
@@ -401,6 +450,20 @@ class GpsTrackingService : Service(), LocationListener {
         val saved=try { JSONObject(prefs.getString("gps_arrival_state","{}") ?: "{}") } catch(_:Exception) { JSONObject() }
         val confirmedId=saved.optString("confirmed").ifBlank { null }
         val zoneEvidence=GpsGeofenceEvidence.observe(point,places,confirmedId)
+        if(GpsGeofenceProbeRules.shouldBegin(now,lastGeofenceProbeMs,
+            zoneEvidence.status==GpsGeofenceEvidence.Status.UNCERTAIN,!confirmedId.isNullOrBlank())) {
+            lastGeofenceProbeMs=now
+            activeGeofenceProbeSinceMs=now
+            trace("GEOFENCE_RECHECK",now,JSONObject().put("confirmed",confirmedId ?: "")
+                .put("accuracyM",point.accuracyM))
+            val faster=safeSamplingInterval(now)
+            if(faster!=samplingIntervalMs) {
+                samplingIntervalMs=faster
+                try { updateSubscription() }
+                catch(_:SecurityException) { prefs.edit().putString("gps_service_problem","permission").apply();shutdown();return }
+                catch(_:RuntimeException) { trace("GEOFENCE_PROBE_FAILED",now) }
+            }
+        }
         val confirmedPlace=places.firstOrNull { it.id==confirmedId }
         val distanceToConfirmed=confirmedPlace?.let {
             GpsWorkRules.distanceM(point.latitude,point.longitude,it.latitude,it.longitude)
@@ -535,6 +598,7 @@ class GpsTrackingService : Service(), LocationListener {
         }
     }
     private fun shutdown() {
+        watchdogHandler.removeCallbacks(watchdogTick)
         if(sessionStarted) { trace("SERVICE_STOP"); recordTripBoundary(); sessionStarted=false }
         stopMotionSensor()
         if(subscribed) { manager.removeUpdates(this);subscribed=false;currentProvider=null }
@@ -543,6 +607,7 @@ class GpsTrackingService : Service(), LocationListener {
         stopSelf()
     }
     override fun onDestroy() {
+        watchdogHandler.removeCallbacks(watchdogTick)
         if(sessionStarted) { recordTripBoundary(); sessionStarted=false }
         stopMotionSensor()
         unregisterReceiver(providerReceiver)
