@@ -4,6 +4,10 @@ import java.io.InputStream
 import java.io.FilterInputStream
 import java.io.IOException
 import java.io.OutputStream
+import java.nio.ByteBuffer
+import java.nio.charset.CharacterCodingException
+import java.nio.charset.CodingErrorAction
+import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.util.Base64
 import java.util.zip.ZipEntry
@@ -34,8 +38,16 @@ object WorkMeterArchive {
     private fun hex(bytes: ByteArray): String = bytes.joinToString("") { "%02x".format(it) }
     private fun encoded(path: String): String =
         Base64.getUrlEncoder().withoutPadding().encodeToString(path.toByteArray(Charsets.UTF_8))
-    private fun decoded(value: String): String =
-        String(Base64.getUrlDecoder().decode(value), Charsets.UTF_8)
+    private fun strictUtf8(bytes: ByteArray): String = try {
+        StandardCharsets.UTF_8.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT)
+            .decode(ByteBuffer.wrap(bytes)).toString()
+    } catch (e: CharacterCodingException) {
+        throw IllegalArgumentException("Invalid UTF-8 in manifest", e)
+    }
+
+    private fun decoded(value: String): String = strictUtf8(Base64.getUrlDecoder().decode(value))
 
     /** Write to a private or SAF-backed destination, never a public temporary file. */
     fun write(destination: OutputStream, sources: List<Source>): Inspection {
@@ -141,7 +153,7 @@ object WorkMeterArchive {
                         require(bytes.size() + n <= 1024 * 1024) { "Manifest too large" }
                         bytes.write(buffer, 0, n)
                     }
-                    manifest = bytes.toString("UTF-8")
+                    manifest = strictUtf8(bytes.toByteArray())
                 } else {
                     require(found.size < MAX_ENTRIES) { "Too many entries" }
                     val digest = sha()
@@ -167,7 +179,7 @@ object WorkMeterArchive {
             require(fields.size == 3) { "Invalid manifest" }
             val path = decoded(fields[0])
             require(valid(path)) { "Invalid manifest path" }
-            val size = fields[1].toLongOrNull() ?: error("Invalid size")
+            val size = requireNotNull(fields[1].toLongOrNull()) { "Invalid size" }
             require(size >= 0 && fields[2].matches(Regex("[0-9a-f]{64}"))) { "Invalid digest" }
             Item(path, size, fields[2])
         }
