@@ -58,8 +58,8 @@ class GpsRecoveryPermissionTest {
         assertEquals(GpsRecoveryMonitorRules.Decision.ALERT_PERMISSION,
             check(now=4_700_000L,alerted=1_100_000L))
     }
-    @Test fun revokedPermissionSuppressesFutureAlert() {
-        assertEquals(GpsRecoveryMonitorRules.Decision.IGNORE,
+    @Test fun futureAlertTimestampAfterClockCorrectionDoesNotHideRevokedPermission() {
+        assertEquals(GpsRecoveryMonitorRules.Decision.ALERT_PERMISSION,
             check(alerted=1_000_001L))
     }
     @Test fun grantedPermissionAndDeadServiceStillAlerts() {
