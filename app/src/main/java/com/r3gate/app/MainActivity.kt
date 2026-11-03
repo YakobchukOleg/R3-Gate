@@ -2345,11 +2345,83 @@ class MainActivity : Activity() {
                 runOnUiThread {
                     prefs.edit().remove("driveError").putBoolean("driveConnected",true).putString("driveEmail",about.optJSONObject("user")?.optString("emailAddress") ?: "Google Drive").apply()
                     DriveBackupWorker.schedule(this)
-                    if(upload=="queue") { PhotoQueue.enqueueAll(this); uploadQueue() } else if(upload.isBlank()) driveSettings() else if(upload=="backup") { DriveBackupWorker.manual(this); toast("Kopia w kolejce: WorkMeter / Backup"); logs() } else if(upload.startsWith("share:")) shareFolder(upload.substringAfter(":"),token) else uploadPhotos(upload,token)
+                    if(upload=="queue") { PhotoQueue.enqueueAll(this); uploadQueue() } else if(upload.isBlank()) driveSettings() else if(upload=="backup") { DriveBackupWorker.manual(this); toast("Kopia w kolejce: WorkMeter / Backup"); logs() } else if(upload=="import") pickDriveBackup(token) else if(upload.startsWith("share:")) shareFolder(upload.substringAfter(":"),token) else uploadPhotos(upload,token)
                 }
             } catch (_:Exception) { runOnUiThread { prefs.edit().putString("driveError","Google Disk nie odpowiada. Sprawdź, czy Drive API jest włączone i konto ma dostęp.").apply(); toast("Nie udało się połączyć z Google Disk"); } }
         }
     }
+    private fun pickDriveBackup(token:String) {
+        if(active(data())!=null || prefs.getBoolean("gps_service_active",false)) {
+            toast("Zakończ dzień pracy przed przywróceniem kopii")
+            return
+        }
+        io.execute {
+            try {
+                // drive.file deliberately limits access to files created by this app.
+                val query=URLEncoder.encode("trashed = false and mimeType = 'application/json' and name contains 'WorkMeter'","UTF-8")
+                val response=driveJson("GET",
+                    "https://www.googleapis.com/drive/v3/files?q="+query+
+                        "&fields=nextPageToken,files(id,name)&orderBy=createdTime%20desc&pageSize=100",token)
+                val files=response.optJSONArray("files") ?: JSONArray()
+                val choices=(0 until files.length()).mapNotNull { files.optJSONObject(it) }
+                    .filter { it.optString("name").endsWith(".json",true) && it.optString("id").isNotBlank() }
+                runOnUiThread {
+                    if(choices.isEmpty()) {
+                        toast("Brak kopii WorkMeter w plikach aplikacji na Google Disk")
+                    } else {
+                        AlertDialog.Builder(this,R.style.WorkMeterDialogTheme)
+                            .setTitle("Importuj kopię z Google Disk")
+                            .setItems(choices.map { it.optString("name") }.toTypedArray()) { _,index ->
+                                val id=choices[index].optString("id")
+                                downloadDriveBackup(id,token)
+                            }.setNegativeButton("Anuluj",null).show()
+                    }
+                }
+            } catch(_:Exception) {
+                runOnUiThread { toast("Nie można pobrać listy kopii z Google Disk") }
+            }
+        }
+    }
+
+    private fun downloadDriveBackup(fileId:String,token:String) {
+        if(!fileId.matches(Regex("[A-Za-z0-9_-]+"))) {
+            toast("Nieprawidłowy identyfikator pliku")
+            return
+        }
+        io.execute {
+            try {
+                val imported=driveJson("GET",
+                    "https://www.googleapis.com/drive/v3/files/"+fileId+"?alt=media",token)
+                validateImport(imported)
+                runOnUiThread {
+                    if(active(data())!=null || uploading) {
+                        toast("Zakończ pracę i przesyłanie przed importem")
+                        return@runOnUiThread
+                    }
+                    AlertDialog.Builder(this,R.style.WorkMeterDialogTheme)
+                        .setTitle("Przywrócić kopię z Google Disk?")
+                        .setMessage("Obecne dane zostaną zastąpione. Kopia bieżących danych zostanie zachowana lokalnie.")
+                        .setNegativeButton("Anuluj",null)
+                        .setPositiveButton("Importuj") { _,_ ->
+                            if(active(data())!=null || uploading) {
+                                toast("Zakończ pracę i przesyłanie przed importem")
+                            } else {
+                                prefs.edit().putString("preImportBackup",data().toString())
+                                    .putString("data",imported.toString())
+                                    .putInt("widgetTransparency",
+                                        imported.optJSONObject("wtSettings")?.optInt("widgetTransparency",
+                                            prefs.getInt("widgetTransparency",0))?.coerceIn(0,100)
+                                            ?: prefs.getInt("widgetTransparency",0)).commit()
+                                migrate(); migrateWallet(); GateWidget.refresh(this); logs()
+                            }
+                        }.show()
+                }
+            } catch(_:Exception) {
+                runOnUiThread { toast("Nie można otworzyć lub zweryfikować kopii z Google Disk") }
+            }
+        }
+    }
+
     private fun driveJson(method:String,url:String,token:String,body:JSONObject?=null):JSONObject {
         val c=URL(url).openConnection() as HttpURLConnection
         try {
