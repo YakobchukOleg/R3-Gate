@@ -57,10 +57,13 @@ object CoreGpsStageBridge {
         if (Build.VERSION.SDK_INT >= 33 &&
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         notifier.createNotificationChannel(NotificationChannel(CHANNEL, "WorkMeter · etapy GPS", NotificationManager.IMPORTANCE_HIGH))
-        val flagged = (prefs.getStringSet("core_gps_notified", emptySet())?.toSet() ?: emptySet()).toMutableSet()
-        for (event in updated.state.events) {
-            if (event.eventId in flagged ||
-                !CoreGpsStageRules.shouldNotify(event, shift, activeIds, stageStart, nowMs)) continue
+        // Only the newest unambiguous suggestion can be shown for this stage.
+        val choice = CoreGpsStageReviewQueue.choose(
+            updated.state.events, shift, activeIds, stageStart, nowMs
+        )
+        val event = choice.event ?: return
+        val flagged = prefs.getStringSet("core_gps_notified", emptySet())?.toSet() ?: emptySet()
+        if (event.eventId in flagged) return
             val intent = Intent(context, MainActivity::class.java)
                 .putExtra(INTENT_EVENT, event.eventId)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
@@ -78,9 +81,7 @@ object CoreGpsStageBridge {
                 .setCategory(Notification.CATEGORY_REMINDER)
                 .build()
             notifier.notify(unique, notification)
-            // Durable dedup even if the app is restarted while the screen is locked.
-            if (!prefs.edit().putStringSet("core_gps_notified", flagged + event.eventId).commit()) break
-            flagged.add(event.eventId)
-        }
+        // Durable dedup even if the app is restarted while the screen is locked.
+        prefs.edit().putStringSet("core_gps_notified", flagged + event.eventId).commit()
     }
 }
