@@ -67,4 +67,24 @@ class PhotoArchivePackageTest {
         if (index >= 0) damaged[index] = (damaged[index].toInt() xor 0x01).toByte()
         rejected { PhotoArchivePackage.verifyComplete({ ByteArrayInputStream(damaged) }, photos) }
     }
+    @Test fun rejectsMalformedJournalBeforeOpeningPhotoStreams() {
+        var opened = false
+        try {
+            PhotoArchivePackage.write("""{"objects":[{"id":null}]}""", photos, {
+                opened = true
+                ByteArrayInputStream(byteArrayOf(1))
+            }, ByteArrayOutputStream())
+            fail("Invalid journal exported")
+        } catch (_: IllegalArgumentException) { }
+        assertFalse("Photo read began before journal validation", opened)
+    }
+
+    @Test fun rejectsInvalidJsonEvenWhenBracesArePresent() {
+        rejected {
+            PhotoArchivePackage.write("""{"objects":[}""", emptyList(), {
+                ByteArrayInputStream(byteArrayOf(1))
+            }, ByteArrayOutputStream())
+        }
+    }
+
 }
