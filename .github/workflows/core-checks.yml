@@ -1,0 +1,54 @@
+name: WorkMeter Core checks
+
+on:
+  push:
+    branches:
+      - feature/workmeter-core
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workmeter-core-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core-checks:
+    name: JVM unit tests and Android lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Record exact tested revision
+        run: |
+          git rev-parse HEAD | tee tested-sha.txt
+          echo "TESTED_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Prepare publisher-verified fonts
+        run: python3 .github/scripts/prepare-fonts.py
+      - name: Run unit tests and lint without building APK
+        run: gradle --no-daemon testDebugUnitTest lintDebug
+      - name: Preserve test evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: workmeter-core-check-results
+          path: |
+            tested-sha.txt
+            app/build/reports/tests/testDebugUnitTest/
+            app/build/test-results/testDebugUnitTest/
+            app/build/reports/lint-results-debug.html
+            app/build/reports/lint-results-debug.xml
+          if-no-files-found: ignore

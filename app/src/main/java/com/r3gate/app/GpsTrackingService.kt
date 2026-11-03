@@ -769,6 +769,7 @@ class GpsTrackingService : Service(), LocationListener {
             GpsRecoveryMonitorWorker.dismissAlert(this)
             trace("GPS_RECOVERED",now,JSONObject().put("previousProblem",oldProblem))
         }
+        if(decision.event=="ARRIVAL" || decision.event=="DEPARTURE") CoreGpsStageBridge.refresh(this)
         if(prefs.getBoolean("gps_adaptive_sampling",false)) {
             val desired=safeSamplingInterval(now)
             if(desired!=samplingIntervalMs) {

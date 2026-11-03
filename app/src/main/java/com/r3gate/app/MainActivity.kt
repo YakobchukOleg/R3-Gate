@@ -98,7 +98,8 @@ class MainActivity : Activity() {
         pendingUpload = savedInstanceState?.getString("pendingUpload") ?: ""
         if (savedInstanceState != null && prefs.contains("pin") &&
             intent?.getStringExtra("widget_action")==null &&
-            intent?.getBooleanExtra("gps_resume_alert",false)!=true) {
+            intent?.getBooleanExtra("gps_resume_alert",false)!=true &&
+            intent?.getStringExtra(CoreGpsStageBridge.INTENT_EVENT)==null) {
             smsParent = savedInstanceState.getString("smsParent") ?: "settings"
             smsFrom = savedInstanceState.getString("smsFrom")?.let { LocalDate.parse(it) }
             smsTo = savedInstanceState.getString("smsTo")?.let { LocalDate.parse(it) }
@@ -120,6 +121,7 @@ class MainActivity : Activity() {
         prefs.registerOnSharedPreferenceChangeListener(uploadChanges)
         ticker.removeCallbacks(tick)
         ticker.postDelayed(tick,60000)
+        CoreGpsStageBridge.refresh(this)
         // Refresh the GPS arrival affordance after returning from another app.
         if(::root.isInitialized && screen=="home") home()
     }
@@ -160,6 +162,9 @@ class MainActivity : Activity() {
         intent?.removeExtra("gps_resume_alert")
         home()
         if(gpsResumeAlert) { gpsScreen(); return }
+        val gpsProposal=intent?.getStringExtra(CoreGpsStageBridge.INTENT_EVENT)
+        intent?.removeExtra(CoreGpsStageBridge.INTENT_EVENT)
+        if(!gpsProposal.isNullOrBlank()) { reviewGpsStageProposal(gpsProposal); return }
         val uploadReference=intent?.getStringExtra("upload_retry")
         intent?.removeExtra("upload_retry")
         if(!uploadReference.isNullOrBlank()) { pendingUpload=uploadReference; authorizeDrive(); return }
@@ -172,11 +177,112 @@ class MainActivity : Activity() {
             "shopping" -> toggleShopping()
         }
     }
+    /** Recovery entry point when a lock-screen notification was dismissed. */
+    private fun pendingGpsStageEventId(d: JSONObject, nowMs: Long): String? {
+        val running=active(d) ?: return null
+        val saved=(CoreGpsProposalStore.read(AndroidCoreGpsProposalStorage(this)) as?
+            CoreGpsProposalStore.ReadResult.Success)?.events ?: return null
+        val activeIds=rows(d,"objects").filter { !it.optBoolean("archived") }
+            .map { it.optString("id") }.toSet()
+        val shift=CoreGpsStageRules.Shift(true,running.optString("kind","Obiekt"),
+            running.optString("objectId"))
+        val stageStart=maxOf(running.optLong("start"),
+            running.optLong("stageStart",running.optLong("start")))
+        return CoreGpsStageReviewQueue.choose(saved,shift,activeIds,stageStart,nowMs)
+            .event?.takeIf {
+                CoreGpsStageBridge.hasContinuousCoverage(this,it.timestampMs,nowMs) &&
+                    CoreGpsStageBridge.hasJournalEvidence(this,it)
+            }
+            ?.eventId
+    }
+
+    private fun reviewGpsStageProposal(eventId: String) {
+        val storage=AndroidCoreGpsProposalStorage(this)
+        val current=CoreGpsProposalStore.read(storage) as? CoreGpsProposalStore.ReadResult.Success ?: return
+        val event=current.events.find { it.eventId==eventId &&
+            it.decision==CoreGpsProposalInbox.Decision.PROVISIONAL } ?: return
+        val d=data(); val running=active(d) ?: return
+        val activeIds=rows(d,"objects").filter { !it.optBoolean("archived") }
+            .map { it.optString("id") }.toSet()
+        val shift=CoreGpsStageRules.Shift(true,running.optString("kind","Obiekt"),running.optString("objectId"))
+        val stageStart=maxOf(running.optLong("start"),running.optLong("stageStart",running.optLong("start")))
+        if(!CoreGpsStageReviewQueue.isCurrent(eventId,current.events,shift,activeIds,
+                stageStart,System.currentTimeMillis()) ||
+            (!CoreGpsStageBridge.hasContinuousCoverage(this,event.timestampMs,System.currentTimeMillis()) ||
+                !CoreGpsStageBridge.hasJournalEvidence(this,event))) return
+        val obj=rows(d,"objects").find { it.optString("id")==event.objectId } ?: return
+        val stage=CoreGpsStageRules.proposal(event.kind,event.objectId,shift,activeIds) ?: return
+        val title=if(stage==CoreGpsStageRules.Proposal.START_TRAVEL)
+            "Rozpocząć przejazd?" else "Potwierdzić przyjazd?"
+        val message=if(stage==CoreGpsStageRules.Proposal.START_TRAVEL)
+            "GPS wykrył wyjazd z: "+objectName(obj)+"\\nZmienimy etap od chwili potwierdzenia."
+        else "GPS wykrył przyjazd: "+objectName(obj)+"\\nZmienimy etap od chwili potwierdzenia."
+        AlertDialog.Builder(this,R.style.WorkMeterDialogTheme)
+            .setTitle(title).setMessage(message).setNegativeButton("Odrzuć") { _,_ ->
+                CoreGpsProposalStore.decide(storage,eventId,CoreGpsProposalInbox.Decision.USER_REJECTED)
+                CoreGpsStageBridge.dismiss(this)
+            }.setPositiveButton("Potwierdź") { _,_ ->
+                val latest=data(); val nowActive=active(latest) ?: return@setPositiveButton
+                val available=rows(latest,"objects").filter { !it.optBoolean("archived") }
+                    .map { it.optString("id") }.toSet()
+                val currentShift=CoreGpsStageRules.Shift(true,nowActive.optString("kind","Obiekt"),
+                    nowActive.optString("objectId"))
+                val latestEvents=(CoreGpsProposalStore.read(storage) as?
+                    CoreGpsProposalStore.ReadResult.Success)?.events ?: return@setPositiveButton
+                val stageStart=maxOf(nowActive.optLong("start"),
+                    nowActive.optLong("stageStart",nowActive.optLong("start")))
+                if(!CoreGpsStageReviewQueue.isCurrent(eventId,latestEvents,currentShift,
+                        available,stageStart,System.currentTimeMillis()) ||
+                    (!CoreGpsStageBridge.hasContinuousCoverage(this,event.timestampMs,System.currentTimeMillis()) ||
+                        !CoreGpsStageBridge.hasJournalEvidence(this,event))) {
+                    toast("Propozycja jest już nieaktualna"); return@setPositiveButton
+                }
+                val selected=rows(latest,"objects").find { it.optString("id")==event.objectId &&
+                    !it.optBoolean("archived") } ?: return@setPositiveButton
+                val now=System.currentTimeMillis()
+                if(now<=nowActive.optLong("stageStart",nowActive.optLong("start"))) return@setPositiveButton
+                if(stage==CoreGpsStageRules.Proposal.START_TRAVEL) {
+                    closeStage(nowActive,now)
+                    val origin=nowActive.optString("object")
+                    nowActive.put("stageStart",now).put("kind","Przejazd")
+                        .put("object","").put("objectId","")
+                        .put("stageMeta",JSONObject().put("fromObject",origin)
+                            .put("fromObjectId",event.objectId))
+                } else {
+                    if(nowActive.optString("kind")=="Przejazd")
+                        nowActive.optJSONObject("stageMeta")?.put("toObject",objectName(selected))
+                            ?.put("toObjectId",event.objectId)
+                    closeStage(nowActive,now)
+                    nowActive.remove("stageMeta")
+                    nowActive.put("stageStart",now).put("kind","Obiekt")
+                        .put("object",objectName(selected)).put("objectId",event.objectId)
+                }
+                // Commit the confirmed stage and reviewed proposal in the same durable write.
+                // A process death cannot leave the work stage applied but the event pending.
+                val reviewed=(CoreGpsProposalStore.read(storage) as? CoreGpsProposalStore.ReadResult.Success)
+                    ?.events ?: return@setPositiveButton
+                val marked=CoreGpsProposalInbox.decide(reviewed,eventId,
+                    CoreGpsProposalInbox.Decision.USER_CONFIRMED)
+                arr(latest,"logs").put(JSONObject().put("at",fmt.format(Date()))
+                    .put("type","GPS_STAGE_CONFIRMED").put("detail",eventId))
+                if(!prefs.edit().putString("data",latest.toString())
+                    .putString(CoreGpsProposalStore.KEY,CoreGpsProposalStore.encode(marked))
+                    .commit()) {
+                    toast("Nie zapisano zmiany etapu, spróbuj ponownie")
+                    return@setPositiveButton
+                }
+                GateWidget.refresh(this)
+                CoreGpsStageBridge.dismiss(this)
+                home()
+            }.show()
+    }
     private fun data(): JSONObject = try { JSONObject(prefs.getString("data","{}")!!) } catch (_: Exception) { JSONObject() }
     private fun arr(d:JSONObject,key:String):JSONArray = d.optJSONArray(key) ?: JSONArray().also { d.put(key,it) }
     private fun save(d:JSONObject, kind:String, detail:String) {
         val log=arr(d,"logs"); log.put(JSONObject().put("at",fmt.format(Date())).put("type",kind).put("detail",detail)); d.put("logs",log)
         prefs.edit().putString("data",d.toString()).apply(); GateWidget.refresh(this)
+        if(kind=="START" || kind=="STOP" || kind=="STAGE" || kind=="ARRIVAL")
+            CoreGpsStageBridge.dismiss(this)
     }
     private fun active(d:JSONObject):JSONObject? = d.optJSONObject("active")
     private fun startShift() {
@@ -596,6 +702,11 @@ class MainActivity : Activity() {
             root.addView(action("■  ZAKOŃCZ PRACĘ",true) { confirmPin { stopShift() } }.apply {
                 background=rounded(coral,14)
             },LinearLayout.LayoutParams(-1,dp(52)).apply { bottomMargin=dp(10) })
+            pendingGpsStageEventId(d,System.currentTimeMillis())?.let { eventId ->
+                root.addView(action("📍  GPS · POTWIERDŹ ZMIANĘ ETAPU") {
+                    reviewGpsStageProposal(eventId)
+                },LinearLayout.LayoutParams(-1,dp(48)).apply { bottomMargin=dp(10) })
+            }
             if(privateMode) {
                 root.addView(text("Tryb prywatny — wróć do pracy z menu po zakończeniu przerwy.",13f,muted),
                     LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
@@ -819,6 +930,21 @@ class MainActivity : Activity() {
             gpsScreen()
         }
     }
+    /**
+     * Request Android 13+ notification access once when GPS is opted in.
+     * A declined request never turns tracking on/off or edits work stages.
+     */
+    private fun requestGpsStageNotificationsIfNeeded() {
+        val granted=Build.VERSION.SDK_INT<33 ||
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)==PackageManager.PERMISSION_GRANTED
+        if(CoreGpsNotificationPermissionRules.needsRequest(
+                Build.VERSION.SDK_INT,prefs.getBoolean("gps_enabled",false),granted,
+                prefs.getBoolean("core_gps_notification_permission_asked",false))) {
+            prefs.edit().putBoolean("core_gps_notification_permission_asked",true).apply()
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),308)
+        }
+    }
+
     private fun setGpsEnabled(value:Boolean) {
         if(value && active(data())==null) {
             toast("GPS działa tylko podczas otwartego dnia pracy")
@@ -826,6 +952,7 @@ class MainActivity : Activity() {
         }
         if(!value) {
             prefs.edit().putBoolean("gps_enabled",false).putBoolean("gps_resume_pending",false).apply()
+            CoreGpsStageBridge.dismiss(this)
             stopService(Intent(this,GpsTrackingService::class.java))
             GpsRecoveryMonitorWorker.cancel(this)
             return
@@ -842,7 +969,14 @@ class MainActivity : Activity() {
                 this,Intent(this,GpsTrackingService::class.java).setAction(GpsTrackingService.ACTION_START))
         } catch(e:Exception) {
             prefs.edit().putBoolean("gps_enabled",false).apply()
+            CoreGpsStageBridge.dismiss(this)
             Toast.makeText(this,"Nie można uruchomić GPS: "+e.javaClass.simpleName,Toast.LENGTH_LONG).show()
+            return
+        }
+        // Notification permission is separate from location tracking: never
+        // disable GPS if Android cannot show the optional prompt.
+        try { requestGpsStageNotificationsIfNeeded() } catch (_: RuntimeException) {
+            toast("Powiadomienia GPS możesz włączyć później w ustawieniach.")
         }
     }
     private fun gpsDeviceDiagnostics() {
@@ -972,6 +1106,16 @@ class MainActivity : Activity() {
             setGpsEnabled(!enabled); gpsScreen()
         }
         if(!enabled) return
+        val notificationsGranted=Build.VERSION.SDK_INT<33 ||
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)==PackageManager.PERMISSION_GRANTED
+        if(CoreGpsNotificationPermissionRules.showPromptButton(
+                Build.VERSION.SDK_INT,enabled,notificationsGranted)) {
+            label("Powiadomienia GPS o zmianie etapu są wyłączone. Sam GPS nadal działa.")
+            button("Zezwól na powiadomienia o zmianie etapu GPS") {
+                prefs.edit().putBoolean("core_gps_notification_permission_asked",true).apply()
+                requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),308)
+            }
+        }
         val permission=checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED ||
             checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION)==PackageManager.PERMISSION_GRANTED
         if(!permission) {
@@ -1624,6 +1768,12 @@ class MainActivity : Activity() {
                 val st=start.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
                 val en=end.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
                 if(en<=st) { toast("Koniec musi być po rozpoczęciu"); return@setOnClickListener }
+                val otherShifts=rows(data(),"shifts").filter { it.optString("id")!=id }
+                    .map { WorkShiftIntegrity.Interval(it.optLong("start"),it.optLong("end")) }
+                if(!WorkShiftIntegrity.canSave(WorkShiftIntegrity.Interval(st,en),otherShifts)) {
+                    toast("Zmiana nakłada się na inną zmianę lub historia zawiera nieprawidłowe daty")
+                    return@setOnClickListener
+                }
                 val current=data()
                 val row=rows(current,"shifts").find { it.optString("id")==id } ?: return@setOnClickListener
                 arr(row,"edits").put(JSONObject().put("at",System.currentTimeMillis()).put("start",row.optLong("start")).put("end",row.optLong("end")))
@@ -2233,6 +2383,30 @@ class MainActivity : Activity() {
             return
         }
         draft.remove("_gps_capture")
+        // Validate object references at the persistence boundary, including stale drafts.
+        val objectRefs=rows(d,"objects").map { ObjectIntegrityRules.ObjectRef(it.optString("id"),it.optBoolean("archived")) }
+        if(formKind=="objects") {
+            val old=rows(d,"objects").find { it.optString("id")==draft.optString("id") }
+            if(old==null && !ObjectIntegrityRules.validateNewId(draft.optString("id"),objectRefs)) {
+                toast("Nieprawidłowy identyfikator obiektu"); return
+            }
+        } else {
+            val assigned=draft.optString("objectId")
+            if(assigned.isNotBlank()) {
+                val old=rows(d,formKind).find { it.optString("id")==draft.optString("id") }
+                if(!ObjectIntegrityRules.canSaveAssignment(assigned,old?.optString("objectId"),objectRefs)) {
+                    toast("Wybierz aktywny obiekt"); return
+                }
+            }
+        }
+        if(formKind=="links") {
+            val previous=rows(d,"links").find { it.optString("id")==draft.optString("id") }
+            if(!ObjectIntegrityRules.canSavePhotoEntry(
+                arr(draft,"photos").length(),draft.optString("Link Google Drive"),
+                draft.optString("objectId"),previous?.optString("objectId"),objectRefs
+            )) { toast("Zdjęcia wymagają aktywnego obiektu i zdjęcia lub linku"); return }
+        }
+        draft.remove("_gps_capture")
         val list=arr(d,formKind); val index=(0 until list.length()).find { list.optJSONObject(it)?.optString("id")==draft.optString("id") }
         if(index==null) list.put(draft) else list.put(index,draft)
         save(d,"SAVE_"+formKind,draft.optString("id"))
@@ -2304,6 +2478,13 @@ class MainActivity : Activity() {
         if(requestCode==307) {
             if(grantResults.any { it==PackageManager.PERMISSION_GRANTED }) setGpsEnabled(true)
             else toast("Bez pozwolenia na lokalizację GPS pozostanie wyłączony.")
+            if(screen=="gps") gpsScreen()
+        }
+        if(requestCode==308) {
+            if(grantResults.firstOrNull()==PackageManager.PERMISSION_GRANTED) {
+                CoreGpsStageBridge.refresh(this)
+                toast("Powiadomienia GPS włączone")
+            } else toast("Powiadomienia GPS wyłączone. Włączysz je później w ustawieniach telefonu.")
             if(screen=="gps") gpsScreen()
         }
         if(requestCode in listOf(204,205)) {
@@ -2607,6 +2788,11 @@ class MainActivity : Activity() {
         if(draft.optString("storage")!="car" && draft.optString("objectId").isBlank()) { toast("Wybierz obiekt");return }
         val batch=rows(draft,"batch").map { JSONObject(it.toString()) }.toMutableList()
         val d=data();val existing=rows(d,"materials").find { it.optString("id")==draft.optString("id") }
+        val objectRefs=rows(d,"objects").map { ObjectIntegrityRules.ObjectRef(it.optString("id"),it.optBoolean("archived")) }
+        val destination=draft.optString("objectId")
+        if(!ObjectIntegrityRules.canSaveMaterialAssignment(draft.optString("storage"),destination,existing?.optString("objectId"),objectRefs)) {
+            toast("Wybierz aktywny obiekt dla materiałów");return
+        }
         if(draft.optString("name").isNotBlank() || draft.optString("quantity").isNotBlank() || batch.isEmpty()) batch.add(pendingMaterial() ?: return)
         if(existing!=null && batch.size!=1) { toast("Edytuj jeden zapis naraz");return }
         val list=arr(d,"materials");val saved=mutableListOf<JSONObject>()
