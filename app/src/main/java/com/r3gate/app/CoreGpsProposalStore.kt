@@ -55,6 +55,9 @@ object CoreGpsProposalStore {
         if (result.added == 0) return ChangeResult(false, current, result)
         val retained = compact(result.events)
         val persisted = result.copy(events = retained)
+        // Old evidence that falls outside the retention window must not
+        // rewrite the journal or falsely report a durable state change.
+        if (retained == current.events) return ChangeResult(false, current, persisted)
         if (!storage.write(KEY, encode(retained)))
             return ChangeResult(false, ReadResult.Corrupt("Storage write failed"), persisted)
         return ChangeResult(true, ReadResult.Success(retained), persisted)
