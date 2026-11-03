@@ -1,0 +1,87 @@
+package com.r3gate.app
+
+import android.app.Activity
+import android.view.View
+import android.view.ViewGroup
+import android.widget.Button
+import android.widget.TextView
+import androidx.test.core.app.ActivityScenario
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import org.json.JSONArray
+import org.json.JSONObject
+import org.junit.Assert.*
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+import java.security.MessageDigest
+
+@RunWith(AndroidJUnit4::class)
+class ObjectListPanelInstrumentedTest {
+    @Before fun seed() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val pin = MessageDigest.getInstance("SHA-256")
+            .digest("test1234".toByteArray()).joinToString("") { "%02x".format(it) }
+        val active = JSONObject().put("id", "active-1").put("TAG", "TCZ-01")
+            .put("city", "Tczew").put("Adres", "Główna 3")
+            .put("organization", "Serwis")
+        val archive = JSONObject().put("id", "archived-1").put("TAG", "GDA-02")
+            .put("city", "Gdańsk").put("Adres", "Długa 5")
+            .put("organization", "Szkoła").put("archived", true)
+        val data = JSONObject().put("schemaVersion", 2)
+            .put("objects", JSONArray().put(active).put(archive))
+        context.getSharedPreferences("r3_gate", 0).edit().clear()
+            .putString("salt", "test").putString("pin", pin)
+            .putString("data", data.toString()).commit()
+    }
+
+    private fun views(view: View): List<View> = listOf(view) +
+        if (view is ViewGroup) (0 until view.childCount).flatMap { views(view.getChildAt(it)) }
+        else emptyList()
+
+    private fun views(activity: Activity) = views(activity.window.decorView)
+    private fun texts(activity: Activity) =
+        views(activity).filterIsInstance<TextView>().map { it.text.toString() }
+
+    private fun goToObjects(activity: Activity) {
+        val button = views(activity).filterIsInstance<Button>()
+            .firstOrNull { it.text.toString().contains("OBIEKTY") }
+        assertNotNull("Home button OBIEKTY should exist", button)
+        button!!.performClick()
+        assertEquals(1, views(activity).filterIsInstance<ObjectListPanel>().size)
+    }
+
+    @Test fun opensRealObjectCardWithoutChangingDomainData() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                goToObjects(activity)
+                assertTrue(texts(activity).any { it.contains("TCZ-01") })
+                val card = views(activity).firstOrNull {
+                    it.contentDescription?.toString()?.contains("TCZ-01") == true && it.isClickable
+                }
+                assertNotNull("Object card should be clickable", card)
+                card!!.performClick()
+                assertTrue(texts(activity).contains("Edytuj obiekt"))
+            }
+        }
+    }
+
+    @Test fun filtersArchivedRecordsWithoutDeletingHistory() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                goToObjects(activity)
+                assertTrue(texts(activity).any { it.contains("TCZ-01") })
+                val archiveToggle = views(activity).filterIsInstance<TextView>()
+                    .firstOrNull { it.text.toString() == "Wszystkie" && it.isClickable }
+                assertNotNull("Archive filter", archiveToggle)
+                archiveToggle!!.performClick()
+                assertTrue(texts(activity).any { it.contains("GDA-02") })
+                assertFalse(texts(activity).any { it.contains("TCZ-01") })
+                val preferences = activity.getSharedPreferences("r3_gate", 0)
+                assertTrue(preferences.getBoolean("archived_objects", false))
+                val json = JSONObject(preferences.getString("data", "{}")!!)
+                assertEquals(2, json.getJSONArray("objects").length())
+            }
+        }
+    }
+}
