@@ -49,4 +49,29 @@ class GpsWatchdogRegistrationResultTest {
     @Test fun caseMismatchIsNotSuccessful() {
         assertFalse(rules.registrationSucceeded("gps",true,"GPS"))
     }
+
+    @Test fun matchingProviderAndIntervalConfirmRestoredCadence() {
+        assertTrue(rules.cadenceApplied("gps",true,"gps",30_000L,30_000L))
+    }
+    @Test fun matchingNetworkProviderAndIntervalConfirmRestoredCadence() {
+        assertTrue(rules.cadenceApplied("network",true,"network",90_000L,90_000L))
+    }
+    @Test fun staleSamplingIntervalDoesNotConfirmRecovery() {
+        assertFalse(rules.cadenceApplied("gps",true,"gps",15_000L,90_000L))
+    }
+    @Test fun missingRegistrationDoesNotConfirmRecovery() {
+        assertFalse(rules.cadenceApplied("gps",false,"gps",15_000L,15_000L))
+    }
+    @Test fun changedProviderDoesNotConfirmRecovery() {
+        assertFalse(rules.cadenceApplied("gps",true,"network",30_000L,30_000L))
+    }
+    @Test fun noSelectedProviderDoesNotConfirmRecovery() {
+        assertFalse(rules.cadenceApplied(null,true,"gps",30_000L,30_000L))
+    }
+    @Test fun invalidRequestedIntervalDoesNotConfirmRecovery() {
+        assertFalse(rules.cadenceApplied("gps",true,"gps",0L,0L))
+    }
+    @Test fun oldFastIntervalDoesNotConfirmQuietRestoration() {
+        assertFalse(rules.cadenceApplied("gps",true,"gps",90_000L,15_000L))
+    }
 }
