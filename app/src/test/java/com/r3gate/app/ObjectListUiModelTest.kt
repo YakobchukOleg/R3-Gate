@@ -60,7 +60,33 @@ class ObjectListUiModelTest {
         val result = ObjectListUiModel.display(
             listOf(item("gdansk", "GDA-01", false)), false, "Warszawa")
         assertTrue(result.rows.isEmpty())
-        assertEquals(ObjectUiPresentation.emptyList(false), result.emptyMessage)
+        assertEquals("Brak obiektów dla wybranych filtrów.", result.emptyMessage)
+    }
+
+    @Test fun searchesNameCompanyAddressAndTagFromHtmlPrototype() {
+        val hospital = ObjectListUiModel.Item(
+            "h", "GDA-07", "Serwis", "Gdańsk", "Grunwaldzka 32", false,
+            name = "Poradnia Lekarza")
+        for (query in listOf("poradnia", "SERWIS", "grunwaldzka", "gda-07")) {
+            assertEquals(query, listOf("h"),
+                ObjectListUiModel.display(listOf(hospital), false, query).rows.map { it.id })
+        }
+    }
+
+    @Test fun archiveSearchDoesNotLeakActiveResults() {
+        val archived = ObjectListUiModel.Item(
+            "archive", "KOP-01", "Firma", "Łódź", "Główna 1", true)
+        val active = ObjectListUiModel.Item(
+            "active", "KOP-02", "Firma", "Łódź", "Główna 2", false)
+        assertEquals(listOf("archive"),
+            ObjectListUiModel.display(listOf(active, archived), true, "lodz").rows.map { it.id })
+        assertEquals(listOf("active"),
+            ObjectListUiModel.display(listOf(active, archived), false, "lodz").rows.map { it.id })
+    }
+
+    @Test fun blankSearchKeepsDistinctArchiveEmptyState() {
+        val result = ObjectListUiModel.display(emptyList(), true, "   ")
+        assertEquals("Brak zarchiwizowanych obiektów", result.emptyMessage)
     }
 
 }
