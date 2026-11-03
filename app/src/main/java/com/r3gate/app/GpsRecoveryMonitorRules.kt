@@ -11,7 +11,7 @@ object GpsRecoveryMonitorRules {
     enum class Decision { IGNORE, HEALTHY, ALERT, ALERT_NO_FIX, ALERT_PERMISSION, ALERT_PROVIDER_OFF, ALERT_PROVIDER_UNUSABLE }
     /** Clear only diagnostics that a new trusted GPS position can resolve. */
     fun recoveredByTrustedFix(problem:String?):Boolean =
-        problem in setOf("stalled","no_fix","no_provider","permission","provider","runtime")
+        problem in setOf("stalled","no_fix","no_provider","permission","provider","provider_unusable","runtime")
 
     fun decide(
         nowMs:Long,
