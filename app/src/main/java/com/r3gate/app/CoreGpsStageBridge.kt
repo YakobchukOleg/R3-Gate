@@ -18,10 +18,22 @@ object CoreGpsStageBridge {
     private const val CHANNEL = "core-gps-stage-review"
     const val INTENT_EVENT = "core_gps_stage_event_id"
 
+    /**
+     * Remove a superseded lock-screen prompt, without forgetting that the
+     * underlying event was previously delivered. Replays stay deduplicated.
+     */
+    fun dismiss(context: Context) {
+        val prefs = context.getSharedPreferences("r3_gate", Context.MODE_PRIVATE)
+        val tag = prefs.getString("core_gps_active_notification", null) ?: return
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.cancel(tag, 4502)
+        prefs.edit().remove("core_gps_active_notification").apply()
+    }
+
     fun refresh(context: Context) {
         val prefs = context.getSharedPreferences("r3_gate", Context.MODE_PRIVATE)
         val data = try { JSONObject(prefs.getString("data", "{}") ?: "{}") } catch (_: Exception) { return }
-        val active = data.optJSONObject("active") ?: return
+        val active = data.optJSONObject("active") ?: run { dismiss(context); return }
         val nowMs = System.currentTimeMillis()
         val shiftStart = active.optLong("start")
         val stageStart = maxOf(shiftStart, active.optLong("stageStart", shiftStart))
@@ -50,7 +62,6 @@ object CoreGpsStageBridge {
                 confidence = CoreGpsProposalInbox.Confidence.HIGH)
             if (CoreGpsStageRules.shouldNotify(candidate, shift, activeIds, stageStart, nowMs)) incoming.add(candidate)
         }
-        if (incoming.isEmpty()) return
         val storage = AndroidCoreGpsProposalStorage(context)
         val updated = CoreGpsProposalStore.import(storage, incoming, activeIds)
         if (updated.state !is CoreGpsProposalStore.ReadResult.Success) return
@@ -64,9 +75,14 @@ object CoreGpsStageBridge {
         val choice = CoreGpsStageReviewQueue.choose(
             updated.state.events, shift, activeIds, stageStart, nowMs
         )
-        val event = choice.event ?: return
+        val event = choice.event ?: run { dismiss(context); return }
         val flagged = prefs.getStringSet("core_gps_notified", emptySet())?.toSet() ?: emptySet()
-        if (event.eventId in flagged) return
+        if (event.eventId in flagged) {
+            // Never leave an older, now-inapplicable notification visible.
+            val previous = prefs.getString("core_gps_active_notification", null)
+            if (previous != null && previous != event.eventId) dismiss(context)
+            return
+        }
         val intent = Intent(context, MainActivity::class.java)
             .putExtra(INTENT_EVENT, event.eventId)
             .setData(Uri.parse("workmeter://gps-stage/" + Uri.encode(event.eventId)))
