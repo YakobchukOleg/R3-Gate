@@ -113,8 +113,11 @@ object CoreGpsStageBridge {
             dismiss(context)
             return
         }
-        val flagged = prefs.getStringSet("core_gps_notified", emptySet())?.toSet() ?: emptySet()
-        if (event.eventId in flagged) {
+        val previousFlags = prefs.getStringSet("core_gps_notified", emptySet())?.toSet() ?: emptySet()
+        val flagged = CoreGpsNotificationLedger.reconcile(previousFlags, updated.state.events)
+        if (flagged != previousFlags)
+            prefs.edit().putStringSet("core_gps_notified", flagged).commit()
+        if (!CoreGpsNotificationLedger.shouldNotify(event.eventId, flagged, updated.state.events)) {
             // Never leave an older, now-inapplicable notification visible.
             val previous = prefs.getString("core_gps_active_notification", null)
             if (previous != null && previous != event.eventId) dismiss(context)
@@ -147,7 +150,8 @@ object CoreGpsStageBridge {
             return
         }
         // Don't lose user review state if a notification was blocked.
-        prefs.edit().putStringSet("core_gps_notified", flagged + event.eventId)
+        prefs.edit().putStringSet("core_gps_notified",
+            CoreGpsNotificationLedger.markDelivered(flagged, event.eventId, updated.state.events))
             .putString("core_gps_active_notification", event.eventId).commit()
     }
 }
