@@ -159,12 +159,12 @@ class ObjectListPanelInstrumentedTest {
             scenario.onActivity { activity ->
                 openActiveDetails(activity)
                 val photos = views(activity).filterIsInstance<Button>()
-                    .first { it.text.toString() == "Zdjęcia" }
+                    .first { it.contentDescription == "Zakładka: Zdjęcia" }
                 photos.performClick()
                 assertTrue(texts(activity).contains("0 zdjęć przypisanych do obiektu"))
                 assertTrue(texts(activity).contains("Otwórz zdjęcia"))
                 val materials = views(activity).filterIsInstance<Button>()
-                    .first { it.text.toString() == "Materiały" }
+                    .first { it.contentDescription == "Zakładka: Materiały" }
                 materials.performClick()
                 assertTrue(texts(activity).contains("0 wpisów materiałowych"))
                 assertTrue(texts(activity).contains("Otwórz materiały"))
@@ -177,7 +177,7 @@ class ObjectListPanelInstrumentedTest {
             scenario.onActivity { activity ->
                 openActiveDetails(activity)
                 val service = views(activity).filterIsInstance<Button>()
-                    .firstOrNull { it.text.toString() == "Serwis" }
+                    .firstOrNull { it.contentDescription == "Zakładka: Serwis" }
                 assertNotNull(service)
                 service!!.performClick()
                 assertTrue(texts(activity).any {
@@ -197,7 +197,7 @@ class ObjectListPanelInstrumentedTest {
             scenario.onActivity { activity ->
                 openActiveDetails(activity)
                 val tech = views(activity).filterIsInstance<Button>()
-                    .first { it.text.toString() == "Techniczne" }
+                    .first { it.contentDescription == "Zakładka: Techniczne" }
                 tech.performClick()
                 assertTrue(texts(activity).contains("TAG: TCZ-01"))
                 assertTrue(texts(activity).contains("Otwórz w Google Maps"))
