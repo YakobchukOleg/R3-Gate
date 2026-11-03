@@ -20,12 +20,15 @@ class ObjectDetailsPanel(
     private val onMaps: () -> Unit,
     private val onPhotos: () -> Unit,
     private val onMaterials: () -> Unit,
-    private val onNotes: () -> Unit
+    private val onNotes: () -> Unit,
+    private val counts: ObjectDetailsTabs.Counts = ObjectDetailsTabs.Counts()
 ) : LinearLayout(context) {
     private val ink = Color.rgb(35, 57, 67)
     private val muted = Color.rgb(114, 130, 139)
     private val green = Color.rgb(37, 136, 109)
     private val backgroundColor = Color.rgb(244, 247, 247)
+    private val tabBody = LinearLayout(context).apply { orientation = VERTICAL }
+    private var selectedTab = ObjectDetailsTabs.Tab.OVERVIEW
 
     init {
         orientation = VERTICAL
@@ -68,30 +71,74 @@ class ObjectDetailsPanel(
         addView(shortcuts, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(12)
         })
-        addView(section("Przegląd"))
-        addView(card().apply {
-            addView(text(state.historyHeading, ink, 16f).apply {
-                setTypeface(null, Typeface.BOLD)
-            })
-            addView(text(state.totalTime, green, 19f).apply {
-                setTypeface(null, Typeface.BOLD)
-                setPadding(0, dp(10), 0, dp(8))
-            })
-            state.emptyHistory?.let { addView(text(it, muted, 13f)) }
-            for (entry in state.days) {
-                addView(text("${entry.date} · ${entry.duration}", ink, 13f).apply {
-                    setPadding(0, dp(7), 0, dp(7))
-                })
-            }
-            state.legacyNote?.let { addView(text(it, muted, 12f)) }
-        })
-        addView(section("Ważne informacje"))
-        addView(card().apply {
-            addView(text(state.notes ?: "Brak notatek. Dodaj dane kontaktowe lub ważną informację.", muted, 13f))
-        })
+        val tabs = android.widget.HorizontalScrollView(context).apply {
+            isHorizontalScrollBarEnabled = false
+        }
+        val tabRow = LinearLayout(context).apply { orientation = HORIZONTAL }
+        tabs.addView(tabRow)
+        for (tab in ObjectDetailsTabs.Tab.values()) {
+            tabRow.addView(action(tab.label) {
+                selectedTab = tab
+                for (i in 0 until tabRow.childCount) {
+                    val button = tabRow.getChildAt(i) as Button
+                    val active = i == tab.ordinal
+                    button.setTextColor(if (active) green else muted)
+                    button.setTypeface(null, if (active) Typeface.BOLD else Typeface.NORMAL)
+                }
+                renderTab(tab, state)
+            }, LayoutParams(LayoutParams.WRAP_CONTENT, dp(48)))
+        }
+        addView(tabs, LayoutParams(LayoutParams.MATCH_PARENT, dp(54)))
+        addView(tabBody, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        renderTab(ObjectDetailsTabs.Tab.OVERVIEW, state)
         addView(text(state.archiveHint, muted, 12f).apply {
             setPadding(0, dp(12), 0, dp(12))
         })
+    }
+
+    private fun renderTab(tab: ObjectDetailsTabs.Tab, state: ObjectDetailsUiModel.ViewState) {
+        tabBody.removeAllViews()
+        val section = ObjectDetailsTabs.section(tab, counts)
+        if (tab == ObjectDetailsTabs.Tab.OVERVIEW) {
+            tabBody.addView(section("Przegląd"))
+            tabBody.addView(card().apply {
+                addView(text(state.historyHeading, ink, 16f).apply {
+                    setTypeface(null, Typeface.BOLD)
+                })
+                addView(text(state.totalTime, green, 19f).apply {
+                    setTypeface(null, Typeface.BOLD)
+                    setPadding(0, dp(10), 0, dp(8))
+                })
+                state.emptyHistory?.let { addView(text(it, muted, 13f)) }
+                for (entry in state.days) addView(text("${entry.date} · ${entry.duration}", ink, 13f).apply {
+                    setPadding(0, dp(7), 0, dp(7))
+                })
+                state.legacyNote?.let { addView(text(it, muted, 12f)) }
+            })
+            tabBody.addView(section("Ważne informacje"))
+            tabBody.addView(card().apply {
+                addView(text(state.notes ?: "Brak notatek. Dodaj dane kontaktowe lub ważną informację.", muted, 13f))
+            })
+        } else {
+            tabBody.addView(section(section.heading))
+            tabBody.addView(card().apply {
+                addView(text(section.description, muted, 14f))
+                if (tab == ObjectDetailsTabs.Tab.TECHNICAL) {
+                    addView(text("TAG: " + state.heading, ink, 13f))
+                    state.location?.let { addView(text("⌖ " + it, ink, 13f)) }
+                    state.organization?.let { addView(text("◈ " + it, ink, 13f)) }
+                }
+            })
+            val callback: (() -> Unit)? = when (tab) {
+                ObjectDetailsTabs.Tab.PHOTOS -> onPhotos
+                ObjectDetailsTabs.Tab.MATERIALS -> onMaterials
+                ObjectDetailsTabs.Tab.SERVICE -> onNotes
+                ObjectDetailsTabs.Tab.TECHNICAL -> onMaps
+                ObjectDetailsTabs.Tab.OVERVIEW -> null
+            }
+            if (section.action != null && callback != null)
+                tabBody.addView(action(section.action, callback))
+        }
     }
 
     private fun dp(n: Int) = (n * resources.displayMetrics.density + 0.5f).toInt()
