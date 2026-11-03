@@ -47,7 +47,7 @@ object JournalCsvExport {
             it.optString("id") to it.optString("name", it.optString("title"))
         }
         fun name(id: String, fallback: String) = names[id]?.takeIf { it.isNotBlank() } ?: fallback
-        when (report) {
+        return when (report) {
             Report.WORK_TIME -> {
                 val rows = list(data, "shifts").mapNotNull { shift ->
                     val start = millis(shift, "start")
