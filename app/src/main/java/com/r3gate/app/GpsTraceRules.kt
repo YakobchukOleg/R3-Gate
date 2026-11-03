@@ -9,7 +9,7 @@ object GpsTraceRules {
     fun shouldLog(kind:String,nowMs:Long,lastKindMs:Long):Boolean {
         if(nowMs<=0L) return false
         val interval=when(kind) {
-            "FIX","ZONE","TRIP_EVIDENCE" -> FIX_INTERVAL_MS
+            "FIX","ZONE","TRIP_EVIDENCE","APPROXIMATE_LOCATION" -> FIX_INTERVAL_MS
             "REJECT_QUALITY","REJECT_ORDER","REJECT_JUMP","REJECT_SOURCE" -> REJECTION_INTERVAL_MS
             else -> return true
         }

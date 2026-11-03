@@ -16,6 +16,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref == 'feature/gps-watchdog-motion-geofence' && github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -48,7 +50,11 @@ jobs:
         run: gradle --no-daemon testDebugUnitTest assembleDebug lintDebug
       - name: GPS JVM tests and Android lint
         if: github.head_ref == 'feature/gps-watchdog-motion-geofence'
-        run: gradle --no-daemon testDebugUnitTest lintDebug
+        env:
+          EXPECTED_GPS_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_GPS_SHA"
+          gradle --no-daemon testDebugUnitTest lintDebug
       - name: Enable emulator acceleration
         if: github.head_ref != 'feature/gps-watchdog-motion-geofence'
         run: |

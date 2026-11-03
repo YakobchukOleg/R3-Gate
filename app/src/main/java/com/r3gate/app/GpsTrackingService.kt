@@ -144,6 +144,12 @@ class GpsTrackingService : Service(), LocationListener {
     }
     private fun trace(kind:String,now:Long=System.currentTimeMillis(),details:JSONObject=JSONObject()) =
         GpsTraceJournal.append(prefs,kind,now,details)
+    private fun provisionalRow(
+        kind: String, time: Long, eventId: String,
+        evidenceStart: Long? = null, tripId: String? = null
+    ): JSONObject = JSONObject(GpsEventContract.metadata(kind,time,evidenceStart,tripId))
+        .put("event",kind).put("time",time).put("eventId",eventId)
+
     private fun recordTripBoundary(now:Long=System.currentTimeMillis()) {
         val journal=try { JSONArray(prefs.getString("gps_trip_events","[]") ?: "[]") }
             catch(_:Exception) { JSONArray() }
@@ -154,7 +160,7 @@ class GpsTrackingService : Service(), LocationListener {
                     existing?.optString("event"),existing?.optLong("time") ?: 0L,
                     null,"GPS_GAP",now)
             }) return
-        journal.put(JSONObject().put("event","GPS_GAP").put("time",now).put("eventId",eventId))
+        journal.put(provisionalRow("GPS_GAP",now,eventId))
         val retained=JSONArray()
         for(i in maxOf(0,journal.length()-100) until journal.length()) retained.put(journal.opt(i))
         prefs.edit().putString("gps_trip_events",retained.toString()).apply()
@@ -671,8 +677,8 @@ class GpsTrackingService : Service(), LocationListener {
                     GpsEventIdentity.sameEvent(existing?.optString("eventId"),
                         existing?.optString("event"),existing?.optLong("time") ?: 0L,
                         existing?.optString("objectId"),decision.event,now,decision.placeId)
-                }) history.put(JSONObject().put("event",decision.event)
-                .put("objectId",decision.placeId ?: "").put("time",now).put("eventId",eventId))
+                }) history.put(provisionalRow(decision.event,now,eventId,state.candidateSinceMs)
+                .put("objectId",decision.placeId ?: ""))
             val limited=JSONArray()
             for(i in maxOf(0,history.length()-100) until history.length()) limited.put(history.opt(i))
             editor.putString("gps_events",limited.toString())
@@ -721,7 +727,14 @@ class GpsTrackingService : Service(), LocationListener {
                     previousPoint.longitude,point.latitude,point.longitude))
                 .put("deltaMs",now-lastTime))
             val t=transition.state
+            val previousTripId=previousState.optString("tripId").takeIf { it.isNotBlank() }
+            val currentTripId=when {
+                transition.event=="TRIP_START" -> GpsEventIdentity.id("TRIP_START",now)
+                t.mode==GpsTripRules.Mode.MOVING -> previousTripId
+                else -> null
+            }
             val motionEditor=prefs.edit().putString("gps_trip_state",JSONObject()
+                .put("tripId",currentTripId)
                 .put("mode",t.mode.name).put("candidate",t.candidate.name)
                 .put("candidateSince",t.candidateSinceMs).put("last",t.lastFixMs)
                 .put("stoppedSince",t.stoppedSinceMs).put("longStopReported",t.longStopReported).toString())
@@ -734,8 +747,9 @@ class GpsTrackingService : Service(), LocationListener {
                         GpsEventIdentity.sameEvent(existing?.optString("eventId"),
                             existing?.optString("event"),existing?.optLong("time") ?: 0L,
                             null,transition.event,now)
-                    }) journal.put(JSONObject().put("event",transition.event)
-                    .put("time",now).put("eventId",eventId))
+                    }) journal.put(provisionalRow(transition.event,now,eventId,
+                    tripState.candidateSinceMs.takeIf { transition.event!="LONG_STOP" },
+                    if (transition.event=="TRIP_STOP") previousTripId else currentTripId))
                 val recent=JSONArray()
                 for(i in maxOf(0,journal.length()-100) until journal.length()) recent.put(journal.opt(i))
                 motionEditor.putString("gps_trip_events",recent.toString())
