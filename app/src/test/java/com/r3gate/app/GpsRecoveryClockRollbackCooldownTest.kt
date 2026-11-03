@@ -4,7 +4,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class GpsRecoveryClockRollbackCooldownTest {
-    private val now=1_000_000L
+    private val now=5_000_000L
     private val session=100_000L
     private fun decide(alertAt:Long,heartbeat:Long=100_000L,
                        fix:Long=100_000L,enabled:Boolean=true) =
