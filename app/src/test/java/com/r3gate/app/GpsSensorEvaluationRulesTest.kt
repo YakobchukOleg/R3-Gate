@@ -9,7 +9,7 @@ class GpsSensorEvaluationRulesTest {
     @Test fun firstValidSensorObservationEvaluates() { assertTrue(evaluate(1_000L)) }
     @Test fun duplicateTimestampThrottled() { assertFalse(evaluate(1_000L,1_000L)) }
     @Test fun oneMillisecondAfterThrottled() { assertFalse(evaluate(1_001L,1_000L)) }
-    @Test fun 999MillisecondsAfterThrottled() { assertFalse(evaluate(1_999L,1_000L)) }
+    @Test fun nineHundredNinetyNineMillisecondsAfterThrottled() { assertFalse(evaluate(1_999L,1_000L)) }
     @Test fun oneSecondBoundaryEvaluates() { assertTrue(evaluate(2_000L,1_000L)) }
     @Test fun laterSensorEvaluationAccepted() { assertTrue(evaluate(2_001L,1_000L)) }
     @Test fun wakeBypassesThrottle() { assertTrue(evaluate(1_001L,1_000L,true)) }
