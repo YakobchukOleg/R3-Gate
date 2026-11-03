@@ -40,14 +40,24 @@ object JournalValidator {
         for (i in 0 until objects.length()) {
             val obj = objects.optJSONObject(i)
             if (obj == null) { errors.add("objects[$i] is not an object"); continue }
-            val id = obj.optString("id").trim()
+            if (obj.has("id") && obj.opt("id") !is String) {
+                errors.add("objects[$i].id is not a string")
+            }
+            if (obj.has("archived") && obj.opt("archived") !is Boolean) {
+                errors.add("objects[$i].archived is not a boolean")
+            }
+            val id = (obj.opt("id") as? String)?.trim().orEmpty()
             if (id.isEmpty()) errors.add("objects[$i] has no ID")
             else if (!ids.add(id)) errors.add("Duplicate object ID: $id")
             if (obj.optBoolean("archived", false)) archived++
         }
         var references = 0
         fun check(value: JSONObject, location: String) {
-            val id = value.optString("objectId", "").trim()
+            if (value.has("objectId") && value.opt("objectId") !is String) {
+                errors.add("$location.objectId is not a string")
+                return
+            }
+            val id = (value.opt("objectId") as? String)?.trim().orEmpty()
             if (id.isNotEmpty()) {
                 references++
                 if (id !in ids) warnings.add("$location references unknown objectId: $id")
