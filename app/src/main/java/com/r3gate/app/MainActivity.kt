@@ -119,8 +119,7 @@ class MainActivity : Activity() {
         super.onRestart()
         // Keep the existing view (including its scroll position) when returning
         // from another app. Only lock sensitive finance screens.
-        if(screen=="wallet" || screen=="payment" || screen=="expenses" ||
-            screen.startsWith("detail:expenses:")) settings()
+        if(GpsNavigationRestoreRules.lockOnRestart(screen)) settings()
     }
     private fun hash(s: String): String = MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).joinToString("") { "%02x".format(it) }
     private fun setupPin() {
