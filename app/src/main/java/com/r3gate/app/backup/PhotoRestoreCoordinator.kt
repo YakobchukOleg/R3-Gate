@@ -25,6 +25,7 @@ object PhotoRestoreCoordinator {
         private val prepared: PhotoRestoreAndroid.Prepared,
         private val snapshots: Map<String, String>
     ) {
+        val stagingDirectory: File get() = prepared.staged.directory
         private var finished = false
 
         /** Explicitly cancel a pending restore, deleting its private staged photos. */
