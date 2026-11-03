@@ -102,4 +102,41 @@ class GpsArrivalRecoveryRulesTest {
         assertNull(next.event)
         assertEquals("A",next.state.confirmedId)
     }
+
+    @Test fun missingConfirmedSiteDoesNotFabricateDeparture() {
+        val state=GpsArrivalRules.State("A",null,1_000L,30_000L)
+        val reset=rules.afterPlacesChanged(state,emptyList())
+        assertEquals(GpsArrivalRules.State(lastFixMs=30_000L),reset)
+        assertNull(GpsArrivalRules.advance(reset,null,60_000L).event)
+    }
+
+    @Test fun aNewSiteCanBeConfirmedAfterPreviousSiteWasRemoved() {
+        val site=GpsWorkRules.Place("B",GpsWorkRules.Kind.OBJECT,54.0,18.0)
+        val reset=rules.afterPlacesChanged(GpsArrivalRules.State("A","B",1_000L,30_000L),listOf(site))
+        val first=GpsArrivalRules.advance(reset,"B",60_000L)
+        assertNull(first.event)
+        val second=GpsArrivalRules.advance(first.state,"B",120_000L)
+        assertEquals("ARRIVAL",second.event)
+        assertEquals("B",second.placeId)
+    }
+
+    @Test fun missingCandidateCannotContributeToDepartureDwell() {
+        val site=GpsWorkRules.Place("A",GpsWorkRules.Kind.OBJECT,54.0,18.0)
+        val reset=rules.afterPlacesChanged(GpsArrivalRules.State("A","B",1_000L,30_000L),listOf(site))
+        assertEquals("A",reset.confirmedId)
+        assertNull(reset.candidateId)
+        assertEquals(0L,reset.candidateSinceMs)
+        assertNull(GpsArrivalRules.advance(reset,null,61_000L).event)
+    }
+
+    @Test fun duplicateConfirmedSiteIsStillAmbiguous() {
+        val site=GpsWorkRules.Place("A",GpsWorkRules.Kind.OBJECT,54.0,18.0)
+        val places=listOf(site,site.copy(latitude=55.0))
+        val saved=GpsArrivalRules.State(confirmedId="A",lastFixMs=30_000L)
+        val state=rules.afterPlacesChanged(saved,places)
+        val point=GpsWorkRules.Point(54.0,18.0,8.0,60_000L)
+        assertEquals(saved,state)
+        assertEquals(GpsGeofenceEvidence.Status.UNCERTAIN,
+            GpsGeofenceEvidence.observe(point,places,state.confirmedId).status)
+    }
 }

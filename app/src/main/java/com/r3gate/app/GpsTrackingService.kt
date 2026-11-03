@@ -608,7 +608,11 @@ class GpsTrackingService : Service(), LocationListener {
             } catch(_:Exception) { }
         }
         val saved=try { JSONObject(prefs.getString("gps_arrival_state","{}") ?: "{}") } catch(_:Exception) { JSONObject() }
-        val confirmedId=saved.optString("confirmed").ifBlank { null }
+        val state=GpsArrivalRecoveryRules.afterPlacesChanged(GpsArrivalRules.State(
+            saved.optString("confirmed").ifBlank { null },
+            saved.optString("candidate").ifBlank { null },
+            saved.optLong("since"), saved.optLong("last")),places)
+        val confirmedId=state.confirmedId
         val zoneEvidence=GpsGeofenceEvidence.observe(point,places,confirmedId)
         val needsEvidence=zoneEvidence.status==GpsGeofenceEvidence.Status.UNCERTAIN ||
             zoneEvidence.placeId!=confirmedId
@@ -638,14 +642,10 @@ class GpsTrackingService : Service(), LocationListener {
         }
         trace("ZONE",now,JSONObject()
             .put("status",zoneEvidence.status.name).put("observed",zoneEvidence.placeId ?: "")
-            .put("confirmed",confirmedId ?: "").put("candidate",saved.optString("candidate"))
-            .put("candidateSince",saved.optLong("since")).put("distanceToConfirmedM",distanceToConfirmed)
+            .put("confirmed",confirmedId ?: "").put("candidate",state.candidateId ?: "")
+            .put("candidateSince",state.candidateSinceMs).put("distanceToConfirmedM",distanceToConfirmed)
             .put("accuracyM",point.accuracyM).put("configuredObjects",places.size))
         val observed=zoneEvidence.placeId
-        val state=GpsArrivalRules.State(
-            saved.optString("confirmed").ifBlank { null },
-            saved.optString("candidate").ifBlank { null },
-            saved.optLong("since"), saved.optLong("last"))
         // Inaccurate border fixes cannot count as a confirmed departure.
         val decision=if(zoneEvidence.status==GpsGeofenceEvidence.Status.UNCERTAIN)
             GpsArrivalRules.uncertain(state,now)
