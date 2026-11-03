@@ -859,9 +859,25 @@ class MainActivity : Activity() {
             gpsScreen()
         }
     }
+    /**
+     * Request Android 13+ notification access once when GPS is opted in.
+     * A declined request never turns tracking on/off or edits work stages.
+     */
+    private fun requestGpsStageNotificationsIfNeeded() {
+        val granted=Build.VERSION.SDK_INT<33 ||
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)==PackageManager.PERMISSION_GRANTED
+        if(CoreGpsNotificationPermissionRules.needsRequest(
+                Build.VERSION.SDK_INT,prefs.getBoolean("gps_enabled",false),granted,
+                prefs.getBoolean("core_gps_notification_permission_asked",false))) {
+            prefs.edit().putBoolean("core_gps_notification_permission_asked",true).apply()
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),308)
+        }
+    }
+
     private fun setGpsEnabled(value:Boolean) {
         if(!value) {
             prefs.edit().putBoolean("gps_enabled",false).putBoolean("gps_resume_pending",false).apply()
+            CoreGpsStageBridge.dismiss(this)
             stopService(Intent(this,GpsTrackingService::class.java))
             return
         }
@@ -875,6 +891,7 @@ class MainActivity : Activity() {
         try {
             androidx.core.content.ContextCompat.startForegroundService(
                 this,Intent(this,GpsTrackingService::class.java).setAction(GpsTrackingService.ACTION_START))
+            requestGpsStageNotificationsIfNeeded()
         } catch(e:Exception) {
             prefs.edit().putBoolean("gps_enabled",false).apply()
             Toast.makeText(this,"Nie można uruchomić GPS: "+e.javaClass.simpleName,Toast.LENGTH_LONG).show()
@@ -988,6 +1005,16 @@ class MainActivity : Activity() {
             setGpsEnabled(!enabled); gpsScreen()
         }
         if(!enabled) return
+        val notificationsGranted=Build.VERSION.SDK_INT<33 ||
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)==PackageManager.PERMISSION_GRANTED
+        if(CoreGpsNotificationPermissionRules.showPromptButton(
+                Build.VERSION.SDK_INT,enabled,notificationsGranted)) {
+            label("Powiadomienia GPS o zmianie etapu są wyłączone. Sam GPS nadal działa.")
+            button("Zezwól na powiadomienia o zmianie etapu GPS") {
+                prefs.edit().putBoolean("core_gps_notification_permission_asked",true).apply()
+                requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),308)
+            }
+        }
         val permission=checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED ||
             checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION)==PackageManager.PERMISSION_GRANTED
         if(!permission) {
@@ -2285,6 +2312,13 @@ class MainActivity : Activity() {
         if(requestCode==307) {
             if(grantResults.any { it==PackageManager.PERMISSION_GRANTED }) setGpsEnabled(true)
             else toast("Bez pozwolenia na lokalizację GPS pozostanie wyłączony.")
+            if(screen=="gps") gpsScreen()
+        }
+        if(requestCode==308) {
+            if(grantResults.firstOrNull()==PackageManager.PERMISSION_GRANTED) {
+                CoreGpsStageBridge.refresh(this)
+                toast("Powiadomienia GPS włączone")
+            } else toast("Powiadomienia GPS wyłączone. Włączysz je później w ustawieniach telefonu.")
             if(screen=="gps") gpsScreen()
         }
         if(requestCode in listOf(204,205)) {
