@@ -335,7 +335,7 @@ class GpsTrackingService : Service(), LocationListener {
             for(i in maxOf(0,history.length()-100) until history.length()) limited.put(history.opt(i))
             editor.putString("gps_events",limited.toString())
         }
-        editor.apply()
+        if(!editor.commit()) return
         // Travel events are kept apart from work shifts until the user confirms billing rules.
         val previous=try { JSONObject(prefs.getString("gps_motion_point","{}") ?: "{}") } catch(_:Exception) { JSONObject() }
         val lastTime=previous.optLong("time")
@@ -389,6 +389,7 @@ class GpsTrackingService : Service(), LocationListener {
         prefs.edit().putString("gps_motion_point",JSONObject()
             .put("lat",location.latitude).put("lon",location.longitude)
             .put("accuracy",location.accuracy.toDouble()).put("time",now).toString()).apply()
+        if(decision.event=="ARRIVAL" || decision.event=="DEPARTURE") CoreGpsStageBridge.refresh(this)
         if(prefs.getBoolean("gps_adaptive_sampling",false)) {
             val desired=safeSamplingInterval(now)
             if(desired!=samplingIntervalMs) {
