@@ -27,8 +27,7 @@ class DriveBackupWorker(context:Context,params:WorkerParameters):Worker(context,
             val actualEmail=drive.json("GET","https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)",token).optJSONObject("user")?.optString("emailAddress")
             if(!email.equals(actualEmail,true)) return needsAccount()
             val snapshot=snapshot(applicationContext)
-            val day=LocalDate.now().format(DateTimeFormatter.ofPattern("dd-MM-yyyy"))
-            val name="WorkMeter-backup-"+day+".json"
+            val name=BackupFileNaming.fileName(java.time.LocalDateTime.now())
             synchronized(DriveStore.folderLock) {
                 if(isStopped) return Result.retry()
                 val root=drive.root(token); val folder=drive.folder("Backup",root,token)

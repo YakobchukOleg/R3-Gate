@@ -182,6 +182,16 @@ class GpsTrackingService : Service(), LocationListener {
             shutdown()
             return START_NOT_STICKY
         }
+        // Never resume GPS for a closed workday, including service restarts.
+        val workdayOpen=runCatching {
+            JSONObject(prefs.getString("data","{}") ?: "{}").optJSONObject("active")!=null
+        }.getOrDefault(false)
+        if(!GpsWorkdayPolicy.shouldTrack(workdayOpen,prefs.getBoolean("gps_enabled",false))) {
+            prefs.edit().putBoolean("gps_enabled",false)
+                .putBoolean("gps_resume_pending",false).apply()
+            shutdown()
+            return START_NOT_STICKY
+        }
         when(GpsStartPermissionRules.decide(
             prefs.getBoolean("gps_enabled",false),
             checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED,
@@ -255,6 +265,11 @@ class GpsTrackingService : Service(), LocationListener {
         return START_NOT_STICKY
     }
     override fun onLocationChanged(location:Location) {
+        // Guard against a stale provider callback after closing the workday.
+        val workdayOpen=runCatching {
+            JSONObject(prefs.getString("data","{}") ?: "{}").optJSONObject("active")!=null
+        }.getOrDefault(false)
+        if(!GpsWorkdayPolicy.shouldTrack(workdayOpen,prefs.getBoolean("gps_enabled",false))) { shutdown();return }
         when(GpsLocationCallbackRules.decide(
             prefs.getBoolean("gps_enabled",false),
             checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED,

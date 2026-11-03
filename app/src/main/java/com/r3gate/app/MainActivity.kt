@@ -88,6 +88,7 @@ class MainActivity : Activity() {
         }
         migrate()
         migrateWallet()
+        if(active(data())==null && prefs.getBoolean("gps_enabled",false)) setGpsEnabled(false)
         DriveBackupWorker.schedule(this)
         expandedFilters.addAll(savedInstanceState?.getStringArrayList("expandedFilters") ?: emptyList())
         currentSection=savedInstanceState?.getString("currentSection") ?: "Obiekty"
@@ -181,11 +182,11 @@ class MainActivity : Activity() {
     }
     private fun startOnObject(obj: JSONObject) {
         val d=data(); if (active(d)!=null) { toast("Dzień pracy już rozpoczęty"); home(); return }
-        val t=System.currentTimeMillis(); d.put("active",JSONObject().put("id",UUID.randomUUID().toString()).put("start",t).put("object",objectName(obj)).put("objectId",obj.optString("id")).put("stageStart",t).put("stages",JSONArray()).put("rate",defaultRate().toPlainString())); save(d,"START",fmt.format(Date(t))); home()
+        val t=System.currentTimeMillis(); d.put("active",JSONObject().put("id",UUID.randomUUID().toString()).put("start",t).put("object",objectName(obj)).put("objectId",obj.optString("id")).put("stageStart",t).put("stages",JSONArray()).put("rate",defaultRate().toPlainString())); save(d,"START",fmt.format(Date(t))); setGpsEnabled(true); home()
     }
     private fun stopShift() {
         val d=data(); val a=active(d); if(a==null) { toast("Brak rozpoczętej pracy"); home(); return }
-        val end=System.currentTimeMillis(); closeStage(a,end); a.put("end",end); arr(d,"shifts").put(a); d.remove("active"); save(d,"STOP",fmt.format(Date(end))); PhotoQueue.enqueueAll(this); home()
+        val end=System.currentTimeMillis(); closeStage(a,end); a.put("end",end); arr(d,"shifts").put(a); d.remove("active"); save(d,"STOP",fmt.format(Date(end))); setGpsEnabled(false); PhotoQueue.enqueueAll(this); home()
     }
     private fun closeStage(a:JSONObject, end:Long) {
         val st=a.optLong("stageStart",a.optLong("start"))
@@ -814,6 +815,10 @@ class MainActivity : Activity() {
         }
     }
     private fun setGpsEnabled(value:Boolean) {
+        if(value && active(data())==null) {
+            toast("GPS działa tylko podczas otwartego dnia pracy")
+            return
+        }
         if(!value) {
             prefs.edit().putBoolean("gps_enabled",false).putBoolean("gps_resume_pending",false).apply()
             stopService(Intent(this,GpsTrackingService::class.java))
@@ -1626,8 +1631,11 @@ class MainActivity : Activity() {
         label("Kopia JSON zawiera dane i odnośniki. Zachowaj również zdjęcia na Google Disk; zdjęcia lokalne nie są dołączane do JSON.")
         label(prefs.getString("backupStatus","Kopia Google Disk nie została jeszcze wykonana").orEmpty())
         button("Eksportuj dziennik na Google Disk") { confirmAction("Zapisać kopię dziennika w WorkMeter / Backup na osobistym Google Disk?") { pendingUpload="backup"; authorizeDrive() } }
-        button("Zapisz kopię lokalną JSON") { confirmAction { startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type="application/json"; putExtra(Intent.EXTRA_TITLE,"WorkMeter-backup.json") },100) } }
+        button("Zapisz kopię lokalną JSON") { confirmAction { startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type="application/json"; putExtra(Intent.EXTRA_TITLE,BackupFileNaming.fileName(java.time.LocalDateTime.now())) },100) } }
         button("Importuj dziennik JSON") { confirmAction { startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type="application/json" },101) } }
+        button("Importuj kopię z Google Disk") {
+            pendingUpload="import"; authorizeDrive()
+        }
         val list=arr(data(),"logs"); for(i in list.length()-1 downTo 0) { val x=list.optJSONObject(i)?:continue; label("${x.optString("at")} | ${x.optString("type")} | ${x.optString("detail")}") }
     }
     @Deprecated("Legacy activity result")
@@ -2337,11 +2345,83 @@ class MainActivity : Activity() {
                 runOnUiThread {
                     prefs.edit().remove("driveError").putBoolean("driveConnected",true).putString("driveEmail",about.optJSONObject("user")?.optString("emailAddress") ?: "Google Drive").apply()
                     DriveBackupWorker.schedule(this)
-                    if(upload=="queue") { PhotoQueue.enqueueAll(this); uploadQueue() } else if(upload.isBlank()) driveSettings() else if(upload=="backup") { DriveBackupWorker.manual(this); toast("Kopia w kolejce: WorkMeter / Backup"); logs() } else if(upload.startsWith("share:")) shareFolder(upload.substringAfter(":"),token) else uploadPhotos(upload,token)
+                    if(upload=="queue") { PhotoQueue.enqueueAll(this); uploadQueue() } else if(upload.isBlank()) driveSettings() else if(upload=="backup") { DriveBackupWorker.manual(this); toast("Kopia w kolejce: WorkMeter / Backup"); logs() } else if(upload=="import") pickDriveBackup(token) else if(upload.startsWith("share:")) shareFolder(upload.substringAfter(":"),token) else uploadPhotos(upload,token)
                 }
             } catch (_:Exception) { runOnUiThread { prefs.edit().putString("driveError","Google Disk nie odpowiada. Sprawdź, czy Drive API jest włączone i konto ma dostęp.").apply(); toast("Nie udało się połączyć z Google Disk"); } }
         }
     }
+    private fun pickDriveBackup(token:String) {
+        if(active(data())!=null || prefs.getBoolean("gps_service_active",false)) {
+            toast("Zakończ dzień pracy przed przywróceniem kopii")
+            return
+        }
+        io.execute {
+            try {
+                // drive.file deliberately limits access to files created by this app.
+                val query=URLEncoder.encode("trashed = false and mimeType = 'application/json' and name contains 'WorkMeter'","UTF-8")
+                val response=driveJson("GET",
+                    "https://www.googleapis.com/drive/v3/files?q="+query+
+                        "&fields=nextPageToken,files(id,name)&orderBy=createdTime%20desc&pageSize=100",token)
+                val files=response.optJSONArray("files") ?: JSONArray()
+                val choices=(0 until files.length()).mapNotNull { files.optJSONObject(it) }
+                    .filter { it.optString("name").endsWith(".json",true) && it.optString("id").isNotBlank() }
+                runOnUiThread {
+                    if(choices.isEmpty()) {
+                        toast("Brak kopii WorkMeter w plikach aplikacji na Google Disk")
+                    } else {
+                        AlertDialog.Builder(this,R.style.WorkMeterDialogTheme)
+                            .setTitle("Importuj kopię z Google Disk")
+                            .setItems(choices.map { it.optString("name") }.toTypedArray()) { _,index ->
+                                val id=choices[index].optString("id")
+                                downloadDriveBackup(id,token)
+                            }.setNegativeButton("Anuluj",null).show()
+                    }
+                }
+            } catch(_:Exception) {
+                runOnUiThread { toast("Nie można pobrać listy kopii z Google Disk") }
+            }
+        }
+    }
+
+    private fun downloadDriveBackup(fileId:String,token:String) {
+        if(!fileId.matches(Regex("[A-Za-z0-9_-]+"))) {
+            toast("Nieprawidłowy identyfikator pliku")
+            return
+        }
+        io.execute {
+            try {
+                val imported=driveJson("GET",
+                    "https://www.googleapis.com/drive/v3/files/"+fileId+"?alt=media",token)
+                validateImport(imported)
+                runOnUiThread {
+                    if(active(data())!=null || uploading) {
+                        toast("Zakończ pracę i przesyłanie przed importem")
+                        return@runOnUiThread
+                    }
+                    AlertDialog.Builder(this,R.style.WorkMeterDialogTheme)
+                        .setTitle("Przywrócić kopię z Google Disk?")
+                        .setMessage("Obecne dane zostaną zastąpione. Kopia bieżących danych zostanie zachowana lokalnie.")
+                        .setNegativeButton("Anuluj",null)
+                        .setPositiveButton("Importuj") { _,_ ->
+                            if(active(data())!=null || uploading) {
+                                toast("Zakończ pracę i przesyłanie przed importem")
+                            } else {
+                                prefs.edit().putString("preImportBackup",data().toString())
+                                    .putString("data",imported.toString())
+                                    .putInt("widgetTransparency",
+                                        imported.optJSONObject("wtSettings")?.optInt("widgetTransparency",
+                                            prefs.getInt("widgetTransparency",0))?.coerceIn(0,100)
+                                            ?: prefs.getInt("widgetTransparency",0)).commit()
+                                migrate(); migrateWallet(); GateWidget.refresh(this); logs()
+                            }
+                        }.show()
+                }
+            } catch(_:Exception) {
+                runOnUiThread { toast("Nie można otworzyć lub zweryfikować kopii z Google Disk") }
+            }
+        }
+    }
+
     private fun driveJson(method:String,url:String,token:String,body:JSONObject?=null):JSONObject {
         val c=URL(url).openConnection() as HttpURLConnection
         try {
