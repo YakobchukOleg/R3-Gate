@@ -2026,6 +2026,13 @@ class MainActivity : Activity() {
             label(ObjectFormUiModel.mapHint())
             label(ObjectFormUiModel.footer(editing))
         } else {
+            val uiKind=WorkRecordFormUi.kind(formKind)
+            if(uiKind!=null) {
+                label(WorkRecordFormUi.title(uiKind))
+                val assignment=WorkRecordFormUi.assignment(uiKind)
+                label(assignment.title)
+                label(assignment.hint)
+            }
             button("Data: "+recordDate(draft).let { if(it.isBlank()) "Wybierz datę" else dateText(it) }) {
                 pickReportDate(try { LocalDate.parse(recordDate(draft)) } catch (_:Exception) { LocalDate.now() }) {
                     draft.put("date",it.toString()); renderForm()
@@ -2036,6 +2043,11 @@ class MainActivity : Activity() {
             }
             button("Obiekt: "+(objectById(draft.optString("objectId"))?.let { objectName(it) } ?: if(formKind in listOf("notes","expenses")) "Bez obiektu" else "Wybierz")) {
                 chooseObject(formKind in listOf("notes","expenses") || (formKind=="materials" && draft.optString("storage")=="car")) { draft.put("objectId",it?.optString("id") ?: ""); draft.remove("Obiekt"); renderForm() }
+            }
+            if(uiKind!=null) {
+                val details=WorkRecordFormUi.details(uiKind)
+                label(details.title)
+                label(details.hint)
             }
             if(formKind=="expenses") {
                 if(!draft.has("amount") && draft.has("cents")) draft.put("amount",BigDecimal.valueOf(draft.optLong("cents"),2).toPlainString())
@@ -2070,6 +2082,7 @@ class MainActivity : Activity() {
                 button("Dodaj zdjęcia z galerii") { pickPhotos() }; button("Zrób zdjęcie") { camera() }
                 if(formKind=="links") field("Link Google Disk (opcjonalnie)","Link Google Drive")
             }
+            if(uiKind!=null) label(WorkRecordFormUi.attachments(arr(draft,"photos").length()))
             showPhotos(draft)
             if(arr(draft,"photos").length()>0) button("Usuń zdjęcie ze szkicu") {
                 val photos=arr(draft,"photos")
@@ -2080,6 +2093,7 @@ class MainActivity : Activity() {
         }
         if(formKind=="materials" && rows(data(),"materials").none { it.optString("id")==draft.optString("id") }) button("+ DODAJ MATERIAŁ") { addBatchLine() }
         button(if(quickPhotoUpload) "Zapisz i wyślij zdjęcia" else "Zapisz") { saveForm() }
+        if(formKind=="materials") label(WorkRecordFormUi.pendingBatch(rows(draft,"batch").size))
         if(formKind=="materials") for((i,row) in rows(draft,"batch").withIndex()) {
             label(materialLine(row))
             button("EDYTUJ · "+row.optString("name")) {
