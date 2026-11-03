@@ -359,4 +359,30 @@ class ObjectListPanelInstrumentedTest {
         }
     }
 
+    @Test fun unavailablePhotoHasAccessiblePlaceholderWithoutChangingRecord() {
+        val context=InstrumentationRegistry.getInstrumentation().targetContext
+        val pref=context.getSharedPreferences("r3_gate",0)
+        val data=JSONObject(pref.getString("data","{}")!!)
+        data.put("links",JSONArray().put(JSONObject()
+            .put("id","missing-photo").put("objectId","active-1")
+            .put("date","2026-11-03")
+            .put("photos",JSONArray().put("content://com.r3gate.app/not-existing-photo"))))
+        pref.edit().putString("data",data.toString()).commit()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                openActiveDetails(activity)
+                views(activity).filterIsInstance<Button>()
+                    .first { it.text.toString()=="Zdjęcia" && it.contentDescription!="Zakładka: Zdjęcia" }
+                    .performClick()
+                val card=views(activity).filterIsInstance<WorkRecordListCard>().single()
+                card.performClick()
+                assertTrue(texts(activity).contains("1 zdjęcie"))
+                val placeholder=views(activity).filterIsInstance<android.widget.ImageView>()
+                    .firstOrNull { it.contentDescription?.toString()?.contains("Niedostępne na urządzeniu")==true }
+                assertNotNull("Missing photo should expose accessible fallback",placeholder)
+                assertEquals(1,JSONObject(pref.getString("data","{}")!!).getJSONArray("links").length())
+            }
+        }
+    }
+
 }
