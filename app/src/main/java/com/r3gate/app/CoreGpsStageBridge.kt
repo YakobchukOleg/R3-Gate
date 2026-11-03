@@ -21,7 +21,8 @@ object CoreGpsStageBridge {
         val prefs = context.getSharedPreferences("r3_gate", Context.MODE_PRIVATE)
         val data = try { JSONObject(prefs.getString("data", "{}") ?: "{}") } catch (_: Exception) { return }
         val active = data.optJSONObject("active") ?: return
-        val shiftStart = active.optLong("start")\n        val stageStart = maxOf(shiftStart, active.optLong("stageStart", shiftStart))
+        val shiftStart = active.optLong("start")
+        val stageStart = maxOf(shiftStart, active.optLong("stageStart", shiftStart))
         val objects = data.optJSONArray("objects") ?: JSONArray()
         val activeIds = (0 until objects.length()).mapNotNull { i ->
             objects.optJSONObject(i)?.takeIf { !it.optBoolean("archived") }
@@ -77,7 +78,8 @@ object CoreGpsStageBridge {
                 .build()
             notifier.notify(unique, notification)
             // Durable dedup even if the app is restarted while the screen is locked.
-            if (!prefs.edit().putStringSet("core_gps_notified", flagged + event.eventId).commit()) break\n            flagged.add(event.eventId)
+            if (!prefs.edit().putStringSet("core_gps_notified", flagged + event.eventId).commit()) break
+            flagged.add(event.eventId)
         }
     }
 }
