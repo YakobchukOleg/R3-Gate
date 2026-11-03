@@ -112,7 +112,14 @@ class MainActivity : Activity() {
         }
         if (prefs.getString("pin", null) == null) setupPin() else handleLaunch()
     }
-    override fun onResume() { super.onResume(); prefs.registerOnSharedPreferenceChangeListener(uploadChanges); ticker.removeCallbacks(tick); ticker.postDelayed(tick, 60000) }
+    override fun onResume() {
+        super.onResume()
+        prefs.registerOnSharedPreferenceChangeListener(uploadChanges)
+        ticker.removeCallbacks(tick)
+        ticker.postDelayed(tick,60000)
+        // Refresh the GPS arrival affordance after returning from another app.
+        if(::root.isInitialized && screen=="home") home()
+    }
     override fun onPause() { prefs.unregisterOnSharedPreferenceChangeListener(uploadChanges); ticker.removeCallbacks(refreshUploads); ticker.removeCallbacks(tick); super.onPause() }
     override fun onStop() { walletUnlocked=false; super.onStop() }
     override fun onRestart() {
@@ -474,6 +481,32 @@ class MainActivity : Activity() {
         super.onSaveInstanceState(out)
     }
     private fun duration(ms:Long):String { val m=(ms.coerceAtLeast(0)/60000); return "%02d:%02d".format(m/60,m%60) }
+    private fun gpsHomeArrivalReady(shift:JSONObject?):Boolean {
+        if(shift==null) return false
+        val arrival=try { JSONObject(prefs.getString("gps_arrival_state","{}") ?: "{}") }
+            catch(_:Exception) { return false }
+        val fix=try { JSONObject(prefs.getString("gps_last_fix","{}") ?: "{}") }
+            catch(_:Exception) { return false }
+        val confirmedId=arrival.optString("confirmed").ifBlank { null }
+        val fixTime=fix.optLong("time")
+        val point=GpsWorkRules.Point(fix.optDouble("lat",Double.NaN),
+            fix.optDouble("lon",Double.NaN),fix.optDouble("accuracy",Double.NaN),fixTime)
+        val places=rows(data(),"objects").filter { !it.optBoolean("archived") }.mapNotNull { o ->
+            val id=o.optString("id")
+            val stored=prefs.getString("gps_object_"+id,null) ?: return@mapNotNull null
+            try {
+                val geo=JSONObject(stored)
+                GpsWorkRules.Place(id,GpsWorkRules.Kind.OBJECT,
+                    geo.getDouble("lat"),geo.getDouble("lon"),geo.optDouble("radius",100.0))
+            } catch(_:Exception) { null }
+        }
+        return GpsHomeArrivalRules.canChooseObject(
+            prefs.getBoolean("gps_enabled",false),
+            prefs.getBoolean("gps_service_active",false),
+            true,confirmedId,GpsWorkRules.nearest(point,places)?.place?.id,
+            fixTime,arrival.optLong("last"),System.currentTimeMillis())
+    }
+
     /** WorkMeter Solo home dashboard: visual components only; work state stays in legacy data. */
     private fun home() {
         base("WorkMeter")
@@ -573,6 +606,25 @@ class MainActivity : Activity() {
                     LinearLayout.LayoutParams(-1,dp(48)))
             }
         }
+        // This is an optional manual action, never an automatic shift transition.
+        // Only a recent confirmed geofence matching the latest fix enables it.
+        val arrivalReady=gpsHomeArrivalReady(a)
+        root.addView(action(if(arrivalReady) "📍  GPS · WYBIERZ OBIEKT" else
+            "📍  GPS · OCZEKIWANIE NA OBIEKT") {
+            if(!gpsHomeArrivalReady(active(data()))) {
+                toast("Czekam na potwierdzoną lokalizację GPS przy obiekcie")
+                home()
+            } else if(active(data())?.optString("kind")=="Przejazd") {
+                chooseArrival()
+            } else {
+                switchObject()
+            }
+        }.apply {
+            isEnabled=arrivalReady
+            alpha=if(arrivalReady) 1f else 0.55f
+            background=rounded(if(arrivalReady) 0xFF257E61.toInt() else surface,14)
+            setTextColor(if(arrivalReady) Color.WHITE else muted)
+        },LinearLayout.LayoutParams(-1,dp(52)).apply { bottomMargin=dp(10) })
         section("SZYBKIE DZIAŁANIA")
         actionRow("📷  ZDJĘCIA" to { openScreen("list:links:") },
             "📦  MATERIAŁY" to { openScreen("list:materials:") })
