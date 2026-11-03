@@ -12,6 +12,7 @@ import java.util.Base64
  */
 object CoreGpsProposalStore {
     const val KEY = "coreGpsProposalsV1"
+    const val MAX_EVENTS = 512
     private const val HEADER = "workmeter-core-gps-proposals-v1"
     private const val FIELD_COUNT = 11
 
@@ -32,6 +33,15 @@ object CoreGpsProposalStore {
         val imported: CoreGpsProposalInbox.ImportResult? = null
     )
 
+    /**
+     * Bound local history without rewriting timestamps or review decisions.
+     * The newest observations always win; a repeated old event cannot evict
+     * a newer confirmed/rejected decision.
+     */
+    fun compact(events: Collection<CoreGpsProposalInbox.Event>): List<CoreGpsProposalInbox.Event> =
+        events.sortedWith(compareBy<CoreGpsProposalInbox.Event> { it.timestampMs }.thenBy { it.eventId })
+            .takeLast(MAX_EVENTS)
+
     fun read(storage: Storage): ReadResult = decode(storage.read(KEY))
 
     fun import(
@@ -43,9 +53,11 @@ object CoreGpsProposalStore {
         if (current !is ReadResult.Success) return ChangeResult(false, current)
         val result = CoreGpsProposalInbox.import(current.events, incoming, knownObjectIds)
         if (result.added == 0) return ChangeResult(false, current, result)
-        if (!storage.write(KEY, encode(result.events)))
-            return ChangeResult(false, ReadResult.Corrupt("Storage write failed"), result)
-        return ChangeResult(true, ReadResult.Success(result.events), result)
+        val retained = compact(result.events)
+        val persisted = result.copy(events = retained)
+        if (!storage.write(KEY, encode(retained)))
+            return ChangeResult(false, ReadResult.Corrupt("Storage write failed"), persisted)
+        return ChangeResult(true, ReadResult.Success(retained), persisted)
     }
 
     fun decide(
@@ -57,9 +69,10 @@ object CoreGpsProposalStore {
         if (current !is ReadResult.Success) return ChangeResult(false, current)
         val updated = CoreGpsProposalInbox.decide(current.events, eventId, decision)
         if (updated == current.events) return ChangeResult(false, current)
-        if (!storage.write(KEY, encode(updated)))
+        val retained = compact(updated)
+        if (!storage.write(KEY, encode(retained)))
             return ChangeResult(false, ReadResult.Corrupt("Storage write failed"))
-        return ChangeResult(true, ReadResult.Success(updated))
+        return ChangeResult(true, ReadResult.Success(retained))
     }
 
     fun encode(events: Collection<CoreGpsProposalInbox.Event>): String {
