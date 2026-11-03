@@ -1854,7 +1854,16 @@ class MainActivity : Activity() {
             (!f.optBoolean("shoppingOnly") || it.optBoolean("shopping")) &&
             DomainRules.inRange(day,f.optString("from"),f.optString("to"))
         }.let { list -> if(f.optBoolean("nameSort")) list.sortedBy { it.optString("name",it.optString("text")).lowercase(Locale.ROOT) } else list.sortedByDescending { recordDate(it)+it.optString("created") } }
-        if(list.isEmpty()) label("Brak wpisów dla wybranych filtrów.")
+        val listKind=WorkRecordListUi.kind(key)
+        if(listKind!=null) {
+            val filtered=f.optString("from").isNotBlank() || f.optString("to").isNotBlank() ||
+                f.optString("objectId").isNotBlank() || f.optBoolean("shoppingOnly")
+            val header=WorkRecordListUi.header(listKind,list.size,filtered)
+            label(header.heading)
+            label(header.description)
+            label(header.countLabel)
+            if(list.isEmpty()) label(header.emptyMessage)
+        } else if(list.isEmpty()) label("Brak wpisów dla wybranych filtrów.")
         if(key=="materials") {
             val used=list.filter { it.optString("storage")!="car" }
             label("Podsumowanie materiałów dla wybranego zakresu")
@@ -1868,7 +1877,10 @@ class MainActivity : Activity() {
             for((group,items) in used.groupBy { recordDate(it) to it.optString("objectId") }) {
                 label("── "+dateText(group.first)+" ──")
                 val obj=objectById(group.second)?.let { objectName(it) } ?: "Bez obiektu"
-                button(obj+"\n"+items.joinToString("\n") { materialLine(it) }) { materialGroup(group.first,group.second) }
+                val card=WorkRecordListUi.materialsGroup(dateText(group.first),obj,items.size)
+                root.addView(WorkRecordListCard(this,card) {
+                    materialGroup(group.first,group.second)
+                },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
             }
             return
         }
@@ -1882,10 +1894,14 @@ class MainActivity : Activity() {
                 "notes" -> (if(r.optBoolean("shopping")) "🛒 " else "")+(if(r.optBoolean("done")) "✓ " else if(r.optBoolean("aktualne")) "● " else "")+r.optString("text").ifBlank { "Notatka ze zdjęciem" }.take(100)
                 else -> "Zdjęcia: "+arr(r,"photos").length()+" · "+r.optString("Link Google Drive")
             }
-            if(key=="links" && arr(r,"photos").length()>0) {
-                val status=PhotoQueue.status(this,key,r)
-                root.addView(makeButton(summary+"\n"+obj+"\n"+status.caption) { recordDetails(key,r.optString("id"),target) }.apply { background=background(status.color) },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
-            } else button(summary+"\n"+obj) { recordDetails(key,r.optString("id"),target) }
+            if(key=="links") {
+                val status=if(arr(r,"photos").length()>0) PhotoQueue.status(this,key,r).caption else ""
+                val card=WorkRecordListUi.photos(arr(r,"photos").length,
+                    r.optString("Link Google Drive"),obj,status)
+                root.addView(WorkRecordListCard(this,card) {
+                    recordDetails(key,r.optString("id"),target)
+                },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
+            } else button(summary+"\\n"+obj) { recordDetails(key,r.optString("id"),target) }
         }
     }
     private var detailParent="home"
