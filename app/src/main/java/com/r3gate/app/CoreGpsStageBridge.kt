@@ -64,19 +64,33 @@ object CoreGpsStageBridge {
         return CoreGpsCoverageJournal.trustworthy(eventMs, nowMs, boundaries, intervals)
     }
 
-    /** Never approve a restored proposal without matching current producer evidence. */
-    fun hasJournalEvidence(context: Context, event: CoreGpsProposalInbox.Event): Boolean {
+    /**
+     * The producer journal is one integrity boundary: a broken row must never
+     * be skipped while a different row authorizes a work-stage transition.
+     */
+    private fun readJournal(context: Context): List<CoreGpsJournalAdapter.Raw>? {
         val prefs = context.getSharedPreferences("r3_gate", Context.MODE_PRIVATE)
         val journal = try { JSONArray(prefs.getString("gps_events", "[]") ?: "[]") }
-            catch (_: Exception) { return false }
-        val rows = (0 until journal.length()).map { i ->
-            val row = journal.optJSONObject(i) ?: return false
-            CoreGpsJournalAdapter.Raw(
-                row.optString("event"), row.optLong("time"),
-                row.optString("objectId").takeIf { it.isNotBlank() },
-                row.optString("eventId").takeIf { it.isNotBlank() }
-            )
+            catch (_: Exception) { return null }
+        val rows = ArrayList<CoreGpsJournalAdapter.Raw>(journal.length())
+        for (i in 0 until journal.length()) {
+            val item = journal.optJSONObject(i) ?: return null
+            val event = item.opt("event") as? String ?: return null
+            val objectId = item.opt("objectId") as? String ?: return null
+            val eventId = when {
+                !item.has("eventId") || item.isNull("eventId") -> null
+                else -> item.opt("eventId") as? String ?: return null
+            }
+            val time = CoreGpsJournalIntegrity.exactTime(item.opt("time") as? Number)
+                ?: return null
+            rows.add(CoreGpsJournalAdapter.Raw(event, time, objectId, eventId))
         }
+        return CoreGpsJournalIntegrity.validated(rows)
+    }
+
+    /** Never approve a restored proposal without matching current producer evidence. */
+    fun hasJournalEvidence(context: Context, event: CoreGpsProposalInbox.Event): Boolean {
+        val rows = readJournal(context) ?: return false
         return CoreGpsProposalEvidenceGuard.matches(event, rows)
     }
 
@@ -101,17 +115,7 @@ object CoreGpsStageBridge {
                 ?.optString("id")?.takeIf { it.isNotBlank() }
         }.toSet()
         val shift = CoreGpsStageRules.Shift(true, active.optString("kind", "Obiekt"), active.optString("objectId"))
-        val journal = try { JSONArray(prefs.getString("gps_events", "[]") ?: "[]") }
-            catch (_: Exception) { JSONArray() }
-        val raw = (0 until journal.length()).mapNotNull { i ->
-            journal.optJSONObject(i)?.let { item ->
-                CoreGpsJournalAdapter.Raw(
-                    item.optString("event"), item.optLong("time"),
-                    item.optString("objectId").takeIf { it.isNotBlank() },
-                    item.optString("eventId").takeIf { it.isNotBlank() }
-                )
-            }
-        }
+        val raw = readJournal(context) ?: run { dismiss(context); return }
         val incoming = CoreGpsJournalAdapter.convert(raw,shift,activeIds,stageStart,nowMs)
             .filter { hasContinuousCoverage(context,it.timestampMs,nowMs) }
         val storage = AndroidCoreGpsProposalStorage(context)
