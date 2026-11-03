@@ -333,7 +333,7 @@ class GpsTrackingService : Service(), LocationListener {
                 val confirmed=savedArrival.optString("confirmed")
                 val safeArrival=JSONObject().put("confirmed",confirmed)
                     .put("candidate","").put("since",0L).put("last",0L)
-                prefs.edit().remove("gps_trip_state").remove("gps_motion_point")
+                val checkpointSaved=prefs.edit().remove("gps_trip_state").remove("gps_motion_point")
                     .remove("gps_last_provider").remove("gps_last_source_fix_time")
                     .putInt("gps_rejected_quality_count",0)
                     .putInt("gps_rejected_order_count",0)
@@ -344,9 +344,7 @@ class GpsTrackingService : Service(), LocationListener {
                     .remove("gps_recovery_alert_at")
                     .putLong("gps_session_start",startupMs)
                     .putLong("gps_service_heartbeat_ms",startupMs).commit()
-                if(!GpsSessionBoundaryRules.mayActivateAfterPersist(
-                    prefs.getLong("gps_session_start",0L)==startupMs &&
-                        prefs.getBoolean("gps_service_active",false))) {
+                if(!GpsSessionBoundaryRules.mayActivateAfterPersist(checkpointSaved)) {
                     trace("SESSION_CHECKPOINT_FAILED",startupMs)
                     throw IllegalStateException("GPS startup checkpoint was not persisted")
                 }
