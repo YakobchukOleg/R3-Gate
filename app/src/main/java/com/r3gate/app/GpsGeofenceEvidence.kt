@@ -23,6 +23,9 @@ object GpsGeofenceEvidence {
             return Observation(Status.UNCERTAIN)
         if(validPlaces.isEmpty()) return Observation(Status.UNCERTAIN)
         val inside=GpsWorkRules.nearest(point,validPlaces)
+        // A duplicate identity is not a unique destination, even on the first visit.
+        if(inside!=null && validPlaces.count { it.id==inside.place.id }>1)
+            return Observation(Status.UNCERTAIN)
         // A fix may be well inside a neighboring site yet still overlap the
         // previously confirmed site's uncertainty circle. Never switch sites
         // until it is clear we actually left the previous one.
