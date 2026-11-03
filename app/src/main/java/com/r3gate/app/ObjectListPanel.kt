@@ -1,0 +1,170 @@
+package com.r3gate.app
+
+import android.content.Context
+import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.text.Editable
+import android.text.TextWatcher
+import android.view.Gravity
+import android.view.View
+import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.TextView
+
+/**
+ * Standalone Obiekty list view based on the supplied HTML prototype (v2).
+ * Presentation only: callbacks delegate selection and archive state to the owner.
+ * No persistence, GPS or object lifecycle decisions occur in this view.
+ */
+class ObjectListPanel(
+    context: Context,
+    private val onOpenObject: (String) -> Unit,
+    private val onAddObject: () -> Unit
+) : LinearLayout(context) {
+    private val ink = Color.rgb(35, 57, 67)
+    private val muted = Color.rgb(114, 130, 139)
+    private val bg = Color.rgb(244, 247, 247)
+    private val green = Color.rgb(37, 136, 109)
+    private var items: List<ObjectListUiModel.Item> = emptyList()
+    private var archived = false
+    private var grouped = true
+    private var query = ""
+    private val results = LinearLayout(context).apply { orientation = VERTICAL }
+    private val archiveToggle = TextView(context)
+    private val groupToggle = TextView(context)
+    private val count = TextView(context)
+
+    init {
+        orientation = VERTICAL
+        setBackgroundColor(bg)
+        val pad = dp(16)
+        setPadding(pad, pad, pad, pad)
+
+        val search = EditText(context).apply {
+            hint = "Szukaj nazwy, miasta, firmy…"
+            setSingleLine(true)
+            textSize = 14f
+            setTextColor(ink)
+            setHintTextColor(muted)
+            setPadding(dp(14), dp(8), dp(14), dp(8))
+            background = rounded(Color.WHITE, 16)
+            contentDescription = "Szukaj obiektu"
+        }
+        addView(search, LayoutParams(LayoutParams.MATCH_PARENT, dp(52)))
+        search.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                query = s?.toString().orEmpty()
+                render()
+            }
+            override fun afterTextChanged(s: Editable?) {}
+        })
+
+        val options = LinearLayout(context).apply { orientation = HORIZONTAL }
+        archiveToggle.apply {
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setTextColor(ink)
+            setPadding(dp(10), dp(10), dp(10), dp(10))
+            background = rounded(Color.WHITE, 20)
+            setOnClickListener { archived = !archived; render() }
+        }
+        groupToggle.apply {
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setTextColor(ink)
+            setPadding(dp(10), dp(10), dp(10), dp(10))
+            background = rounded(Color.WHITE, 20)
+            setOnClickListener { grouped = !grouped; render() }
+        }
+        options.addView(archiveToggle, LayoutParams(0, dp(44), 1f))
+        options.addView(groupToggle, LayoutParams(0, dp(44), 1f).apply { leftMargin = dp(8) })
+        addView(options, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(12)
+        })
+        count.apply { textSize = 12f; setTextColor(muted) }
+        addView(count, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(12); bottomMargin = dp(8)
+        })
+
+        val scroll = ScrollView(context).apply {
+            isFillViewport = false
+            addView(results)
+        }
+        addView(scroll, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
+
+        val add = button("＋ Dodaj obiekt", green).apply {
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            setTypeface(null, Typeface.BOLD)
+            contentDescription = "Dodaj obiekt"
+            setOnClickListener { onAddObject() }
+        }
+        addView(add, LayoutParams(LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(8) })
+        render()
+    }
+
+    fun submitObjects(value: List<ObjectListUiModel.Item>) {
+        items = value.toList()
+        render()
+    }
+
+    private fun render() {
+        archiveToggle.text = if (archived) "Archiwum ✓" else "Wszystkie"
+        groupToggle.text = if (grouped) "▤ Grupuj: miasta" else "☷ Lista"
+        val display = ObjectListUiModel.display(items, archived, query)
+        count.text = "${display.rows.size} obiektów · " +
+            if (archived) "archiwum" else "aktywna lista"
+        results.removeAllViews()
+        if (display.emptyMessage != null) {
+            results.addView(label(display.emptyMessage, muted, 14f).apply {
+                gravity = Gravity.CENTER
+                setPadding(0, dp(36), 0, dp(36))
+            })
+        }
+        for (group in ObjectListUiModel.groups(display, grouped, archived)) {
+            results.addView(label("${group.heading}  ·  ${group.rows.size}", ink, 14f).apply {
+                setTypeface(null, Typeface.BOLD)
+                setPadding(dp(4), dp(14), 0, dp(6))
+            })
+            for (row in group.rows) {
+                val card = LinearLayout(context).apply {
+                    orientation = VERTICAL
+                    background = rounded(Color.WHITE, 17)
+                    setPadding(dp(15), dp(12), dp(15), dp(12))
+                    contentDescription = row.accessibilityLabel
+                    isFocusable = true
+                    isClickable = true
+                    setOnClickListener { onOpenObject(row.id) }
+                }
+                card.addView(label(row.status, green, 11f))
+                card.addView(label(row.title, ink, 16f).apply {
+                    setTypeface(null, Typeface.BOLD)
+                    setPadding(0, dp(7), 0, dp(6))
+                })
+                card.addView(label("→ Szczegóły", muted, 12f))
+                results.addView(card, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
+                    bottomMargin = dp(9)
+                })
+            }
+        }
+    }
+
+    private fun dp(n: Int) = (n * resources.displayMetrics.density + 0.5f).toInt()
+    private fun rounded(color: Int, radius: Int) = GradientDrawable().apply {
+        setColor(color)
+        cornerRadius = dp(radius).toFloat()
+    }
+    private fun label(value: String, color: Int, size: Float) = TextView(context).apply {
+        text = value
+        textSize = size
+        setTextColor(color)
+    }
+    private fun button(value: String, color: Int) = label(value, Color.WHITE, 14f).apply {
+        background = rounded(color, 16)
+        isClickable = true
+        isFocusable = true
+    }
+}
