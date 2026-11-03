@@ -13,4 +13,10 @@ object GpsRecoveryAlertGuard {
     ):Boolean =
         desiredTracking && checkedSessionMs>0L && checkedSessionMs<=nowMs &&
             currentSessionMs==checkedSessionMs
+    /** A fresh accepted fix or service heartbeat can invalidate a stale worker result. */
+    fun matchingDecision(original:GpsRecoveryMonitorRules.Decision,
+                         latest:GpsRecoveryMonitorRules.Decision):Boolean =
+        original==latest && original!=GpsRecoveryMonitorRules.Decision.HEALTHY &&
+            original!=GpsRecoveryMonitorRules.Decision.IGNORE
 }
+
