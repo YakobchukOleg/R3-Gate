@@ -62,8 +62,8 @@ class GpsRecoveryProviderOffTest {
         assertEquals(GpsRecoveryMonitorRules.Decision.ALERT_PROVIDER_OFF,
             decision(now=4_700_000L,alerted=1_100_000L))
     }
-    @Test fun futureAlertCheckpointPreventsNotification() {
-        assertEquals(GpsRecoveryMonitorRules.Decision.IGNORE,
+    @Test fun futureAlertCheckpointDoesNotHideProviderOffAfterClockCorrection() {
+        assertEquals(GpsRecoveryMonitorRules.Decision.ALERT_PROVIDER_OFF,
             decision(alerted=1_010_000L))
     }
     @Test fun recoveryWithFreshFixClearsProviderOffState() {
