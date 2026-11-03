@@ -670,6 +670,15 @@ class GpsTrackingService : Service(), LocationListener {
                     .put("accuracy",location.accuracy.toDouble()).put("time",now).toString())
                 .putLong("gps_last_source_fix_time",sourceTime).commit()) return
         }
+        // A trusted fix confirms recovery; remove stale warnings and permit a new
+        // notification if an independent outage occurs later in the same shift.
+        val oldProblem=prefs.getString("gps_service_problem",null)
+        if(GpsRecoveryMonitorRules.recoveredByTrustedFix(oldProblem)) {
+            prefs.edit().remove("gps_service_problem")
+                .remove("gps_recovery_alert_at").apply()
+            GpsRecoveryMonitorWorker.dismissAlert(this)
+            trace("GPS_RECOVERED",now,JSONObject().put("previousProblem",oldProblem))
+        }
         if(prefs.getBoolean("gps_adaptive_sampling",false)) {
             val desired=safeSamplingInterval(now)
             if(desired!=samplingIntervalMs) {
