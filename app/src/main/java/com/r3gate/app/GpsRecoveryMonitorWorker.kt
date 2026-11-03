@@ -30,11 +30,15 @@ class GpsRecoveryMonitorWorker(context:Context,params:WorkerParameters):Worker(c
             now,prefs.getBoolean("gps_enabled",false),
             prefs.getLong("gps_service_heartbeat_ms",0L),
             prefs.getLong("gps_session_start",0L),
-            prefs.getLong("gps_recovery_alert_at",0L))
-        if(decision!=GpsRecoveryMonitorRules.Decision.ALERT) return Result.success()
+            prefs.getLong("gps_recovery_alert_at",0L),
+            try { JSONObject(prefs.getString("gps_last_fix","{}") ?: "{}").optLong("time") }
+                catch(_:Exception) { 0L })
+        if(decision!=GpsRecoveryMonitorRules.Decision.ALERT &&
+            decision!=GpsRecoveryMonitorRules.Decision.ALERT_NO_FIX) return Result.success()
+        val noFix=decision==GpsRecoveryMonitorRules.Decision.ALERT_NO_FIX
         prefs.edit().putLong("gps_recovery_alert_at",now)
-            .putString("gps_service_problem","stalled").apply()
-        GpsTraceJournal.append(prefs,"SERVICE_STALLED",now,
+            .putString("gps_service_problem",if(noFix) "no_fix" else "stalled").apply()
+        GpsTraceJournal.append(prefs,if(noFix) "GPS_NO_FIX_ALERT" else "SERVICE_STALLED",now,
             JSONObject().put("lastHeartbeat",prefs.getLong("gps_service_heartbeat_ms",0)))
         val notifications=applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notifications.createNotificationChannel(NotificationChannel(
@@ -51,7 +55,9 @@ class GpsRecoveryMonitorWorker(context:Context,params:WorkerParameters):Worker(c
         val notification=Notification.Builder(applicationContext,CHANNEL)
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
             .setContentTitle("WorkMeter · GPS wymaga uwagi")
-            .setContentText("Nie otrzymano sygnału usługi GPS. Dotknij, aby sprawdzić i wznowić.")
+            .setContentText(if(noFix)
+                "Usługa działa, ale brak nowych pozycji GPS. Dotknij, aby sprawdzić."
+                else "Nie otrzymano sygnału usługi GPS. Dotknij, aby sprawdzić i wznowić.")
             .setContentIntent(pending)
             .setAutoCancel(true).build()
         notifications.notify(NOTIFICATION_ID,notification)
