@@ -95,7 +95,9 @@ class MainActivity : Activity() {
         quickPhotoUpload=savedInstanceState?.getBoolean("quickPhotoUpload") ?: false
         cameraPath = savedInstanceState?.getString("cameraPath")
         pendingUpload = savedInstanceState?.getString("pendingUpload") ?: ""
-        if (savedInstanceState != null && prefs.contains("pin") && intent?.getStringExtra("widget_action")==null) {
+        if (savedInstanceState != null && prefs.contains("pin") &&
+            intent?.getStringExtra("widget_action")==null &&
+            intent?.getBooleanExtra("gps_resume_alert",false)!=true) {
             smsParent = savedInstanceState.getString("smsParent") ?: "settings"
             smsFrom = savedInstanceState.getString("smsFrom")?.let { LocalDate.parse(it) }
             smsTo = savedInstanceState.getString("smsTo")?.let { LocalDate.parse(it) }
