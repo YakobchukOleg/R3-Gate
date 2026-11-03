@@ -55,7 +55,7 @@ object CoreGpsStageBridge {
         if (Build.VERSION.SDK_INT >= 33 &&
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         notifier.createNotificationChannel(NotificationChannel(CHANNEL, "WorkMeter · etapy GPS", NotificationManager.IMPORTANCE_HIGH))
-        val flagged = prefs.getStringSet("core_gps_notified", emptySet())?.toSet() ?: emptySet()
+        val flagged = (prefs.getStringSet("core_gps_notified", emptySet())?.toSet() ?: emptySet()).toMutableSet()
         for (event in updated.state.events) {
             if (event.eventId in flagged ||
                 !CoreGpsStageRules.shouldNotify(event, shift, activeIds, shiftStart)) continue
@@ -77,7 +77,7 @@ object CoreGpsStageBridge {
                 .build()
             notifier.notify(unique, notification)
             // Durable dedup even if the app is restarted while the screen is locked.
-            if (!prefs.edit().putStringSet("core_gps_notified", flagged + event.eventId).commit()) break
+            if (!prefs.edit().putStringSet("core_gps_notified", flagged + event.eventId).commit()) break\n            flagged.add(event.eventId)
         }
     }
 }
