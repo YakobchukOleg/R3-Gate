@@ -1896,7 +1896,7 @@ class MainActivity : Activity() {
             }
             if(key=="links") {
                 val status=if(arr(r,"photos").length()>0) PhotoQueue.status(this,key,r).caption else ""
-                val card=WorkRecordListUi.photos(arr(r,"photos").length,
+                val card=WorkRecordListUi.photos(arr(r,"photos").length(),
                     r.optString("Link Google Drive"),obj,status)
                 root.addView(WorkRecordListCard(this,card) {
                     recordDetails(key,r.optString("id"),target)
