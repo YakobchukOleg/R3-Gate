@@ -13,6 +13,19 @@ object GpsRecoveryAlertGuard {
     ):Boolean =
         desiredTracking && checkedSessionMs>0L && checkedSessionMs<=nowMs &&
             currentSessionMs==checkedSessionMs
+    /** Last defense before delivery, after Android has prepared the notification. */
+    fun mayDeliver(
+        workerStopped:Boolean,
+        original:GpsRecoveryMonitorRules.Decision,
+        latest:GpsRecoveryMonitorRules.Decision,
+        checkedSessionMs:Long,
+        currentSessionMs:Long,
+        desiredTracking:Boolean,
+        nowMs:Long
+    ):Boolean =
+        !workerStopped && stillRelevant(checkedSessionMs,currentSessionMs,
+            desiredTracking,nowMs) && matchingDecision(original,latest)
+
     /** A fresh accepted fix or service heartbeat can invalidate a stale worker result. */
     fun matchingDecision(original:GpsRecoveryMonitorRules.Decision,
                          latest:GpsRecoveryMonitorRules.Decision):Boolean =
