@@ -37,6 +37,7 @@ class GpsTrackingService : Service(), LocationListener {
     private var lastGeofenceProbeMs=0L
     private var motionWakeState=GpsMotionWakeRules.State()
     private var lastSensorBurstStartMs=0L
+    private var lastSensorEvaluationMs=0L
     private val watchdogTick=object:Runnable {
         override fun run() {
             when(GpsWatchdogLifecycleRules.onTick(
@@ -170,6 +171,9 @@ class GpsTrackingService : Service(), LocationListener {
                 }
                 // Sensor motion is only a hint; never GPS evidence of travel.
             }
+            if(!GpsSensorEvaluationRules.shouldEvaluate(
+                    now,lastSensorEvaluationMs,wake.wake)) return
+            lastSensorEvaluationMs=now
             val target=safeSamplingInterval(now)
             if(target!=samplingIntervalMs) {
                 samplingIntervalMs=target
@@ -363,6 +367,7 @@ class GpsTrackingService : Service(), LocationListener {
                 samplingIntervalMs=GpsAdaptiveSampling.ACTIVE_INTERVAL_MS
                 motionWakeState=GpsMotionWakeRules.State()
                 lastSensorBurstStartMs=0L
+                lastSensorEvaluationMs=0L
                 lastWatchdogProbeMs=0L
                 activeGeofenceProbeSinceMs=0L
                 lastGeofenceProbeMs=0L
