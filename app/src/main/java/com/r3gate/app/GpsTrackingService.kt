@@ -340,7 +340,9 @@ class GpsTrackingService : Service(), LocationListener {
                 samplingIntervalMs=GpsAdaptiveSampling.ACTIVE_INTERVAL_MS
                 samplingState=GpsAdaptiveSampling.State()
             }
-            updateSubscription()
+            try { updateSubscription() }
+            catch(_:IllegalArgumentException) { trace("INITIAL_PROVIDER_REGISTRATION_FAILED") }
+            catch(_:IllegalStateException) { trace("INITIAL_PROVIDER_REGISTRATION_FAILED") }
             watchdogHandler.removeCallbacks(watchdogTick)
             watchdogHandler.postDelayed(watchdogTick,GpsWatchdogRules.CHECK_INTERVAL_MS)
             GpsRecoveryMonitorWorker.schedule(this)
