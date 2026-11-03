@@ -120,7 +120,12 @@ object CoreGpsStageBridge {
             .filter { hasContinuousCoverage(context,it.timestampMs,nowMs) }
         val storage = AndroidCoreGpsProposalStorage(context)
         val updated = CoreGpsProposalStore.import(storage, incoming, activeIds)
-        if (updated.state !is CoreGpsProposalStore.ReadResult.Success) return
+        if (updated.state !is CoreGpsProposalStore.ReadResult.Success) {
+            // Do not leave a previously delivered notification visible when
+            // the durable proposal journal is unreadable or cannot be updated.
+            dismiss(context)
+            return
+        }
         // First reconcile the durable inbox and dismiss stale prompts, even if
         // notification permission or a user-disabled channel blocks new alerts.
         val choice = CoreGpsStageReviewQueue.choose(
@@ -169,6 +174,8 @@ object CoreGpsStageBridge {
             .setContentIntent(pending)
             .setAutoCancel(true)
             .setCategory(Notification.CATEGORY_REMINDER)
+            .setVisibility(Notification.VISIBILITY_PUBLIC)
+            .setPriority(Notification.PRIORITY_HIGH)
             .build()
         // Stable tag replaces the same event even after a process restart.
         val previous = prefs.getString("core_gps_active_notification", null)
