@@ -38,4 +38,20 @@ class JournalSnapshotTest {
             } catch (_: IllegalArgumentException) { }
         }
     }
+    @Test fun malformedObjectLikeJsonCannotBeExported() {
+        for (json in listOf("""{"objects":[}""", """{"objects":{}}""", """{"objects":[{"id":1}]}""")) {
+            try {
+                JournalSnapshot.write(json, ByteArrayOutputStream())
+                fail("Malformed snapshot exported: $json")
+            } catch (_: IllegalArgumentException) { }
+        }
+    }
+
+    @Test fun emptyCompatibleSnapshotCanStillBeExported() {
+        val json = """{"objects":[],"shifts":[],"legacy":{"version":1}}"""
+        val out = ByteArrayOutputStream()
+        JournalSnapshot.write(json, out)
+        assertEquals(json, journalFromArchive(out.toByteArray()))
+    }
+
 }
