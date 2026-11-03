@@ -27,6 +27,17 @@ class GpsRecoveryMonitorWorker(context:Context,params:WorkerParameters):Worker(c
     override fun doWork():Result {
         val prefs=applicationContext.getSharedPreferences("r3_gate",Context.MODE_PRIVATE)
         val now=System.currentTimeMillis()
+        val fine=applicationContext.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED
+        val coarse=applicationContext.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)==PackageManager.PERMISSION_GRANTED
+        val locationProviders=try {
+            val locations=applicationContext.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+            Pair(locations.isProviderEnabled(LocationManager.GPS_PROVIDER),
+                locations.isProviderEnabled(LocationManager.NETWORK_PROVIDER))
+        } catch(_:RuntimeException) {
+            // Unknown provider state: never invent a disabled/unsupported provider fault.
+            Pair(true,true)
+        }
+        val usable=GpsProviderRules.permitted(locationProviders.first,locationProviders.second,fine,coarse)!=null
         val decision=GpsRecoveryMonitorRules.decide(
             now,prefs.getBoolean("gps_enabled",false),
             prefs.getLong("gps_service_heartbeat_ms",0L),
@@ -34,29 +45,27 @@ class GpsRecoveryMonitorWorker(context:Context,params:WorkerParameters):Worker(c
             prefs.getLong("gps_recovery_alert_at",0L),
             try { JSONObject(prefs.getString("gps_last_fix","{}") ?: "{}").optLong("time") }
                 catch(_:Exception) { 0L },
-            applicationContext.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED ||
-                applicationContext.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)==PackageManager.PERMISSION_GRANTED,
-            try {
-                val locations=applicationContext.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-                locations.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
-                    locations.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
-            } catch(_:SecurityException) { true }
-            catch(_:RuntimeException) { true })
+            fine || coarse,
+            locationProviders.first || locationProviders.second,
+            usable)
         if(decision==GpsRecoveryMonitorRules.Decision.IGNORE ||
             decision==GpsRecoveryMonitorRules.Decision.HEALTHY) return Result.success()
         val noFix=decision==GpsRecoveryMonitorRules.Decision.ALERT_NO_FIX
         val permission=decision==GpsRecoveryMonitorRules.Decision.ALERT_PERMISSION
         val providerOff=decision==GpsRecoveryMonitorRules.Decision.ALERT_PROVIDER_OFF
+        val providerUnusable=decision==GpsRecoveryMonitorRules.Decision.ALERT_PROVIDER_UNUSABLE
         prefs.edit().putLong("gps_recovery_alert_at",now)
             .putString("gps_service_problem",when {
                 permission -> "permission"
                 providerOff -> "no_provider"
+                providerUnusable -> "provider_unusable"
                 noFix -> "no_fix"
                 else -> "stalled"
             }).apply()
         GpsTraceJournal.append(prefs,when {
             permission -> "GPS_PERMISSION_ALERT"
             providerOff -> "GPS_PROVIDER_OFF_ALERT"
+            providerUnusable -> "GPS_PROVIDER_UNUSABLE_ALERT"
             noFix -> "GPS_NO_FIX_ALERT"
             else -> "SERVICE_STALLED"
         },now,
@@ -79,6 +88,7 @@ class GpsRecoveryMonitorWorker(context:Context,params:WorkerParameters):Worker(c
             .setContentText(when {
                 permission -> "Brak uprawnienia do lokalizacji. Dotknij, aby sprawdzić."
                 providerOff -> "Lokalizacja telefonu jest wyłączona. Dotknij, aby włączyć."
+                providerUnusable -> "Brak dostępnego źródła lokalizacji dla aktualnych uprawnień."
                 noFix -> "Usługa działa, ale brak nowych pozycji GPS. Dotknij, aby sprawdzić."
                 else -> "Nie otrzymano sygnału usługi GPS. Dotknij, aby sprawdzić i wznowić."
             })
