@@ -348,6 +348,26 @@ class AppFlowTest {
         method.isAccessible=true
         method.invoke(a,code,Activity.RESULT_OK,android.content.Intent().setData(android.net.Uri.fromFile(file)))
     }
+    @Test fun gpsConsentCanBeChangedWithWorkdayClosed() {
+        val prefs = instrumentation.targetContext.getSharedPreferences("r3_gate", 0)
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                settings(activity)
+                click(activity, "GPS WorkMeter: WYŁĄCZONY — włącz")
+                assertTrue(prefs.getBoolean("gps_workday_allowed", false))
+                assertFalse(prefs.getBoolean("gps_enabled", false))
+            }
+        }
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                settings(activity)
+                click(activity, "GPS WorkMeter: DOZWOLONY W PRACY — wyłącz")
+                assertFalse(prefs.getBoolean("gps_workday_allowed", true))
+                assertFalse(prefs.getBoolean("gps_enabled", false))
+            }
+        }
+    }
+
     @Test fun settingsWalletAndBackupRoundTrip() {
         val d=stored(); val start=java.time.LocalDate.now().atTime(8,0).atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
         d.put("shifts",JSONArray().put(JSONObject().put("id","wallet-shift").put("start",start).put("end",start+8*3600000).put("rate","30.00")))
