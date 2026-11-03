@@ -14,6 +14,11 @@ object GpsWatchdogProviderRules {
         else -> Status.ACTIVE
     }
 
+    /** An updateSubscription() call can return without registering if Android providers changed. */
+    fun registrationSucceeded(selectedProvider:String?,subscribed:Boolean,
+                              currentProvider:String?):Boolean =
+        status(!selectedProvider.isNullOrBlank(),subscribed,currentProvider,selectedProvider)==Status.ACTIVE
+
     fun shouldReacquire(
         status:Status,
         noFixProbe:Boolean,
