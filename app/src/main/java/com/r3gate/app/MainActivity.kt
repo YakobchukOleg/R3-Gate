@@ -1084,14 +1084,6 @@ class MainActivity : Activity() {
             val nearest=GpsWorkRules.nearest(point,places)
             label(if(nearest==null) "Poza zapisanymi strefami obiektów." else
                 "W strefie: "+(objectById(nearest.place.id)?.let { objectName(it) } ?: nearest.place.id))
-            label("Przypisz bieżącą lokalizację do obiektu (promień 100 m):")
-            rows(data(),"objects").filter { !it.optBoolean("archived") }.forEach { o ->
-                button("📍 "+objectName(o)) {
-                    prefs.edit().putString("gps_object_"+o.optString("id"),
-                        JSONObject().put("lat",point.latitude).put("lon",point.longitude).put("radius",100).toString()).apply()
-                    gpsScreen()
-                }
-            }
         }
     }
 
@@ -1972,6 +1964,44 @@ class MainActivity : Activity() {
         })
         root.addView(e,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
     }
+    private fun captureObjectGps() {
+        if(formKind!="objects") return
+        val targetId=draft.optString("id")
+        val manager=getSystemService(LOCATION_SERVICE) as LocationManager
+        if(checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)!=PackageManager.PERMISSION_GRANTED &&
+            checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION)!=PackageManager.PERMISSION_GRANTED) {
+            toast("Zezwól aplikacji na lokalizację w ustawieniach Android")
+            return
+        }
+        try {
+            val provider=when {
+                manager.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
+                manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
+                else -> null
+            }
+            if(provider==null) { toast("Włącz lokalizację w telefonie");return }
+            toast("Pobieranie aktualnej lokalizacji GPS…")
+            manager.requestSingleUpdate(provider,object:LocationListener {
+                override fun onLocationChanged(loc:Location) {
+                    if(formKind!="objects" || draft.optString("id")!=targetId || screen!="form") return
+                    val now=System.currentTimeMillis()
+                    val capture=GpsObjectLocationRules.Capture(targetId,loc.latitude,loc.longitude,
+                        loc.accuracy.toDouble(),loc.time)
+                    if(!GpsObjectLocationRules.valid(capture,now)) {
+                        toast("Pomiar GPS niedokładny lub nieaktualny. Spróbuj ponownie.")
+                        return
+                    }
+                    draft.put("_gps_capture",JSONObject()
+                        .put("objectId",targetId).put("lat",loc.latitude).put("lon",loc.longitude)
+                        .put("accuracy",loc.accuracy.toDouble()).put("time",loc.time))
+                    prefs.edit().putString("draft_objects",draft.toString()).apply()
+                    toast("Lokalizacja pobrana. Naciśnij Zapisz, aby przypisać ją do obiektu.")
+                    renderForm()
+                }
+            },Looper.getMainLooper())
+        } catch(_:SecurityException) { toast("Brak uprawnienia do lokalizacji GPS") }
+        catch(_:RuntimeException) { toast("Nie udało się pobrać lokalizacji GPS") }
+    }
     private fun renderForm() {
         if(formKind=="expenses" && !walletUnlocked) { settings(); confirmPin { walletUnlocked=true; renderForm() }; return }
         base(when(formKind) { "objects" -> "Obiekt"; "expenses" -> "Zakup za własne pieniądze"; "materials" -> "Zużyty materiał"; "links" -> "Dodaj zdjęcia"; else -> "Notatka" })
@@ -1982,6 +2012,14 @@ class MainActivity : Activity() {
             if(draft.optString("TAG").isBlank()) field("Tag (opcjonalnie)","tagPrefix") else label("Tag (stały): "+draft.optString("TAG"))
             field("Adres","Adres"); field("Nazwa organizacji","organization")
             field("Notatki / kontakt","notes",true); field("Link Google Maps (opcjonalnie)","maps")
+            val savedGeo=prefs.getString("gps_object_"+draft.optString("id"),null)
+            val pendingGeo=draft.optJSONObject("_gps_capture")
+            label(when {
+                pendingGeo!=null -> "📍 Lokalizacja GPS pobrana — zapisze się razem z obiektem."
+                savedGeo!=null -> "📍 Lokalizacja GPS przypisana do tego obiektu."
+                else -> "📍 Lokalizacja GPS: nie przypisano (opcjonalnie)."
+            })
+            button("📍 Zapisz lokalizację GPS") { captureObjectGps() }
         } else {
             button("Data: "+recordDate(draft).let { if(it.isBlank()) "Wybierz datę" else dateText(it) }) {
                 pickReportDate(try { LocalDate.parse(recordDate(draft)) } catch (_:Exception) { LocalDate.now() }) {
@@ -2079,9 +2117,25 @@ class MainActivity : Activity() {
         }
         val maps=draft.optString("maps"); val link=draft.optString("Link Google Drive")
         if((maps.isNotBlank() && !maps.startsWith("https://")) || (link.isNotBlank() && !link.startsWith("https://"))) { toast("Link musi zaczynać się od https://"); return }
+        val capturedGeo=if(formKind=="objects") draft.optJSONObject("_gps_capture") else null
+        val objectId=draft.optString("id")
+        val geoCapture=if(capturedGeo!=null) GpsObjectLocationRules.Capture(
+            capturedGeo.optString("objectId"),capturedGeo.optDouble("lat"),
+            capturedGeo.optDouble("lon"),capturedGeo.optDouble("accuracy"),
+            capturedGeo.optLong("time")) else null
+        if(geoCapture!=null && !GpsObjectLocationRules.belongsTo(geoCapture,objectId,System.currentTimeMillis())) {
+            toast("Lokalizacja GPS straciła ważność. Zapisz obiekt bez lokalizacji lub pobierz GPS ponownie.")
+            return
+        }
+        draft.remove("_gps_capture")
         val list=arr(d,formKind); val index=(0 until list.length()).find { list.optJSONObject(it)?.optString("id")==draft.optString("id") }
         if(index==null) list.put(draft) else list.put(index,draft)
         save(d,"SAVE_"+formKind,draft.optString("id"))
+        if(geoCapture!=null) {
+            prefs.edit().putString("gps_object_"+objectId,JSONObject()
+                .put("lat",geoCapture.latitude).put("lon",geoCapture.longitude)
+                .put("radius",GpsObjectLocationRules.RADIUS_M).toString()).commit()
+        }
         PhotoQueue.markPending(this,formKind,draft)
         val send=quickPhotoUpload && formKind=="links" && arr(draft,"photos").length()>0
         val reference=formKind+":"+draft.optString("id")
