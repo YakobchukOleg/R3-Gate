@@ -160,7 +160,7 @@ class MainActivity : Activity() {
         val activeIds=rows(d,"objects").filter { !it.optBoolean("archived") }
             .map { it.optString("id") }.toSet()
         val shift=CoreGpsStageRules.Shift(true,running.optString("kind","Obiekt"),running.optString("objectId"))
-        if(!CoreGpsStageRules.shouldNotify(event,shift,activeIds,running.optLong("start"))) return
+        if(!CoreGpsStageRules.shouldNotify(event,shift,activeIds,maxOf(running.optLong("start"),running.optLong("stageStart",running.optLong("start"))))) return
         val obj=rows(d,"objects").find { it.optString("id")==event.objectId } ?: return
         val stage=CoreGpsStageRules.proposal(event.kind,event.objectId,shift,activeIds) ?: return
         val title=if(stage==CoreGpsStageRules.Proposal.START_TRAVEL)
@@ -177,7 +177,7 @@ class MainActivity : Activity() {
                     .map { it.optString("id") }.toSet()
                 val currentShift=CoreGpsStageRules.Shift(true,nowActive.optString("kind","Obiekt"),
                     nowActive.optString("objectId"))
-                if(!CoreGpsStageRules.shouldNotify(event,currentShift,available,nowActive.optLong("start")) ||
+                if(!CoreGpsStageRules.shouldNotify(event,currentShift,available,maxOf(nowActive.optLong("start"),nowActive.optLong("stageStart",nowActive.optLong("start")))) ||
                     (CoreGpsProposalStore.read(storage) as? CoreGpsProposalStore.ReadResult.Success)
                         ?.events?.find { it.eventId==eventId }?.decision !=
                             CoreGpsProposalInbox.Decision.PROVISIONAL) {
