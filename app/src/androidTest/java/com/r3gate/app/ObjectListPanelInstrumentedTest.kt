@@ -385,4 +385,40 @@ class ObjectListPanelInstrumentedTest {
         }
     }
 
+    @Test fun selectedCityIsClearedWhenSwitchingToArchive() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                goToObjects(activity)
+                val chip=views(activity).filterIsInstance<TextView>()
+                    .first { it.contentDescription=="Filtr miasta: Tczew" }
+                chip.performClick()
+                assertTrue(views(activity).filterIsInstance<TextView>()
+                    .any { it.contentDescription=="Filtr miasta: Tczew" && it.isSelected })
+                val archive=views(activity).filterIsInstance<TextView>()
+                    .first { it.contentDescription=="Pokaż archiwum obiektów" }
+                archive.performClick()
+                val all=views(activity).filterIsInstance<TextView>()
+                    .first { it.contentDescription=="Wszystkie miasta" }
+                assertTrue(all.isSelected)
+                assertTrue(texts(activity).any { it.contains("GDA-02") })
+            }
+        }
+    }
+
+    @Test fun cityFilteringCanBeClearedByAllCitiesChip() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                goToObjects(activity)
+                views(activity).filterIsInstance<TextView>()
+                    .first { it.contentDescription=="Filtr miasta: Tczew" }.performClick()
+                val all=views(activity).filterIsInstance<TextView>()
+                    .first { it.contentDescription=="Wszystkie miasta" }
+                all.performClick()
+                assertTrue(all.isSelected || views(activity).filterIsInstance<TextView>()
+                    .any { it.contentDescription=="Wszystkie miasta" && it.isSelected })
+                assertTrue(texts(activity).any { it.contains("TCZ-01") })
+            }
+        }
+    }
+
 }
