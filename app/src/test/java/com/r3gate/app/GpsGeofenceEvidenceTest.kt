@@ -113,4 +113,18 @@ class GpsGeofenceEvidenceTest {
             GpsGeofenceEvidence.observe(fix,listOf(site,next),"site").status)
     }
 
+
+    @Test fun duplicatedConfirmedSiteIdsCannotCreateFalseDeparture() {
+        val duplicate=site.copy(latitude=54.11)
+        val far=center.copy(latitude=54.10)
+        assertEquals(GpsGeofenceEvidence.Status.UNCERTAIN,
+            GpsGeofenceEvidence.observe(far,listOf(site,duplicate),"site").status)
+    }
+    @Test fun duplicatedConfirmedSiteIdsCannotCreateFalseArrival() {
+        val duplicate=site.copy(latitude=54.11)
+        val other=site.copy(id="other",latitude=54.10)
+        val fix=center.copy(latitude=54.10)
+        assertEquals(GpsGeofenceEvidence.Status.UNCERTAIN,
+            GpsGeofenceEvidence.observe(fix,listOf(site,duplicate,other),"site").status)
+    }
 }
