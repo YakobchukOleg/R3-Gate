@@ -119,7 +119,12 @@ class GpsTrackingService : Service(), LocationListener {
                     // Force re-registration after a stalled stream. No synthetic fixes.
                     subscribedIntervalMs=-1L
                     updateSubscription()
-                    trace("WATCHDOG_RESUBSCRIBED",now)
+                    if(GpsWatchdogProviderRules.registrationSucceeded(
+                            selected,subscribed,currentProvider)) {
+                        trace("WATCHDOG_RESUBSCRIBED",now)
+                    } else {
+                        trace("WATCHDOG_RESUBSCRIBE_UNAVAILABLE",now)
+                    }
                 } catch(_:SecurityException) {
                     prefs.edit().putString("gps_service_problem","permission").apply()
                     shutdown()
