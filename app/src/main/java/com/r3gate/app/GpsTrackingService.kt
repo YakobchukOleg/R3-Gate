@@ -185,6 +185,12 @@ class GpsTrackingService : Service(), LocationListener {
             val wake=GpsMotionWakeRules.observe(motionWakeState,now,delta)
             motionWakeState=wake.state
             if(wake.wake) {
+                if(GpsSensorBurstRules.clockRollbackRequiresReset(
+                        now,lastSensorBurstStartMs,activeGeofenceProbeSinceMs)) {
+                    lastSensorBurstStartMs=0L
+                    activeGeofenceProbeSinceMs=0L
+                    trace("SENSOR_BURST_CLOCK_RESET",now)
+                }
                 if(GpsSensorBurstRules.mayStart(now,lastSensorBurstStartMs,
                     activeGeofenceProbeSinceMs)) {
                     lastSensorBurstStartMs=now
