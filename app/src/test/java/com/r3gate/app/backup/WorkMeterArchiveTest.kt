@@ -101,4 +101,33 @@ class WorkMeterArchiveTest {
         fails { WorkMeterArchive.inspect(ByteArrayInputStream(tampered)) }
     }
 
+    private fun customManifest(payload: ByteArray): ByteArray {
+        val out = ByteArrayOutputStream()
+        ZipOutputStream(out).use { zip ->
+            zip.putNextEntry(ZipEntry("workmeter-manifest.txt"))
+            zip.write(payload)
+            zip.closeEntry()
+        }
+        return out.toByteArray()
+    }
+
+    @Test fun rejectsInvalidUtf8Manifest() {
+        val bad = "WORKMETER-ARCHIVE/1\\n".toByteArray() + byteArrayOf(0xc3.toByte(), 0x28)
+        fails { WorkMeterArchive.inspect(ByteArrayInputStream(customManifest(bad))) }
+    }
+
+    @Test fun rejectsInvalidUtf8ManifestPath() {
+        val path = java.util.Base64.getUrlEncoder().withoutPadding()
+            .encodeToString(byteArrayOf(0xc3.toByte(), 0x28))
+        val manifest = "WORKMETER-ARCHIVE/1\\n" + path + "\\t1\\t" + "0".repeat(64) + "\\n"
+        fails { WorkMeterArchive.inspect(ByteArrayInputStream(customManifest(manifest.toByteArray()))) }
+    }
+
+    @Test fun nonNumericManifestSizeUsesValidationError() {
+        val path = java.util.Base64.getUrlEncoder().withoutPadding()
+            .encodeToString("data.json".toByteArray())
+        val manifest = "WORKMETER-ARCHIVE/1\\n" + path + "\\tNaN\\t" + "0".repeat(64) + "\\n"
+        fails { WorkMeterArchive.inspect(ByteArrayInputStream(customManifest(manifest.toByteArray()))) }
+    }
+
 }
