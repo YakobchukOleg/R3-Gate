@@ -124,6 +124,7 @@ class GpsTrackingService : Service(), LocationListener {
         }
         val chosen=providerChoice()
         if(chosen==null) {
+            trace("NO_PROVIDER")
             prefs.edit().putString("gps_service_problem","no_provider").apply()
             if(subscribed) manager.removeUpdates(this)
             subscribed=false; currentProvider=null
@@ -134,6 +135,8 @@ class GpsTrackingService : Service(), LocationListener {
         subscribed=false;currentProvider=null
         manager.requestLocationUpdates(chosen,samplingIntervalMs,0f,this,Looper.getMainLooper())
         currentProvider=chosen;subscribed=true;subscribedIntervalMs=samplingIntervalMs
+        trace("PROVIDER_SUBSCRIBED",details=JSONObject()
+            .put("provider",chosen).put("intervalMs",samplingIntervalMs))
         prefs.edit().putLong("gps_requested_interval_ms",samplingIntervalMs).apply()
         prefs.edit().remove("gps_service_problem").apply()
     }
