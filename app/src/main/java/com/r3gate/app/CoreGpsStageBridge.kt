@@ -8,6 +8,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import org.json.JSONArray
 import org.json.JSONObject
@@ -57,6 +58,8 @@ object CoreGpsStageBridge {
         if (Build.VERSION.SDK_INT >= 33 &&
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         notifier.createNotificationChannel(NotificationChannel(CHANNEL, "WorkMeter · etapy GPS", NotificationManager.IMPORTANCE_HIGH))
+        if (!notifier.areNotificationsEnabled() ||
+            notifier.getNotificationChannel(CHANNEL)?.importance == NotificationManager.IMPORTANCE_NONE) return
         // Only the newest unambiguous suggestion can be shown for this stage.
         val choice = CoreGpsStageReviewQueue.choose(
             updated.state.events, shift, activeIds, stageStart, nowMs
@@ -66,9 +69,9 @@ object CoreGpsStageBridge {
         if (event.eventId in flagged) return
             val intent = Intent(context, MainActivity::class.java)
                 .putExtra(INTENT_EVENT, event.eventId)
+                .setData(Uri.parse("workmeter://gps-stage/" + Uri.encode(event.eventId)))
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            val unique = event.eventId.hashCode()
-            val pending = PendingIntent.getActivity(context, unique, intent,
+            val pending = PendingIntent.getActivity(context, 0, intent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             val title = if (event.kind == CoreGpsProposalInbox.Kind.DEPARTURE)
                 "GPS: rozpocząć przejazd?" else "GPS: przyjazd na obiekt"
@@ -80,8 +83,18 @@ object CoreGpsStageBridge {
                 .setAutoCancel(true)
                 .setCategory(Notification.CATEGORY_REMINDER)
                 .build()
-            notifier.notify(unique, notification)
-        // Durable dedup even if the app is restarted while the screen is locked.
-        prefs.edit().putStringSet("core_gps_notified", flagged + event.eventId).commit()
+            // Stable tag replaces the same event even after a process restart.
+            val previous = prefs.getString("core_gps_active_notification", null)
+            if (previous != null && previous != event.eventId)
+                notifier.cancel(previous, 4502)
+            try {
+                notifier.notify(event.eventId, 4502, notification)
+            } catch (_: RuntimeException) {
+                // Don't mark as delivered: a later refresh may retry.
+                return
+            }
+        // Don't lose user review state if a notification was blocked.
+        prefs.edit().putStringSet("core_gps_notified", flagged + event.eventId)
+            .putString("core_gps_active_notification", event.eventId).commit()
     }
 }
