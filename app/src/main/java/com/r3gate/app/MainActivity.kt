@@ -165,7 +165,10 @@ class MainActivity : Activity() {
         val stageStart=maxOf(running.optLong("start"),
             running.optLong("stageStart",running.optLong("start")))
         return CoreGpsStageReviewQueue.choose(saved,shift,activeIds,stageStart,nowMs)
-            .event?.takeIf { CoreGpsStageBridge.hasContinuousCoverage(this,it.timestampMs,nowMs) }
+            .event?.takeIf {
+                CoreGpsStageBridge.hasContinuousCoverage(this,it.timestampMs,nowMs) &&
+                    CoreGpsStageBridge.hasJournalEvidence(this,it)
+            }
             ?.eventId
     }
 
@@ -181,7 +184,8 @@ class MainActivity : Activity() {
         val stageStart=maxOf(running.optLong("start"),running.optLong("stageStart",running.optLong("start")))
         if(!CoreGpsStageReviewQueue.isCurrent(eventId,current.events,shift,activeIds,
                 stageStart,System.currentTimeMillis()) ||
-            !CoreGpsStageBridge.hasContinuousCoverage(this,event.timestampMs,System.currentTimeMillis())) return
+            (!CoreGpsStageBridge.hasContinuousCoverage(this,event.timestampMs,System.currentTimeMillis()) ||
+                !CoreGpsStageBridge.hasJournalEvidence(this,event))) return
         val obj=rows(d,"objects").find { it.optString("id")==event.objectId } ?: return
         val stage=CoreGpsStageRules.proposal(event.kind,event.objectId,shift,activeIds) ?: return
         val title=if(stage==CoreGpsStageRules.Proposal.START_TRAVEL)
@@ -205,7 +209,8 @@ class MainActivity : Activity() {
                     nowActive.optLong("stageStart",nowActive.optLong("start")))
                 if(!CoreGpsStageReviewQueue.isCurrent(eventId,latestEvents,currentShift,
                         available,stageStart,System.currentTimeMillis()) ||
-                    !CoreGpsStageBridge.hasContinuousCoverage(this,event.timestampMs,System.currentTimeMillis())) {
+                    (!CoreGpsStageBridge.hasContinuousCoverage(this,event.timestampMs,System.currentTimeMillis()) ||
+                        !CoreGpsStageBridge.hasJournalEvidence(this,event))) {
                     toast("Propozycja jest już nieaktualna"); return@setPositiveButton
                 }
                 val selected=rows(latest,"objects").find { it.optString("id")==event.objectId &&
