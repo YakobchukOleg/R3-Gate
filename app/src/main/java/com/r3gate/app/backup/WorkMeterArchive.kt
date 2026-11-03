@@ -172,7 +172,10 @@ object WorkMeterArchive {
             }
             tracked.finish(found.size + if (manifest != null) 1 else 0)
         }
-        val lines = requireNotNull(manifest) { "Missing manifest" }.trimEnd('\n').split('\n')
+        val manifestText = requireNotNull(manifest) { "Missing manifest" }
+        require(manifestText.endsWith('\n')) { "Truncated manifest" }
+        val lines = manifestText.dropLast(1).split('\n')
+        require(lines.none { it.isEmpty() }) { "Invalid blank manifest line" }
         require(lines.firstOrNull() == HEADER) { "Unsupported archive version" }
         val expected = lines.drop(1).map { line ->
             val fields = line.split('\t')
