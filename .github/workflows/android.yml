@@ -67,8 +67,8 @@ jobs:
       - name: Name versioned APK
         run: |
           set -euo pipefail
-          version="$(sed -n 's/^[[:space:]]*versionName = "\\([^"]*\\)".*/\\1/p' app/build.gradle.kts | head -n1)"
-          if [[ ! "$version" =~ ^[0-9]+(\\.[0-9]+)*$ ]]; then
+          version="$(awk -F '"' '/^[[:space:]]*versionName[[:space:]]*=/{print $2; exit}' app/build.gradle.kts)"
+          if [[ ! "$version" =~ ^[0-9]+([.][0-9]+)*$ ]]; then
             echo "::error::Missing valid versionName"
             exit 1
           fi
