@@ -76,4 +76,22 @@ class JournalValidatorTest {
         assertEquals(1, report.referenceCount)
     }
 
+    @Test fun malformedTopLevelStagesBlockRestore() {
+        val malformed = JournalValidator.inspect("""{"stages":{"objectId":"a"}}""")
+        assertFalse(malformed.canRestore)
+    }
+
+    @Test fun topLevelStagesAndExpenseReferencesAreChecked() {
+        val report = JournalValidator.inspect("""{"objects":[{"id":"a"}],"stages":[{"objectId":"a"}],"payments":[{"objectId":"a"}],"expenses":[{"objectId":"missing"}]}""")
+        assertTrue(report.canRestore)
+        assertEquals(3, report.referenceCount)
+        assertEquals(1, report.warnings.size)
+    }
+
+    @Test fun malformedExpenseEntriesBlockRestore() {
+        val report = JournalValidator.inspect("""{"expenses":[42],"payments":[null]}""")
+        assertFalse(report.canRestore)
+        assertTrue(report.errors.any { it.contains("expenses[0]") })
+    }
+
 }
