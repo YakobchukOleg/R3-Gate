@@ -14,6 +14,10 @@ object GpsGeofenceEvidence {
                 p.latitude.isFinite() && p.latitude in -90.0..90.0 &&
                 p.longitude.isFinite() && p.longitude in -180.0..180.0
         }
+        // Duplicate IDs make the previous geofence ambiguous: never infer a
+        // departure or a new arrival from contradictory saved coordinates.
+        if(!confirmedId.isNullOrBlank() && validPlaces.count { it.id==confirmedId }!=1)
+            return Observation(Status.UNCERTAIN)
         // Missing or corrupt saved sites are not evidence of physical departure.
         if(!confirmedId.isNullOrBlank() && validPlaces.none { it.id==confirmedId })
             return Observation(Status.UNCERTAIN)
