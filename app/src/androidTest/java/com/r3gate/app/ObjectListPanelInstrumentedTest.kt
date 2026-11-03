@@ -154,4 +154,55 @@ class ObjectListPanelInstrumentedTest {
         }
     }
 
+    @Test fun photoAndMaterialTabsShowActualEmptyCounts() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                openActiveDetails(activity)
+                val photos = views(activity).filterIsInstance<Button>()
+                    .first { it.text.toString() == "Zdjęcia" }
+                photos.performClick()
+                assertTrue(texts(activity).contains("0 zdjęć przypisanych do obiektu"))
+                assertTrue(texts(activity).contains("Otwórz zdjęcia"))
+                val materials = views(activity).filterIsInstance<Button>()
+                    .first { it.text.toString() == "Materiały" }
+                materials.performClick()
+                assertTrue(texts(activity).contains("0 wpisów materiałowych"))
+                assertTrue(texts(activity).contains("Otwórz materiały"))
+            }
+        }
+    }
+
+    @Test fun serviceTabShowsNonMisleadingFallbackAndNotesAction() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                openActiveDetails(activity)
+                val service = views(activity).filterIsInstance<Button>()
+                    .firstOrNull { it.text.toString() == "Serwis" }
+                assertNotNull(service)
+                service!!.performClick()
+                assertTrue(texts(activity).any {
+                    it.contains("Osobna lista zgłoszeń serwisowych nie jest jeszcze dostępna")
+                })
+                assertTrue(texts(activity).contains("Otwórz notatki"))
+                val notes = views(activity).filterIsInstance<Button>()
+                    .first { it.text.toString() == "Otwórz notatki" }
+                notes.performClick()
+                assertTrue(texts(activity).any { it.contains("notatek") })
+            }
+        }
+    }
+
+    @Test fun technicalTabShowsTagAndLocation() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                openActiveDetails(activity)
+                val tech = views(activity).filterIsInstance<Button>()
+                    .first { it.text.toString() == "Techniczne" }
+                tech.performClick()
+                assertTrue(texts(activity).contains("TAG: TCZ-01"))
+                assertTrue(texts(activity).contains("Otwórz w Google Maps"))
+            }
+        }
+    }
+
 }
