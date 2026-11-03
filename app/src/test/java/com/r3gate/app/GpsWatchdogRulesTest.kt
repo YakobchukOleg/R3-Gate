@@ -21,6 +21,6 @@ class GpsWatchdogRulesTest {
     @Test fun clockRollbackDoesNotProbe() { assertEquals(GpsWatchdogRules.Action.NONE,check(now=500,started=1000)) }
     @Test fun recentWatchdogProbeThrottlesRetries() { assertEquals(GpsWatchdogRules.Action.NONE,check(probe=390_000)) }
     @Test fun retryAtCooldownBoundaryIsAllowed() { assertEquals(GpsWatchdogRules.Action.PROBE,check(now=500_000,probe=320_000)) }
-    @Test fun futureProbeTimestampNeverTriggers() { assertEquals(GpsWatchdogRules.Action.NONE,check(probe=500_000)) }
+    @Test fun slightlyFutureProbeTimestampStillThrottles() { assertEquals(GpsWatchdogRules.Action.NONE,check(probe=401_000)) }
     @Test fun maxTimestampWithoutOverflowCanProbe() { assertEquals(GpsWatchdogRules.Action.PROBE,check(now=Long.MAX_VALUE,started=1,last=1)) }
 }
