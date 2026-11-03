@@ -9,6 +9,10 @@ object GpsRecoveryMonitorRules {
     const val STALE_FIX_MS=10*60_000L
     const val NOTICE_COOLDOWN_MS=60*60_000L
     enum class Decision { IGNORE, HEALTHY, ALERT, ALERT_NO_FIX, ALERT_PERMISSION, ALERT_PROVIDER_OFF }
+    /** Clear only diagnostics that a new trusted GPS position can resolve. */
+    fun recoveredByTrustedFix(problem:String?):Boolean =
+        problem in setOf("stalled","no_fix","no_provider","permission","provider","runtime")
+
     fun decide(
         nowMs:Long,
         desiredTracking:Boolean,
