@@ -1969,25 +1969,46 @@ class MainActivity : Activity() {
         try { startActivity(Intent(Intent.ACTION_VIEW,u)) } catch (_:Exception) { toast("Nie można otworzyć linku") }
     }
     private fun showPhotos(r:JSONObject) {
-        for(i in 0 until arr(r,"photos").length()) {
-            val uri=arr(r,"photos").optString(i)
+        val photos=arr(r,"photos")
+        if(photos.length()==0) return
+        label(PhotoPreviewUi.summary(photos.length()))
+        for(i in 0 until photos.length()) {
+            val uri=photos.optString(i)
             val card=FrameLayout(this).apply {
-                background=background(0xFFECEFF1.toInt()); clipToOutline=true; elevation=dp(2).toFloat()
+                background=background(0xFFECEFF1.toInt())
+                clipToOutline=true
+                elevation=dp(2).toFloat()
+                contentDescription=PhotoPreviewUi.state(i,photos.length(),true).heading
             }
-            val thumb=ImageView(this).apply { scaleType=ImageView.ScaleType.CENTER_CROP; contentDescription="Zdjęcie "+(i+1); adjustViewBounds=true }
+            val thumb=ImageView(this).apply {
+                scaleType=ImageView.ScaleType.CENTER_CROP
+                adjustViewBounds=true
+            }
             try {
                 val bitmap=PhotoPreview.decode(this,Uri.parse(uri))
+                val viewState=PhotoPreviewUi.state(i,photos.length(),true)
+                thumb.contentDescription=viewState.accessibilityLabel
                 thumb.scaleType=ImageView.ScaleType.FIT_CENTER
                 thumb.setImageBitmap(bitmap)
                 val width=resources.displayMetrics.widthPixels-dp(32)
                 card.addView(thumb,FrameLayout.LayoutParams(-1,width*9/16))
+                thumb.isFocusable=true
                 thumb.setOnClickListener { openPhoto(uri) }
-                root.addView(card,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(16); topMargin=dp(4) })
             } catch(_:Exception) {
-                val placeholder=ImageView(this).apply { setImageResource(android.R.drawable.ic_menu_gallery); contentDescription="Zdjęcie niedostępne"; setPadding(dp(32),dp(32),dp(32),dp(32)); setOnClickListener { toast("Oryginał zdjęcia nie jest dostępny na tym urządzeniu") } }
+                val viewState=PhotoPreviewUi.state(i,photos.length(),false)
+                val placeholder=ImageView(this).apply {
+                    setImageResource(android.R.drawable.ic_menu_gallery)
+                    contentDescription=viewState.accessibilityLabel
+                    setPadding(dp(32),dp(32),dp(32),dp(32))
+                    isFocusable=true
+                    setOnClickListener { toast(viewState.message ?: "Zdjęcie niedostępne") }
+                }
                 card.addView(placeholder,FrameLayout.LayoutParams(-1,dp(120)))
-                root.addView(card,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(16) })
             }
+            root.addView(card,LinearLayout.LayoutParams(-1,-2).apply {
+                bottomMargin=dp(16)
+                topMargin=dp(4)
+            })
         }
     }
     private fun newForm(key:String,id:String="",objectId:String="",sendAfterSave:Boolean=false) {
