@@ -24,6 +24,16 @@ object JournalValidator {
         val root = try { JSONObject(json) } catch (_: Exception) {
             return Report(0, 0, 0, emptyList(), listOf("Invalid JSON object"))
         }
+        // Existing model fields must never silently become empty collections.
+        for (key in listOf("objects", "shifts", "materials", "photos", "links",
+            "notes", "logs", "payments", "expenses")) {
+            if (root.has(key) && root.optJSONArray(key) == null) {
+                errors.add("$key is not an array")
+            }
+        }
+        if (root.has("active") && root.optJSONObject("active") == null) {
+            errors.add("active is not an object")
+        }
         val objects = root.optJSONArray("objects") ?: JSONArray()
         val ids = mutableSetOf<String>()
         var archived = 0
@@ -50,6 +60,10 @@ object JournalValidator {
                 if (value == null) { errors.add("$key[$i] is not an object"); continue }
                 check(value, "$key[$i]")
                 if (key == "shifts") {
+                    if (value.has("stages") && value.optJSONArray("stages") == null) {
+                        errors.add("shifts[$i].stages is not an array")
+                        continue
+                    }
                     val stages = value.optJSONArray("stages") ?: continue
                     for (j in 0 until stages.length()) {
                         val stage = stages.optJSONObject(j)
