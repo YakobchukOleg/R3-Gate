@@ -86,7 +86,7 @@ class ObjectDetailsPanel(
                     button.setTypeface(null, if (active) Typeface.BOLD else Typeface.NORMAL)
                 }
                 renderTab(tab, state)
-            }, LayoutParams(LayoutParams.WRAP_CONTENT, dp(48)))
+            }.apply { contentDescription = "Zakładka: " + tab.label }, LayoutParams(LayoutParams.WRAP_CONTENT, dp(48)))
         }
         addView(tabs, LayoutParams(LayoutParams.MATCH_PARENT, dp(54)))
         addView(tabBody, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
