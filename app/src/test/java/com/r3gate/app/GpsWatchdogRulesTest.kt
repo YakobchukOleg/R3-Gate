@@ -9,18 +9,18 @@ class GpsWatchdogRulesTest {
                       enabled:Boolean=true,provider:Boolean=true) =
         r.decide(now,started,last,probe,enabled,provider)
 
-    @Test fun stalledFixTriggersReacquisition() { assertEquals(r.Action.PROBE,check()) }
-    @Test fun healthyStreamDoesNotTrigger() { assertEquals(r.Action.NONE,check(last=350_000)) }
-    @Test fun atExactStallThresholdTriggers() { assertEquals(r.Action.PROBE,check(now=301_000)) }
-    @Test fun oneMsBeforeStallDoesNotTrigger() { assertEquals(r.Action.NONE,check(now=300_999)) }
-    @Test fun startWithoutFirstFixCanStall() { assertEquals(r.Action.PROBE,check(last=0)) }
-    @Test fun freshSessionWithoutFirstFixDoesNotProbe() { assertEquals(r.Action.NONE,check(now=250_000,last=0)) }
-    @Test fun trackingDisabledNeverProbes() { assertEquals(r.Action.NONE,check(enabled=false)) }
-    @Test fun unavailableProviderNeverProbes() { assertEquals(r.Action.NONE,check(provider=false)) }
-    @Test fun zeroStartTimestampDoesNotProbe() { assertEquals(r.Action.NONE,check(started=0)) }
-    @Test fun clockRollbackDoesNotProbe() { assertEquals(r.Action.NONE,check(now=500,started=1000)) }
-    @Test fun recentWatchdogProbeThrottlesRetries() { assertEquals(r.Action.NONE,check(probe=390_000)) }
-    @Test fun retryAtCooldownBoundaryIsAllowed() { assertEquals(r.Action.PROBE,check(now=500_000,probe=320_000)) }
-    @Test fun futureProbeTimestampNeverTriggers() { assertEquals(r.Action.NONE,check(probe=500_000)) }
-    @Test fun maxTimestampWithoutOverflowCanProbe() { assertEquals(r.Action.PROBE,check(now=Long.MAX_VALUE,started=1,last=1)) }
+    @Test fun stalledFixTriggersReacquisition() { assertEquals(GpsWatchdogRules.Action.PROBE,check()) }
+    @Test fun healthyStreamDoesNotTrigger() { assertEquals(GpsWatchdogRules.Action.NONE,check(last=350_000)) }
+    @Test fun atExactStallThresholdTriggers() { assertEquals(GpsWatchdogRules.Action.PROBE,check(now=301_000)) }
+    @Test fun oneMsBeforeStallDoesNotTrigger() { assertEquals(GpsWatchdogRules.Action.NONE,check(now=300_999)) }
+    @Test fun startWithoutFirstFixCanStall() { assertEquals(GpsWatchdogRules.Action.PROBE,check(last=0)) }
+    @Test fun freshSessionWithoutFirstFixDoesNotProbe() { assertEquals(GpsWatchdogRules.Action.NONE,check(now=250_000,last=0)) }
+    @Test fun trackingDisabledNeverProbes() { assertEquals(GpsWatchdogRules.Action.NONE,check(enabled=false)) }
+    @Test fun unavailableProviderNeverProbes() { assertEquals(GpsWatchdogRules.Action.NONE,check(provider=false)) }
+    @Test fun zeroStartTimestampDoesNotProbe() { assertEquals(GpsWatchdogRules.Action.NONE,check(started=0)) }
+    @Test fun clockRollbackDoesNotProbe() { assertEquals(GpsWatchdogRules.Action.NONE,check(now=500,started=1000)) }
+    @Test fun recentWatchdogProbeThrottlesRetries() { assertEquals(GpsWatchdogRules.Action.NONE,check(probe=390_000)) }
+    @Test fun retryAtCooldownBoundaryIsAllowed() { assertEquals(GpsWatchdogRules.Action.PROBE,check(now=500_000,probe=320_000)) }
+    @Test fun futureProbeTimestampNeverTriggers() { assertEquals(GpsWatchdogRules.Action.NONE,check(probe=500_000)) }
+    @Test fun maxTimestampWithoutOverflowCanProbe() { assertEquals(GpsWatchdogRules.Action.PROBE,check(now=Long.MAX_VALUE,started=1,last=1)) }
 }
