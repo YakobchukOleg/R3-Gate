@@ -2,7 +2,7 @@ package com.r3gate.app
 
 /** Rate-limits routine GPS trace writes while retaining important transitions. */
 object GpsTraceRules {
-    const val MAX_ENTRIES=1800
+    const val MAX_ENTRIES=2800
     const val FIX_INTERVAL_MS=60_000L
     const val REJECTION_INTERVAL_MS=60_000L
 
