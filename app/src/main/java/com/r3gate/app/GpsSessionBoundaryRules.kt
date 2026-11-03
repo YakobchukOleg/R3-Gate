@@ -18,5 +18,11 @@ object GpsSessionBoundaryRules {
     fun resetArrival(checkpoint:ArrivalCheckpoint):ArrivalCheckpoint =
         ArrivalCheckpoint(checkpoint.confirmedId,null,0L,0L)
 
+    /** Each new session needs its own recovery reminder budget. */
+    fun resetRecoveryAlertForNewSession(newSession:Boolean):Boolean = newSession
+
+    /** Never claim a tracking service is running unless the startup checkpoint persisted. */
+    fun mayActivateAfterPersist(saved:Boolean):Boolean = saved
+
     fun shouldRecordShutdownGap(sessionStarted:Boolean):Boolean = sessionStarted
 }
