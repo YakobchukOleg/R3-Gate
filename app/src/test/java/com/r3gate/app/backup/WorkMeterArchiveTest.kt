@@ -83,4 +83,22 @@ class WorkMeterArchiveTest {
         assertEquals("journal/data.json", report.files.single().path)
     }
 
+    @Test fun rejectsCentralDirectoryCountTampering() {
+        val bytes = make("journal/data.json" to """{"objects":[]}""")
+        val tampered = bytes.copyOf()
+        val endRecord = tampered.size - 22
+        // ZIP end record claims an extra file that the actual stream does not contain.
+        tampered[endRecord + 8] = 3
+        tampered[endRecord + 10] = 3
+        fails { WorkMeterArchive.inspect(ByteArrayInputStream(tampered)) }
+    }
+
+    @Test fun rejectsCentralDirectoryOffsetTampering() {
+        val bytes = make("journal/data.json" to "test")
+        val tampered = bytes.copyOf()
+        val endRecord = tampered.size - 22
+        tampered[endRecord + 16] = (tampered[endRecord + 16].toInt() xor 1).toByte()
+        fails { WorkMeterArchive.inspect(ByteArrayInputStream(tampered)) }
+    }
+
 }
