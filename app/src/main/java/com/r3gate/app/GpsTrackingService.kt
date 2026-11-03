@@ -186,7 +186,7 @@ class GpsTrackingService : Service(), LocationListener {
         val workdayOpen=runCatching {
             JSONObject(prefs.getString("data","{}") ?: "{}").optJSONObject("active")!=null
         }.getOrDefault(false)
-        if(!workdayOpen) {
+        if(!GpsWorkdayPolicy.shouldTrack(workdayOpen,prefs.getBoolean("gps_enabled",false))) {
             prefs.edit().putBoolean("gps_enabled",false)
                 .putBoolean("gps_resume_pending",false).apply()
             shutdown()
@@ -269,7 +269,7 @@ class GpsTrackingService : Service(), LocationListener {
         val workdayOpen=runCatching {
             JSONObject(prefs.getString("data","{}") ?: "{}").optJSONObject("active")!=null
         }.getOrDefault(false)
-        if(!workdayOpen) { shutdown();return }
+        if(!GpsWorkdayPolicy.shouldTrack(workdayOpen,prefs.getBoolean("gps_enabled",false))) { shutdown();return }
         when(GpsLocationCallbackRules.decide(
             prefs.getBoolean("gps_enabled",false),
             checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED,
