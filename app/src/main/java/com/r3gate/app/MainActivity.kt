@@ -1801,7 +1801,14 @@ class MainActivity : Activity() {
             },
             onPhotos={ openScreen("list:links:"+id) },
             onMaterials={ openScreen("list:materials:"+id) },
-            onNotes={ openScreen("list:notes:"+id) }
+            onNotes={ openScreen("list:notes:"+id) },
+            counts=ObjectDetailsTabs.Counts(
+                photos=rows(data(),"links").count { it.optString("objectId")==id },
+                materials=rows(data(),"materials").count {
+                    it.optString("objectId")==id && it.optString("storage")!="car"
+                },
+                notes=rows(data(),"notes").count { it.optString("objectId")==id }
+            )
         )
         root.addView(detailsPanel,LinearLayout.LayoutParams(-1,-2))
         button(if(obj.optBoolean("archived")) "Przywróć obiekt" else "Usuń z listy aktywnych") {
