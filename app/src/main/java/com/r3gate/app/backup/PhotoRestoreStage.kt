@@ -27,6 +27,10 @@ object PhotoRestoreStage {
         val outputs = LinkedHashMap<String, File>()
         try {
             val digests = openArchive().use { WorkMeterArchive.inspect(it) }.files.associateBy { it.path }
+            for (item in expected) {
+                val verified = requireNotNull(digests[item.path]) { "Photo missing on verification pass" }
+                require(verified.size <= MAX_PHOTO_BYTES) { "Photo is too large" }
+            }
             openArchive().use { input ->
                 ZipInputStream(input).use { zip ->
                     val buffer = ByteArray(65536)
@@ -36,6 +40,9 @@ object PhotoRestoreStage {
                         if (item != null) {
                             require(item.uri !in outputs) { "Duplicate photo data" }
                             val target = File(directory, entry.name.substringAfter('/'))
+                            require(target.parentFile.canonicalFile == directory.canonicalFile) {
+                                "Unsafe staged photo destination"
+                            }
                             val digest = MessageDigest.getInstance("SHA-256")
                             var count = 0L
                             FileOutputStream(target).use { output ->
