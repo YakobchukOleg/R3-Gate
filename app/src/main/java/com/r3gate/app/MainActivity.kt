@@ -47,6 +47,7 @@ class MainActivity : Activity() {
     private var walletDraft = JSONObject()
     private val ticker = Handler(Looper.getMainLooper())
     private var screen = "home"
+    private var currentSection = "Obiekty"
     private val expandedFilters = mutableSetOf<String>()
     private var formKind = ""
     private var formReturn = "home"
@@ -89,6 +90,7 @@ class MainActivity : Activity() {
         migrateWallet()
         DriveBackupWorker.schedule(this)
         expandedFilters.addAll(savedInstanceState?.getStringArrayList("expandedFilters") ?: emptyList())
+        currentSection=savedInstanceState?.getString("currentSection") ?: "Obiekty"
         walletDraft = JSONObject(savedInstanceState?.getString("walletDraft") ?: "{}")
         quickPhotoUpload=savedInstanceState?.getBoolean("quickPhotoUpload") ?: false
         cameraPath = savedInstanceState?.getString("cameraPath")
@@ -102,6 +104,10 @@ class MainActivity : Activity() {
             formReturn = savedInstanceState.getString("formReturn") ?: "home"
             draft = JSONObject(savedInstanceState.getString("draft") ?: "{}")
             openScreen(savedInstanceState.getString("screen") ?: "home")
+            val previousScroll=savedInstanceState.getInt("screenScrollY",0)
+            (root.parent as? ScrollView)?.post {
+                (root.parent as? ScrollView)?.scrollTo(0,previousScroll)
+            }
             return
         }
         if (prefs.getString("pin", null) == null) setupPin() else handleLaunch()
@@ -109,7 +115,13 @@ class MainActivity : Activity() {
     override fun onResume() { super.onResume(); prefs.registerOnSharedPreferenceChangeListener(uploadChanges); ticker.removeCallbacks(tick); ticker.postDelayed(tick, 60000) }
     override fun onPause() { prefs.unregisterOnSharedPreferenceChangeListener(uploadChanges); ticker.removeCallbacks(refreshUploads); ticker.removeCallbacks(tick); super.onPause() }
     override fun onStop() { walletUnlocked=false; super.onStop() }
-    override fun onRestart() { super.onRestart(); if(screen=="wallet" || screen=="payment" || screen=="expenses" || screen.startsWith("detail:expenses:")) settings() else if(screen!="form") openScreen(screen) }
+    override fun onRestart() {
+        super.onRestart()
+        // Keep the existing view (including its scroll position) when returning
+        // from another app. Only lock sensitive finance screens.
+        if(screen=="wallet" || screen=="payment" || screen=="expenses" ||
+            screen.startsWith("detail:expenses:")) settings()
+    }
     private fun hash(s: String): String = MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).joinToString("") { "%02x".format(it) }
     private fun setupPin() {
         val field = EditText(ContextThemeWrapper(this,R.style.WorkMeterDialogTheme)).apply { hint="PIN (4–8 cyfr)"; inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD }
@@ -456,6 +468,8 @@ class MainActivity : Activity() {
         out.putString("smsParent",smsParent); out.putString("smsFrom",smsFrom?.toString()); out.putString("smsTo",smsTo?.toString()); out.putString("detailParent",detailParent); out.putString("screen",screen); out.putString("formKind",formKind); out.putString("formReturn",formReturn)
         out.putBoolean("quickPhotoUpload",quickPhotoUpload)
         out.putString("walletDraft",walletDraft.toString())
+        out.putString("currentSection",currentSection)
+        out.putInt("screenScrollY",(root.parent as? ScrollView)?.scrollY ?: 0)
         out.putStringArrayList("expandedFilters",ArrayList(expandedFilters))
         out.putString("draft",draft.toString()); out.putString("cameraPath",cameraPath); out.putString("pendingUpload",pendingUpload)
         super.onSaveInstanceState(out)
@@ -1119,6 +1133,7 @@ class MainActivity : Activity() {
         button("O aplikacji") { about() }
     }
     private fun sectionSettings(section:String) {
+        currentSection=section
         base("Ustawienia · $section"); screen="sectionSettings"; nav()
         root.setBackgroundColor(0xFFF4F7F8.toInt())
         when(section) {
@@ -1692,6 +1707,12 @@ class MainActivity : Activity() {
             target=="menu" -> menu()
             target.startsWith("menuFeature:") -> menuFeature(target.substringAfter(":"))
             target=="settings" -> settings()
+            target=="sectionSettings" -> sectionSettings(currentSection)
+            target=="gps" -> gpsScreen()
+            target=="gpsDiagnostics" -> gpsDeviceDiagnostics()
+            target=="gpsPlaceKinds" -> gpsPlaceKinds()
+            target=="gpsPay" -> gpsPaySettings()
+            target=="gpsCategories" -> gpsTripCategoriesScreen()
             target=="language" -> language()
             target=="charts" -> charts()
             target=="queue" -> uploadQueue()
