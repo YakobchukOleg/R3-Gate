@@ -1,13 +1,14 @@
 package com.r3gate.app
 
-/** Screens that must remain available after an Android activity recreation. */
+/** Navigation rules for returning to WorkMeter after Android backgrounds the UI. */
 object GpsNavigationRestoreRules {
-    fun isGpsScreen(screen:String):Boolean = screen in setOf(
-        "gps","gpsDiagnostics","gpsPlaceKinds","gpsPay","gpsCategories"
-    )
+    private val gpsScreens=setOf("gps","gpsDiagnostics","gpsPlaceKinds","gpsPay","gpsCategories")
+    fun isGpsScreen(screen:String):Boolean = screen in gpsScreens
 
-    fun preserveViewOnRestart(screen:String):Boolean =
-        isGpsScreen(screen) || screen=="sectionSettings"
+    /** Financial details must re-lock; GPS and other non-sensitive pages remain open. */
+    fun lockOnRestart(screen:String):Boolean =
+        screen=="wallet" || screen=="payment" || screen=="expenses" ||
+        screen.startsWith("detail:expenses:")
 
     fun isSupportedSection(section:String):Boolean =
         section in setOf("Mój czas","Obiekty","Zdjęcia","Materiały","Grafiki","Portfel")
