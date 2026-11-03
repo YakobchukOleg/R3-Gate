@@ -20,17 +20,23 @@ object GpsAdaptiveSampling {
         if(shouldResetAfterClockRollback(state,nowMs))
             return State(startedMs=nowMs,
                 lastMotionMs=if(accelerationDelta>=1.5) nowMs else 0L)
+        if(nowMs<state.startedMs || nowMs<state.lastMotionMs) return state
 
         return if(accelerationDelta>=1.5) state.copy(lastMotionMs=nowMs) else state
     }
+    const val CLOCK_ROLLBACK_RESET_MS=60_000L
+    private fun rolledBack(checkpoint:Long,nowMs:Long):Boolean =
+        checkpoint>nowMs && checkpoint-nowMs>=CLOCK_ROLLBACK_RESET_MS
     fun shouldResetAfterClockRollback(state:State,nowMs:Long):Boolean =
-        nowMs>0L && (state.startedMs>nowMs || state.lastMotionMs>nowMs ||
-            state.lastGpsTravelMs>nowMs)
+        nowMs>0L && (rolledBack(state.startedMs,nowMs) ||
+            rolledBack(state.lastMotionMs,nowMs) ||
+            rolledBack(state.lastGpsTravelMs,nowMs))
 
     fun gpsTravel(state:State,nowMs:Long):State =
         if(nowMs<=0L) state
         else if(shouldResetAfterClockRollback(state,nowMs))
             State(startedMs=nowMs,lastGpsTravelMs=nowMs)
+        else if(nowMs<state.startedMs || nowMs<state.lastGpsTravelMs) state
         else state.copy(lastGpsTravelMs=nowMs)
     fun interval(state:State,nowMs:Long,enabled:Boolean):Long {
         if(!enabled || state.startedMs<=0 || nowMs<state.startedMs) return ACTIVE_INTERVAL_MS
