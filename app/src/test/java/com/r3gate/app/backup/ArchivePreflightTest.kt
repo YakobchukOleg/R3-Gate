@@ -58,4 +58,20 @@ class ArchivePreflightTest {
         rejected { ArchivePreflight.verify { ByteArrayInputStream(bytes) } }
     }
 
+    @Test fun invalidUtf8JournalRejectedEvenWhenArchiveChecksumValid() {
+        val out = ByteArrayOutputStream()
+        WorkMeterArchive.write(out, listOf(
+            WorkMeterArchive.Source(ArchivePreflight.JOURNAL) {
+                ByteArrayInputStream(byteArrayOf(0x7b, 0x22, 0xc3.toByte(), 0x28, 0x22, 0x3a, 0x31, 0x7d))
+            }
+        ))
+        rejected { ArchivePreflight.verify { ByteArrayInputStream(out.toByteArray()) } }
+    }
+
+    @Test fun validUnicodeJournalIsNotReencoded() {
+        val journal = """{"objects":[{"id":"Łódź"}],"notes":[{"objectId":"Łódź"}]}"""
+        val bytes = archive(ArchivePreflight.JOURNAL to journal)
+        assertEquals(journal, ArchivePreflight.verify { ByteArrayInputStream(bytes) }.journalJson)
+    }
+
 }
