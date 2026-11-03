@@ -20,6 +20,8 @@ object PhotoRestoreStage {
         val expected = PhotoArchiveIndex.build(requiredUris)
         val report = PhotoArchivePackage.verifyComplete(openArchive, expected.map { it.uri })
         require(!report.legacy || expected.isEmpty()) { "Legacy backup does not contain photos" }
+        // The archive may change between reads; each required payload is checked again
+        // before allocating destination files.
         require(parent.isDirectory || parent.mkdirs()) { "Cannot create staging root" }
 
         val directory = java.nio.file.Files.createTempDirectory(parent.toPath(), "restore-").toFile()
