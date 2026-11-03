@@ -81,4 +81,31 @@ class PhotoRestoreStageTest {
         stage.discard()
         assertEquals("important", untouched.readText())
     }
+    @Test fun changedPhotoPayloadDuringExtractionIsRejectedAndCleaned() = withRoot { root ->
+        val original = archive()
+        val changed = ByteArrayOutputStream().also { output ->
+            PhotoArchivePackage.write("""{"objects":[],"links":[]}""", listOf(one, two),
+                { uri -> ByteArrayInputStream(("changed-" + uri).toByteArray()) }, output)
+        }.toByteArray()
+        var reads = 0
+        rejected {
+            PhotoRestoreStage.prepare({
+                reads++
+                ByteArrayInputStream(if (reads <= 3) original else changed)
+            }, listOf(one, two), root)
+        }
+        assertTrue(root.listFiles().orEmpty().isEmpty())
+    }
+
+    @Test fun repeatedReferencesStageOnlyOnePhysicalPhoto() = withRoot { root ->
+        val bytes = archive(listOf(one))
+        val stage = PhotoRestoreStage.prepare(
+            { ByteArrayInputStream(bytes) }, listOf(one, one, one), root
+        )
+        assertEquals(1, stage.files.size)
+        assertEquals(1, stage.directory.listFiles().orEmpty().size)
+        stage.discard()
+        assertTrue(root.listFiles().orEmpty().isEmpty())
+    }
+
 }
