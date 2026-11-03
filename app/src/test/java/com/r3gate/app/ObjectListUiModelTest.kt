@@ -126,4 +126,42 @@ class ObjectListUiModelTest {
         assertEquals("Bez miasta", ObjectListUiModel.groups(display, true, false).single().heading)
     }
 
+    @Test fun cityChipsExcludeArchivedObjectsAndSortCities() {
+        val items = listOf(
+            ObjectListUiModel.Item("a", "A-01", "", "Tczew", "", false),
+            ObjectListUiModel.Item("b", "A-02", "", "Gdańsk", "", false),
+            ObjectListUiModel.Item("c", "A-03", "", "Tczew", "", false),
+            ObjectListUiModel.Item("d", "A-04", "", "Łódź", "", true),
+            ObjectListUiModel.Item("e", "A-05", "", " ", "", false)
+        )
+        assertEquals(listOf("Gdańsk", "Tczew"), ObjectListUiModel.activeCities(items))
+    }
+
+    @Test fun cityChipAndTextSearchCombineWithoutMutatingRecords() {
+        val items = listOf(
+            ObjectListUiModel.Item("a", "TCZ-01", "Firma", "Tczew", "Pierwsza 1", false),
+            ObjectListUiModel.Item("b", "TCZ-02", "Firma", "Tczew", "Druga 2", false),
+            ObjectListUiModel.Item("c", "GDA-01", "Firma", "Gdańsk", "Pierwsza 1", false)
+        )
+        assertEquals(listOf("a"), ObjectListUiModel.display(items, false, "pierwsza", "Tczew").rows.map { it.id })
+        assertEquals(1, ObjectListUiModel.resultCount(items, false, "pierwsza", "Tczew"))
+        assertEquals(3, items.size)
+    }
+
+    @Test fun archivedEntriesCannotLeakThroughCityChip() {
+        val items = listOf(
+            ObjectListUiModel.Item("a", "A-01", "", "Tczew", "", true),
+            ObjectListUiModel.Item("b", "A-02", "", "Tczew", "", false)
+        )
+        assertEquals(listOf("b"), ObjectListUiModel.display(items, false, city = "Tczew").rows.map { it.id })
+        assertEquals(listOf("a"), ObjectListUiModel.display(items, true, city = "Tczew").rows.map { it.id })
+    }
+
+    @Test fun emptyAndUnknownCityFiltersAreSafe() {
+        assertTrue(ObjectListUiModel.activeCities(emptyList()).isEmpty())
+        assertEquals("Brak zarchiwizowanych obiektów",
+            ObjectListUiModel.display(emptyList(), true, city = "Tczew").emptyMessage)
+        assertEquals(0, ObjectListUiModel.resultCount(emptyList(), false))
+    }
+
 }
