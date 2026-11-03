@@ -35,7 +35,7 @@ object GpsStatusReader {
         return GpsStatusContract.sessionSnapshot(
             sessionActive = values["gps_service_active"] == true,
             trackingAllowed = open && consent,
-            locationPermission = fine || coarse,
+            locationPermission = fine,
             providerUsable = provider != null,
             sessionStartMs = values["gps_session_start"] as? Long ?: 0L,
             lastFixMs = objectValue("gps_last_fix").optLong("time"),

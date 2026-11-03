@@ -46,7 +46,7 @@ class GpsRecoveryMonitorWorker(context:Context,params:WorkerParameters):Worker(c
             prefs.getLong("gps_recovery_alert_at",0L),
             try { JSONObject(prefs.getString("gps_last_fix","{}") ?: "{}").optLong("time") }
                 catch(_:Exception) { 0L },
-            fine || coarse,
+            fine,
             locationProviders.first || locationProviders.second,
             usable)
     }
@@ -96,7 +96,7 @@ class GpsRecoveryMonitorWorker(context:Context,params:WorkerParameters):Worker(c
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
             .setContentTitle("WorkMeter · GPS wymaga uwagi")
             .setContentText(when {
-                permission -> "Brak uprawnienia do lokalizacji. Dotknij, aby sprawdzić."
+                permission -> "Wymagany dostęp do dokładnej lokalizacji. Dotknij, aby sprawdzić."
                 providerOff -> "Lokalizacja telefonu jest wyłączona. Dotknij, aby włączyć."
                 providerUnusable -> "Brak dostępnego źródła lokalizacji dla aktualnych uprawnień."
                 noFix -> "Usługa działa, ale brak nowych pozycji GPS. Dotknij, aby sprawdzić."

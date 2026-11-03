@@ -1004,7 +1004,7 @@ class MainActivity : Activity() {
             GpsStatusContract.Status.ACTIVE -> "Ostatni pomiar GPS jest aktualny."
             GpsStatusContract.Status.WAITING_FOR_FIX -> "Oczekiwanie na aktualny pomiar GPS."
             GpsStatusContract.Status.UNAVAILABLE -> "Brak dostępnego źródła lokalizacji."
-            GpsStatusContract.Status.PERMISSION_REQUIRED -> "Brak pozwolenia na GPS."
+            GpsStatusContract.Status.PERMISSION_REQUIRED -> "Wymagane pozwolenie na dokładną lokalizację."
             GpsStatusContract.Status.ERROR -> "Sprawdź diagnostykę GPS."
         })
         button("Uruchom ponownie śledzenie GPS") {

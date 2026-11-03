@@ -179,7 +179,8 @@ class GpsTrackingService : Service(), LocationListener {
     private val sensorListener=object:SensorEventListener {
         override fun onAccuracyChanged(sensor:Sensor?,accuracy:Int) {}
         override fun onSensorChanged(event:SensorEvent) {
-            if(event.sensor.type!=Sensor.TYPE_ACCELEROMETER || !GpsWorkdaySession.shouldTrack(prefs) ||
+            if(event.sensor.type!=Sensor.TYPE_ACCELEROMETER || !sessionStarted ||
+                !prefs.getBoolean("gps_enabled",false) ||
                 !prefs.getBoolean("gps_adaptive_sampling",false)) return
             val x=event.values[0].toDouble()
             val y=event.values[1].toDouble()
@@ -266,6 +267,7 @@ class GpsTrackingService : Service(), LocationListener {
         }
     }
     private fun updateSubscription() {
+        if (!sessionStarted || !GpsWorkdaySession.shouldTrack(prefs)) return
         if(checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)!=PackageManager.PERMISSION_GRANTED &&
             checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)!=PackageManager.PERMISSION_GRANTED) {
             prefs.edit().putString("gps_service_problem","permission").apply()
@@ -451,6 +453,20 @@ class GpsTrackingService : Service(), LocationListener {
             GpsLocationCallbackRules.Action.IGNORE_SOURCE -> {
                 trace("REJECT_SOURCE",details=JSONObject()
                     .put("provider",location.provider ?: "").put("expected",currentProvider ?: ""))
+                return
+            }
+            GpsLocationCallbackRules.Action.OBSERVE_APPROXIMATE -> {
+                // Approximate fixes must not bridge precise motion or geofence dwell.
+                if (prefs.contains("gps_motion_point") || prefs.contains("gps_trip_state")) {
+                    recordTripBoundary()
+                    val arrival=try { JSONObject(prefs.getString("gps_arrival_state","{}") ?: "{}") }
+                        catch (_: org.json.JSONException) { JSONObject() }
+                    prefs.edit().remove("gps_motion_point").remove("gps_trip_state")
+                        .remove("gps_last_fix").remove("gps_last_source_fix_time")
+                        .putString("gps_arrival_state",JSONObject()
+                            .put("confirmed",arrival.optString("confirmed")).toString()).commit()
+                }
+                trace("APPROXIMATE_LOCATION")
                 return
             }
             GpsLocationCallbackRules.Action.PROCESS -> Unit
