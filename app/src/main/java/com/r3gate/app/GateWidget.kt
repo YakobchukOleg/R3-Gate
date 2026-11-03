@@ -79,6 +79,12 @@ class GateWidget : AppWidgetProvider() {
                     v.setChronometer(R.id.wduration,SystemClock.elapsedRealtime()-ms,null,false)
                 }
             } else v.setChronometer(R.id.wduration,SystemClock.elapsedRealtime(),null,false)
+            // Tapping the non-button area opens the app without triggering any work action.
+            val openApp=Intent(context,MainActivity::class.java).apply {
+                flags=Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            }
+            v.setOnClickPendingIntent(R.id.widget_root,PendingIntent.getActivity(
+                context,6,openApp,PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
             for((view,action,code) in listOf(Triple(R.id.wstartbutton,"start",1),Triple(R.id.wstopbutton,"stop",2),Triple(R.id.wswitch,"switch",3),Triple(R.id.wtravel,"travel",4),Triple(R.id.wshopping,"shopping",5))) {
                 val intent=Intent(context,MainActivity::class.java).apply { putExtra("widget_action",action); flags=Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP }
                 val pi=PendingIntent.getActivity(context,code,intent,PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
