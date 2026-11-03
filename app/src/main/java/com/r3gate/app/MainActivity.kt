@@ -1631,8 +1631,11 @@ class MainActivity : Activity() {
         label("Kopia JSON zawiera dane i odnośniki. Zachowaj również zdjęcia na Google Disk; zdjęcia lokalne nie są dołączane do JSON.")
         label(prefs.getString("backupStatus","Kopia Google Disk nie została jeszcze wykonana").orEmpty())
         button("Eksportuj dziennik na Google Disk") { confirmAction("Zapisać kopię dziennika w WorkMeter / Backup na osobistym Google Disk?") { pendingUpload="backup"; authorizeDrive() } }
-        button("Zapisz kopię lokalną JSON") { confirmAction { startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type="application/json"; putExtra(Intent.EXTRA_TITLE,"WorkMeter-backup.json") },100) } }
+        button("Zapisz kopię lokalną JSON") { confirmAction { startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type="application/json"; putExtra(Intent.EXTRA_TITLE,BackupFileNaming.fileName(java.time.LocalDateTime.now())) },100) } }
         button("Importuj dziennik JSON") { confirmAction { startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type="application/json" },101) } }
+        button("Importuj kopię z Google Disk") {
+            pendingUpload="import"; authorizeDrive()
+        }
         val list=arr(data(),"logs"); for(i in list.length()-1 downTo 0) { val x=list.optJSONObject(i)?:continue; label("${x.optString("at")} | ${x.optString("type")} | ${x.optString("detail")}") }
     }
     @Deprecated("Legacy activity result")
