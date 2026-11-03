@@ -90,4 +90,26 @@ class PhotoRestoreCoordinatorTest {
         catch (_: IllegalStateException) { }
         assertEquals(old, prefs.getString("data", null))
     }
+    @Test fun deletedStagedPhotoCannotBeCommitted() {
+        val task = session()
+        task.stagingDirectory.listFiles().orEmpty().single().delete()
+        try { task.commit(context, true); fail("Missing staged photo accepted") }
+        catch (_: IllegalArgumentException) { }
+        assertEquals(old, prefs.getString("data", null))
+        task.discard()
+    }
+
+    @Test fun legacyJournalWithoutPhotosCanBeRestored() {
+        val journal = """{"objects":[{"id":"legacy","archived":true}]}"""
+        val output = ByteArrayOutputStream()
+        JournalSnapshot.write(journal, output)
+        val bytes = output.toByteArray()
+        val task = PhotoRestoreCoordinator.prepare(context) { ByteArrayInputStream(bytes) }
+            .also { madeStages.add(it.stagingDirectory) }
+        assertEquals(0, task.photoCount)
+        assertEquals(JournalRestoreStore.Outcome.RESTORED, task.commit(context, true))
+        assertEquals("legacy", org.json.JSONObject(prefs.getString("data", "{}")!!)
+            .getJSONArray("objects").getJSONObject(0).getString("id"))
+    }
+
 }
