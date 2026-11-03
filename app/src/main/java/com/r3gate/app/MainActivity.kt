@@ -2022,7 +2022,7 @@ class MainActivity : Activity() {
             field(location.fields[1].caption,location.fields[1].key)
             val information=ObjectFormUiModel.sections[1]
             label(information.title)
-            for(field in information.fields) field(field.caption,field.key,field.multiline)
+            for(spec in information.fields) field(spec.caption,spec.key,spec.multiline)
             label(ObjectFormUiModel.mapHint())
             label(ObjectFormUiModel.footer(editing))
         } else {
