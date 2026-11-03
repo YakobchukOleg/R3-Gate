@@ -13,6 +13,15 @@ object GpsRecoveryMonitorRules {
     fun recoveredByTrustedFix(problem:String?):Boolean =
         problem in setOf("stalled","no_fix","no_provider","permission","provider","provider_unusable","runtime")
 
+    fun alertJournalEvent(decision:Decision):String? = when(decision) {
+        Decision.ALERT -> "SERVICE_STALLED"
+        Decision.ALERT_NO_FIX -> "GPS_NO_FIX_ALERT"
+        Decision.ALERT_PERMISSION -> "GPS_PERMISSION_ALERT"
+        Decision.ALERT_PROVIDER_OFF -> "GPS_PROVIDER_OFF_ALERT"
+        Decision.ALERT_PROVIDER_UNUSABLE -> "GPS_PROVIDER_UNUSABLE_ALERT"
+        Decision.HEALTHY,Decision.IGNORE -> null
+    }
+
     /** Only real user-visible notifications consume the reminder cooldown. */
     fun shouldMarkAlertSent(permissionNeeded:Boolean,notificationPermissionGranted:Boolean):Boolean =
         !permissionNeeded || notificationPermissionGranted
