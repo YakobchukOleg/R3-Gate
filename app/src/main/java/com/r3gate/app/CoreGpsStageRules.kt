@@ -5,6 +5,7 @@ package com.r3gate.app
  * Only a matching, live, manually opened shift can accept the suggestion.
  */
 object CoreGpsStageRules {
+    const val MAX_REVIEW_AGE_MS = 10 * 60_000L
     data class Shift(val active: Boolean, val kind: String, val objectId: String?)
     enum class Proposal { START_TRAVEL, ARRIVE_OBJECT }
 
@@ -26,7 +27,8 @@ object CoreGpsStageRules {
             proposal(event.kind, event.objectId, shift, activeObjectIds) != null
 
     fun shouldNotify(event: CoreGpsProposalInbox.Event, shift: Shift,
-                     activeObjectIds: Set<String>, shiftStartMs: Long): Boolean =
-        event.timestampMs >= shiftStartMs && shiftStartMs > 0 &&
+                     activeObjectIds: Set<String>, shiftStartMs: Long, nowMs: Long = event.timestampMs): Boolean =
+        shiftStartMs > 0 && event.timestampMs >= shiftStartMs &&
+            nowMs >= event.timestampMs && nowMs - event.timestampMs <= MAX_REVIEW_AGE_MS &&
             canApply(event, shift, activeObjectIds)
 }
