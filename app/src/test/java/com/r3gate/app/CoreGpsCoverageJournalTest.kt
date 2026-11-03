@@ -43,8 +43,8 @@ class CoreGpsCoverageJournalTest {
         assertTrue(valid(boundaries=listOf(boundary(kind="TRIP_START",at=1500))))
     }
 
-    @Test fun unrelatedEventWithoutTimestampCannotInvalidateCoverage() {
-        assertTrue(valid(boundaries=listOf(boundary(kind="TRIP_STOP",at=null))))
+    @Test fun unrelatedEventWithoutTimestampFailsClosed() {
+        assertFalse(valid(boundaries=listOf(boundary(kind="TRIP_STOP",at=null))))
     }
 
     @Test fun invalidGapRowFailsClosed() {
@@ -106,5 +106,28 @@ class CoreGpsCoverageJournalTest {
 
     @Test fun invalidTimeOrderFailsClosedEvenWithoutGaps() {
         assertFalse(valid(event=2001,now=2000))
+    }
+
+    @Test fun missingMotionEventKindFailsClosed() {
+        assertFalse(valid(boundaries=listOf(boundary(kind=null))))
+    }
+
+    @Test fun blankMotionEventKindFailsClosed() {
+        assertFalse(valid(boundaries=listOf(boundary(kind=""))))
+    }
+
+    @Test fun nonGapEventWithInvalidTimeFailsClosed() {
+        assertFalse(valid(boundaries=listOf(boundary(kind="TRIP_START",at=0))))
+    }
+
+    @Test fun nonGapEventWithNegativeTimeFailsClosed() {
+        assertFalse(valid(boundaries=listOf(boundary(kind="TRIP_STOP",at=-1))))
+    }
+
+    @Test fun multipleValidMotionEventsPreserveCoverage() {
+        assertTrue(valid(boundaries=listOf(
+            boundary(kind="TRIP_START",at=1200),
+            boundary(kind="TRIP_STOP",at=1600)
+        )))
     }
 }
