@@ -4,41 +4,40 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class GpsRecoveryDecisionRaceTest {
-    private val d=GpsRecoveryMonitorRules.Decision
     @Test fun unchangedStalledWarningCanPublish() {
-        assertTrue(GpsRecoveryAlertGuard.matchingDecision(d.ALERT,d.ALERT))
+        assertTrue(GpsRecoveryAlertGuard.matchingDecision(GpsRecoveryMonitorRules.Decision.ALERT,GpsRecoveryMonitorRules.Decision.ALERT))
     }
     @Test fun unchangedMissingFixCanPublish() {
-        assertTrue(GpsRecoveryAlertGuard.matchingDecision(d.ALERT_NO_FIX,d.ALERT_NO_FIX))
+        assertTrue(GpsRecoveryAlertGuard.matchingDecision(GpsRecoveryMonitorRules.Decision.ALERT_NO_FIX,GpsRecoveryMonitorRules.Decision.ALERT_NO_FIX))
     }
     @Test fun unchangedPermissionIssueCanPublish() {
-        assertTrue(GpsRecoveryAlertGuard.matchingDecision(d.ALERT_PERMISSION,d.ALERT_PERMISSION))
+        assertTrue(GpsRecoveryAlertGuard.matchingDecision(GpsRecoveryMonitorRules.Decision.ALERT_PERMISSION,GpsRecoveryMonitorRules.Decision.ALERT_PERMISSION))
     }
     @Test fun unchangedProviderOffCanPublish() {
-        assertTrue(GpsRecoveryAlertGuard.matchingDecision(d.ALERT_PROVIDER_OFF,d.ALERT_PROVIDER_OFF))
+        assertTrue(GpsRecoveryAlertGuard.matchingDecision(GpsRecoveryMonitorRules.Decision.ALERT_PROVIDER_OFF,GpsRecoveryMonitorRules.Decision.ALERT_PROVIDER_OFF))
     }
     @Test fun unchangedIncompatibleProviderCanPublish() {
-        assertTrue(GpsRecoveryAlertGuard.matchingDecision(d.ALERT_PROVIDER_UNUSABLE,d.ALERT_PROVIDER_UNUSABLE))
+        assertTrue(GpsRecoveryAlertGuard.matchingDecision(GpsRecoveryMonitorRules.Decision.ALERT_PROVIDER_UNUSABLE,GpsRecoveryMonitorRules.Decision.ALERT_PROVIDER_UNUSABLE))
     }
     @Test fun newFixInvalidatesNoFixWarning() {
-        assertFalse(GpsRecoveryAlertGuard.matchingDecision(d.ALERT_NO_FIX,d.HEALTHY))
+        assertFalse(GpsRecoveryAlertGuard.matchingDecision(GpsRecoveryMonitorRules.Decision.ALERT_NO_FIX,GpsRecoveryMonitorRules.Decision.HEALTHY))
     }
     @Test fun newHeartbeatInvalidatesServiceStall() {
-        assertFalse(GpsRecoveryAlertGuard.matchingDecision(d.ALERT,d.HEALTHY))
+        assertFalse(GpsRecoveryAlertGuard.matchingDecision(GpsRecoveryMonitorRules.Decision.ALERT,GpsRecoveryMonitorRules.Decision.HEALTHY))
     }
     @Test fun disabledTrackingInvalidatesWarning() {
-        assertFalse(GpsRecoveryAlertGuard.matchingDecision(d.ALERT,d.IGNORE))
+        assertFalse(GpsRecoveryAlertGuard.matchingDecision(GpsRecoveryMonitorRules.Decision.ALERT,GpsRecoveryMonitorRules.Decision.IGNORE))
     }
     @Test fun changedOutageCauseInvalidatesOldAlert() {
-        assertFalse(GpsRecoveryAlertGuard.matchingDecision(d.ALERT_NO_FIX,d.ALERT_PERMISSION))
+        assertFalse(GpsRecoveryAlertGuard.matchingDecision(GpsRecoveryMonitorRules.Decision.ALERT_NO_FIX,GpsRecoveryMonitorRules.Decision.ALERT_PERMISSION))
     }
     @Test fun restoredProviderInvalidatesOldProviderOff() {
-        assertFalse(GpsRecoveryAlertGuard.matchingDecision(d.ALERT_PROVIDER_OFF,d.HEALTHY))
+        assertFalse(GpsRecoveryAlertGuard.matchingDecision(GpsRecoveryMonitorRules.Decision.ALERT_PROVIDER_OFF,GpsRecoveryMonitorRules.Decision.HEALTHY))
     }
     @Test fun healthyNeverProducesAlert() {
-        assertFalse(GpsRecoveryAlertGuard.matchingDecision(d.HEALTHY,d.HEALTHY))
+        assertFalse(GpsRecoveryAlertGuard.matchingDecision(GpsRecoveryMonitorRules.Decision.HEALTHY,GpsRecoveryMonitorRules.Decision.HEALTHY))
     }
     @Test fun ignoredNeverProducesAlert() {
-        assertFalse(GpsRecoveryAlertGuard.matchingDecision(d.IGNORE,d.IGNORE))
+        assertFalse(GpsRecoveryAlertGuard.matchingDecision(GpsRecoveryMonitorRules.Decision.IGNORE,GpsRecoveryMonitorRules.Decision.IGNORE))
     }
 }
