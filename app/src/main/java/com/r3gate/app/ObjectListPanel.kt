@@ -131,6 +131,8 @@ class ObjectListPanel(
     private fun render() {
         archiveToggle.text = if (archived) "Archiwum ✓" else "Wszystkie"
         groupToggle.text = if (grouped) "▤ Grupuj: miasta" else "☷ Lista"
+        archiveToggle.contentDescription = if (archived) "Pokaż aktywne obiekty" else "Pokaż archiwum obiektów"
+        groupToggle.contentDescription = if (grouped) "Wyłącz grupowanie" else "Grupuj według miast"
         cityChips.removeAllViews()
         val cities = if (archived) emptyList() else ObjectListUiModel.activeCities(items)
         if (archived) selectedCity = null
@@ -143,6 +145,7 @@ class ObjectListPanel(
                 background = rounded(if (active) ink else Color.WHITE, 18)
                 isClickable = true
                 isFocusable = true
+                contentDescription = if (city == null) "Wszystkie miasta" else "Filtr miasta: " + city
                 setOnClickListener { selectedCity = city; render() }
             }
             cityChips.addView(chip, LayoutParams(LayoutParams.WRAP_CONTENT, dp(38)).apply {
@@ -174,12 +177,34 @@ class ObjectListPanel(
                     isClickable = true
                     setOnClickListener { onOpenObject(row.id) }
                 }
-                card.addView(label(row.status, green, 11f))
-                card.addView(label(row.title, ink, 16f).apply {
+                val badge = label(row.tag.ifBlank { "Obiekt" }, muted, 11f).apply {
                     setTypeface(null, Typeface.BOLD)
-                    setPadding(0, dp(7), 0, dp(6))
+                    background = rounded(bg, 8)
+                    setPadding(dp(8), dp(5), dp(8), dp(5))
+                }
+                val header = LinearLayout(context).apply {
+                    orientation = HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                }
+                header.addView(badge, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
+                header.addView(label(row.status, if (row.status == "Aktywny") green else muted, 11f))
+                card.addView(header)
+                card.addView(label(row.name, ink, 16f).apply {
+                    setTypeface(null, Typeface.BOLD)
+                    setPadding(0, dp(9), 0, dp(5))
                 })
-                card.addView(label("→ Szczegóły", muted, 12f))
+                if (row.addressLine.isNotBlank()) {
+                    card.addView(label("⌖ " + row.addressLine, muted, 13f))
+                }
+                if (row.organization.isNotBlank() && row.organization != row.name) {
+                    card.addView(label("◈ " + row.organization, muted, 13f).apply {
+                        setPadding(0, dp(3), 0, 0)
+                    })
+                }
+                card.addView(label("→ Szczegóły", muted, 12f).apply {
+                    gravity = Gravity.END
+                    setPadding(0, dp(12), 0, 0)
+                })
                 results.addView(card, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
                     bottomMargin = dp(9)
                 })
