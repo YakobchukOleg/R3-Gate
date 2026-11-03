@@ -84,4 +84,37 @@ class ObjectListPanelInstrumentedTest {
             }
         }
     }
+    @Test fun typingSearchFiltersRealScreenWithoutChangingStorage() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                goToObjects(activity)
+                val search = views(activity).filterIsInstance<android.widget.EditText>()
+                    .firstOrNull { it.contentDescription == "Szukaj obiektu" }
+                assertNotNull("Search field", search)
+                search!!.setText("nieznany-adres")
+                assertTrue(texts(activity).contains("Brak obiektów dla wybranych filtrów."))
+                search.setText("tczew")
+                assertTrue(texts(activity).any { it.contains("TCZ-01") })
+                assertFalse(texts(activity).any { it.contains("GDA-02") })
+                val data = activity.getSharedPreferences("r3_gate", 0).getString("data", "{}")
+                assertEquals(2, JSONObject(data!!).getJSONArray("objects").length())
+            }
+        }
+    }
+
+    @Test fun cityFilterIsInteractiveOnActualScreen() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                goToObjects(activity)
+                val cityChip = views(activity).filterIsInstance<TextView>()
+                    .firstOrNull { it.contentDescription == "Filtr miasta: Tczew" }
+                assertNotNull("Tczew filter", cityChip)
+                cityChip!!.performClick()
+                assertTrue(texts(activity).any { it.contains("TCZ-01") })
+                assertTrue(texts(activity).any { it.contains("1 obiektów") })
+                assertFalse(texts(activity).any { it.contains("GDA-02") })
+            }
+        }
+    }
+
 }
