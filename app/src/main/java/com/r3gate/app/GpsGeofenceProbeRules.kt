@@ -4,6 +4,11 @@ package com.r3gate.app
 object GpsGeofenceProbeRules {
     const val PROBE_INTERVAL_MS=15_000L
     const val PROBE_WINDOW_MS=90_000L
+    /** Restart a bounded probe after a substantial wall-clock correction. */
+    fun clockRollbackRequiresReset(nowMs:Long,lastProbeMs:Long):Boolean =
+        nowMs>0L && lastProbeMs>nowMs &&
+            lastProbeMs-nowMs>=GpsWatchdogRules.CLOCK_ROLLBACK_RESET_MS
+
     fun interval(nowMs:Long,probeSinceMs:Long,normalMs:Long):Long {
         if(nowMs<=0 || probeSinceMs<=0 || probeSinceMs>nowMs ||
             nowMs-probeSinceMs>PROBE_WINDOW_MS) return normalMs
