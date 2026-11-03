@@ -164,4 +164,36 @@ class ObjectListUiModelTest {
         assertEquals(0, ObjectListUiModel.resultCount(emptyList(), false))
     }
 
+    @Test fun cardPresentationHasTitleAddressAndCompanyFromPrototype() {
+        val item = ObjectListUiModel.Item("id", "TCZ-02", "Serwis", "Tczew",
+            "Czyżykowska 17", false, name = "Zespół Szkół Branżowych")
+        val row = ObjectListUiModel.display(listOf(item), false).rows.single()
+        assertEquals("TCZ-02", row.tag)
+        assertEquals("Zespół Szkół Branżowych", row.name)
+        assertEquals("Tczew, Czyżykowska 17", row.addressLine)
+        assertEquals("Serwis", row.organization)
+        assertEquals("TCZ-02 · Serwis · Tczew · Czyżykowska 17", row.title)
+    }
+
+    @Test fun cardNameFallbackNeverGoesBlank() {
+        val namedByOrganization = ObjectListUiModel.Item("1", "TCZ-01", "Firma", "", "", false)
+        assertEquals("Firma", ObjectListUiModel.display(listOf(namedByOrganization), false).rows.single().name)
+        val namedByTag = ObjectListUiModel.Item("2", "TCZ-02", "", "", "", false)
+        assertEquals("TCZ-02", ObjectListUiModel.display(listOf(namedByTag), false).rows.single().name)
+        val nameless = ObjectListUiModel.Item("3", "", "", "", "", false)
+        assertEquals("Obiekt", ObjectListUiModel.display(listOf(nameless), false).rows.single().name)
+    }
+
+    @Test fun addressLineDoesNotShowEmptySeparators() {
+        val row = ObjectListUiModel.display(listOf(
+            ObjectListUiModel.Item("x", "A-01", "", "Tczew", "", false)), false).rows.single()
+        assertEquals("Tczew", row.addressLine)
+    }
+
+    @Test fun emptyCityChipIsAFilteredEmptyState() {
+        val item = ObjectListUiModel.Item("x", "A-01", "", "Gdańsk", "", false)
+        val display = ObjectListUiModel.display(listOf(item), false, city = "Tczew")
+        assertEquals("Brak obiektów dla wybranych filtrów.", display.emptyMessage)
+    }
+
 }
