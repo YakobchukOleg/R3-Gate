@@ -1712,7 +1712,7 @@ class MainActivity : Activity() {
             target=="gpsDiagnostics" -> gpsDeviceDiagnostics()
             target=="gpsPlaceKinds" -> gpsPlaceKinds()
             target=="gpsPay" -> gpsPaySettings()
-            target=="gpsCategories" -> gpsTripCategoriesScreen()
+            target=="gpsCategories" -> gpsTripCategories()
             target=="language" -> language()
             target=="charts" -> charts()
             target=="queue" -> uploadQueue()
