@@ -461,7 +461,19 @@ class GpsTrackingService : Service(), LocationListener {
             now-lastRecorded>GpsTripRules.MAX_EVIDENCE_GAP_MS
         if(motionEvidenceGap && !recovery.recordGap) recordTripBoundary(now)
         if(recovery.resetArrival) {
-            prefs.edit().remove("gps_arrival_state").commit()
+            val prior=try { JSONObject(prefs.getString("gps_arrival_state","{}") ?: "{}") }
+                catch(_:Exception) { JSONObject() }
+            val recovered=GpsArrivalRecoveryRules.afterCoverageGap(GpsArrivalRules.State(
+                confirmedId=prior.optString("confirmed").ifBlank { null },
+                candidateId=prior.optString("candidate").ifBlank { null },
+                candidateSinceMs=prior.optLong("since"),
+                lastFixMs=prior.optLong("last")))
+            if(!prefs.edit().putString("gps_arrival_state",JSONObject()
+                    .put("confirmed",recovered.confirmedId ?: "")
+                    .put("candidate","").put("since",0L).put("last",0L).toString())
+                    .commit()) return
+            trace("GEOFENCE_RECHECK_AFTER_GAP",now,JSONObject()
+                .put("confirmed",recovered.confirmedId ?: ""))
         } else if(transition.resetZoneCandidate) {
             // Keep the last confirmed object; discard only an unconfirmed handover.
             val existing=try {
