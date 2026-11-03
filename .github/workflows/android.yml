@@ -1,7 +1,7 @@
 name: Build R3 Gate APK
 on:
   push:
-    branches: [main]
+    branches: [main, integration/solo-test]
   pull_request:
     branches: [main]
   workflow_dispatch:
