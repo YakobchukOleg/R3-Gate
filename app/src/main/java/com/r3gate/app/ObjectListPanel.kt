@@ -31,6 +31,8 @@ class ObjectListPanel(
     private var archived = false
     private var grouped = true
     private var query = ""
+    private var selectedCity: String? = null
+    private val cityChips = LinearLayout(context).apply { orientation = HORIZONTAL }
     private val results = LinearLayout(context).apply { orientation = VERTICAL }
     private val archiveToggle = TextView(context)
     private val groupToggle = TextView(context)
@@ -84,6 +86,13 @@ class ObjectListPanel(
         addView(options, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(12)
         })
+        val chipsScroll = android.widget.HorizontalScrollView(context).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(cityChips)
+        }
+        addView(chipsScroll, LayoutParams(LayoutParams.MATCH_PARENT, dp(48)).apply {
+            topMargin = dp(8)
+        })
         count.apply { textSize = 12f; setTextColor(muted) }
         addView(count, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(12); bottomMargin = dp(8)
@@ -108,13 +117,42 @@ class ObjectListPanel(
 
     fun submitObjects(value: List<ObjectListUiModel.Item>) {
         items = value.toList()
+        if (selectedCity != null && selectedCity !in ObjectListUiModel.activeCities(items)) selectedCity = null
+        render()
+    }
+
+    fun showArchivedObjects(value: Boolean) {
+        archived = value
+        render()
+    }
+
+    fun setCityFilter(city: String?) {
+        selectedCity = city
         render()
     }
 
     private fun render() {
         archiveToggle.text = if (archived) "Archiwum ✓" else "Wszystkie"
         groupToggle.text = if (grouped) "▤ Grupuj: miasta" else "☷ Lista"
-        val display = ObjectListUiModel.display(items, archived, query)
+        cityChips.removeAllViews()
+        val cities = if (archived) emptyList() else ObjectListUiModel.activeCities(items)
+        if (archived) selectedCity = null
+        val choices: List<String?> = listOf(null) + cities
+        for (city in choices) {
+            val active = selectedCity == city
+            val chip = label(city ?: "Wszystkie miasta", if (active) Color.WHITE else ink, 12f).apply {
+                gravity = Gravity.CENTER
+                setPadding(dp(12), dp(7), dp(12), dp(7))
+                background = rounded(if (active) ink else Color.WHITE, 18)
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { selectedCity = city; render() }
+            }
+            cityChips.addView(chip, LayoutParams(LayoutParams.WRAP_CONTENT, dp(38)).apply {
+                rightMargin = dp(8)
+            })
+        }
+        val display = ObjectListUiModel.display(items, archived, query, selectedCity)
         count.text = "${display.rows.size} obiektów · " +
             if (archived) "archiwum" else "aktywna lista"
         results.removeAllViews()
