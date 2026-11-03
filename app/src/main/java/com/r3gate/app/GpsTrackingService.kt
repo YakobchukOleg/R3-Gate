@@ -89,7 +89,11 @@ class GpsTrackingService : Service(), LocationListener {
                 samplingIntervalMs=cadence.intervalMs
                 try {
                     updateSubscription()
-                    trace("PROBE_CADENCE_RESTORED",now,
+                    val applied=GpsWatchdogProviderRules.cadenceApplied(
+                        currentProvider,subscribed,currentProvider,
+                        samplingIntervalMs,subscribedIntervalMs)
+                    trace(if(applied) "PROBE_CADENCE_RESTORED" else
+                        "PROBE_CADENCE_UNAVAILABLE",now,
                         JSONObject().put("intervalMs",samplingIntervalMs))
                 } catch(_:SecurityException) {
                     prefs.edit().putString("gps_service_problem","permission").apply()
@@ -119,8 +123,9 @@ class GpsTrackingService : Service(), LocationListener {
                     // Force re-registration after a stalled stream. No synthetic fixes.
                     subscribedIntervalMs=-1L
                     updateSubscription()
-                    if(GpsWatchdogProviderRules.registrationSucceeded(
-                            selected,subscribed,currentProvider)) {
+                    if(GpsWatchdogProviderRules.cadenceApplied(
+                            selected,subscribed,currentProvider,
+                            samplingIntervalMs,subscribedIntervalMs)) {
                         trace("WATCHDOG_RESUBSCRIBED",now)
                     } else {
                         trace("WATCHDOG_RESUBSCRIBE_UNAVAILABLE",now)
