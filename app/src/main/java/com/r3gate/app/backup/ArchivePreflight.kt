@@ -2,6 +2,10 @@ package com.r3gate.app.backup
 
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
+import java.nio.ByteBuffer
+import java.nio.charset.CharacterCodingException
+import java.nio.charset.CodingErrorAction
+import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.util.zip.ZipInputStream
 
@@ -47,7 +51,14 @@ object ArchivePreflight {
             .joinToString("") { "%02x".format(it) }
         require(digest == item.sha256) { "Journal changed during inspection" }
         // The original JSON remains opaque: objectId values and archived objects are never rewritten.
-        val text = String(bytes, Charsets.UTF_8)
+        val text = try {
+            StandardCharsets.UTF_8.newDecoder()
+                .onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT)
+                .decode(ByteBuffer.wrap(bytes)).toString()
+        } catch (e: CharacterCodingException) {
+            throw IllegalArgumentException("Invalid UTF-8 journal", e)
+        }
         val validation = JournalValidator.inspect(text)
         require(validation.canRestore) { "Invalid journal: " + validation.errors.joinToString("; ") }
         return Preview(report.version, report.files.size, report.totalBytes, text, validation)
