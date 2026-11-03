@@ -342,8 +342,14 @@ class GpsTrackingService : Service(), LocationListener {
                     .putLong("gps_requested_interval_ms",GpsAdaptiveSampling.ACTIVE_INTERVAL_MS)
                     .putBoolean("gps_service_active",true)
                     .remove("gps_recovery_alert_at")
-                    .putLong("gps_session_start",System.currentTimeMillis())
-                    .putLong("gps_service_heartbeat_ms",System.currentTimeMillis()).commit()
+                    .putLong("gps_session_start",startupMs)
+                    .putLong("gps_service_heartbeat_ms",startupMs).commit()
+                if(!GpsSessionBoundaryRules.mayActivateAfterPersist(
+                    prefs.getLong("gps_session_start",0L)==startupMs &&
+                        prefs.getBoolean("gps_service_active",false))) {
+                    trace("SESSION_CHECKPOINT_FAILED",startupMs)
+                    throw IllegalStateException("GPS startup checkpoint was not persisted")
+                }
                 samplingState=GpsAdaptiveSampling.State()
                 samplingIntervalMs=GpsAdaptiveSampling.ACTIVE_INTERVAL_MS
                 motionWakeState=GpsMotionWakeRules.State()
