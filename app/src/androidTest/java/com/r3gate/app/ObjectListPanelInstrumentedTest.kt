@@ -205,4 +205,41 @@ class ObjectListPanelInstrumentedTest {
         }
     }
 
+    @Test fun newObjectFormShowsSectionsAndRequiredHints() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                goToObjects(activity)
+                val addButton=views(activity).filterIsInstance<TextView>()
+                    .firstOrNull { it.contentDescription == "Dodaj obiekt" && it.isClickable }
+                assertNotNull("Native add-object action", addButton)
+                addButton!!.performClick()
+                val labels=texts(activity)
+                assertTrue(labels.contains("Nowy obiekt"))
+                assertTrue(labels.contains("Lokalizacja"))
+                assertTrue(labels.contains("Informacje o obiekcie"))
+                assertTrue(labels.contains("Miasto *"))
+                assertTrue(labels.contains("Adres *"))
+                assertTrue(labels.contains("* Pola wymagane"))
+                assertEquals(6, views(activity).filterIsInstance<android.widget.EditText>().size)
+            }
+        }
+    }
+
+    @Test fun editObjectFormShowsImmutableTagAndHistoryNotice() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                openActiveDetails(activity)
+                val edit=views(activity).filterIsInstance<Button>()
+                    .firstOrNull { it.text.toString()=="Edytuj obiekt" }
+                assertNotNull("Edit existing object", edit)
+                edit!!.performClick()
+                val labels=texts(activity)
+                assertTrue(labels.contains("Edytuj obiekt"))
+                assertTrue(labels.any { it.contains("TAG: TCZ-01 (stały)") })
+                assertTrue(labels.any { it.contains("Historia pracy pozostaje zachowana") })
+                assertEquals(5, views(activity).filterIsInstance<android.widget.EditText>().size)
+            }
+        }
+    }
+
 }
