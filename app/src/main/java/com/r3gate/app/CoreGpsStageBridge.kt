@@ -30,6 +30,25 @@ object CoreGpsStageBridge {
         prefs.edit().remove("core_gps_active_notification").apply()
     }
 
+    /** Recheck GPS coverage at notification time and immediately before approval. */
+    fun hasContinuousCoverage(context: Context, eventMs: Long, nowMs: Long): Boolean {
+        val prefs = context.getSharedPreferences("r3_gate", Context.MODE_PRIVATE)
+        val events = try { JSONArray(prefs.getString("gps_trip_events", "[]") ?: "[]") }
+            catch (_: Exception) { return false }
+        val gaps = try { JSONArray(prefs.getString("gps_coverage_gaps", "[]") ?: "[]") }
+            catch (_: Exception) { return false }
+        val outages = (0 until events.length()).mapNotNull { i ->
+            events.optJSONObject(i)?.takeIf { it.optString("event") == "GPS_GAP" }
+                ?.optLong("time")
+        }
+        val intervals = (0 until gaps.length()).mapNotNull { i ->
+            gaps.optJSONObject(i)?.let {
+                CoreGpsCoverageRules.Gap(it.optLong("start"), it.optLong("end"))
+            }
+        }
+        return CoreGpsCoverageRules.trustworthy(eventMs, nowMs, outages, intervals)
+    }
+
     fun refresh(context: Context) {
         val prefs = context.getSharedPreferences("r3_gate", Context.MODE_PRIVATE)
         val data = try { JSONObject(prefs.getString("data", "{}") ?: "{}") } catch (_: Exception) { return }
@@ -55,6 +74,7 @@ object CoreGpsStageBridge {
             }
         }
         val incoming = CoreGpsJournalAdapter.convert(raw,shift,activeIds,stageStart,nowMs)
+            .filter { hasContinuousCoverage(context,it.timestampMs,nowMs) }
         val storage = AndroidCoreGpsProposalStorage(context)
         val updated = CoreGpsProposalStore.import(storage, incoming, activeIds)
         if (updated.state !is CoreGpsProposalStore.ReadResult.Success) return
@@ -64,6 +84,10 @@ object CoreGpsStageBridge {
             updated.state.events, shift, activeIds, stageStart, nowMs
         )
         val event = choice.event ?: run { dismiss(context); return }
+        if (!hasContinuousCoverage(context,event.timestampMs,nowMs)) {
+            dismiss(context)
+            return
+        }
         val notifier = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= 33 &&
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
