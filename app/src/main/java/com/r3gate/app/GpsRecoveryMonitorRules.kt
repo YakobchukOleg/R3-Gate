@@ -49,7 +49,10 @@ object GpsRecoveryMonitorRules {
         val serviceStale=nowMs-heartbeat>=STALE_HEARTBEAT_MS
         val fixStale=nowMs-fix>=STALE_FIX_MS
         if(locationPermissionGranted && locationProviderAvailable && locationProviderUsable && !serviceStale && !fixStale) return Decision.HEALTHY
-        if(lastAlertMs>nowMs || lastAlertMs>0L && nowMs-lastAlertMs<NOTICE_COOLDOWN_MS)
+        // A device wall-clock correction must not permanently silence alerts.
+        // Previous "future" reminders are invalid and the next real outage may notify.
+        if(lastAlertMs>0L && lastAlertMs<=nowMs &&
+            nowMs-lastAlertMs<NOTICE_COOLDOWN_MS)
             return Decision.IGNORE
         return when {
             !locationPermissionGranted -> Decision.ALERT_PERMISSION
