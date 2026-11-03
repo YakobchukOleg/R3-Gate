@@ -76,14 +76,6 @@ class GpsRecoveryMonitorWorker(context:Context,params:WorkerParameters):Worker(c
                 noFix -> "no_fix"
                 else -> "stalled"
             }).apply()
-        GpsTraceJournal.append(prefs,when {
-            permission -> "GPS_PERMISSION_ALERT"
-            providerOff -> "GPS_PROVIDER_OFF_ALERT"
-            providerUnusable -> "GPS_PROVIDER_UNUSABLE_ALERT"
-            noFix -> "GPS_NO_FIX_ALERT"
-            else -> "SERVICE_STALLED"
-        },now,
-            JSONObject().put("lastHeartbeat",prefs.getLong("gps_service_heartbeat_ms",0)))
         val notifications=applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notifications.createNotificationChannel(NotificationChannel(
             CHANNEL,"WorkMeter · GPS monitor",NotificationManager.IMPORTANCE_DEFAULT))
@@ -109,6 +101,14 @@ class GpsRecoveryMonitorWorker(context:Context,params:WorkerParameters):Worker(c
             .setContentIntent(pending)
             .setAutoCancel(true).build()
         notifications.notify(NOTIFICATION_ID,notification)
+        GpsTraceJournal.append(prefs,when {
+            permission -> "GPS_PERMISSION_ALERT"
+            providerOff -> "GPS_PROVIDER_OFF_ALERT"
+            providerUnusable -> "GPS_PROVIDER_UNUSABLE_ALERT"
+            noFix -> "GPS_NO_FIX_ALERT"
+            else -> "SERVICE_STALLED"
+        },System.currentTimeMillis(),
+            JSONObject().put("lastHeartbeat",prefs.getLong("gps_service_heartbeat_ms",0)))
         prefs.edit().putLong("gps_recovery_alert_at",System.currentTimeMillis()).apply()
         return Result.success()
     }
