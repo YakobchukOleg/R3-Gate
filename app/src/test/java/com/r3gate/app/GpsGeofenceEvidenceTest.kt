@@ -127,4 +127,16 @@ class GpsGeofenceEvidenceTest {
         assertEquals(GpsGeofenceEvidence.Status.UNCERTAIN,
             GpsGeofenceEvidence.observe(fix,listOf(site,duplicate,other),"site").status)
     }
+
+    @Test fun firstArrivalAtDuplicatedSiteIdRemainsUncertain() {
+        val duplicate=site.copy(latitude=54.11)
+        assertEquals(GpsGeofenceEvidence.Status.UNCERTAIN,
+            GpsGeofenceEvidence.observe(center,listOf(site,duplicate)).status)
+    }
+    @Test fun firstArrivalAtUniqueSiteIsUnaffectedByDistantDuplicatedId() {
+        val other=site.copy(id="other",latitude=54.10)
+        val duplicate=other.copy(latitude=54.11)
+        assertEquals(GpsGeofenceEvidence.Observation(GpsGeofenceEvidence.Status.INSIDE,"site"),
+            GpsGeofenceEvidence.observe(center,listOf(site,other,duplicate)))
+    }
 }
