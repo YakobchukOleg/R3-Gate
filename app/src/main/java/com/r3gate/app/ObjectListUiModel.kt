@@ -11,21 +11,29 @@ object ObjectListUiModel {
         val organization: String,
         val city: String,
         val address: String,
-        val archived: Boolean
+        val archived: Boolean,
+        val name: String = ""
     )
     data class Row(val id: String, val title: String, val status: String, val accessibilityLabel: String)
     data class Display(val rows: List<Row>, val emptyMessage: String?)
 
-    fun display(items: List<Item>, showArchived: Boolean, cityQuery: String = ""): Display {
+    fun display(items: List<Item>, showArchived: Boolean, query: String = ""): Display {
         val rows = items.asSequence()
             .filter { it.archived == showArchived }
-            .filter { ObjectSearch.matches(it.city, cityQuery) }
+            .filter { item ->
+                query.isBlank() || listOf(
+                    item.tag, item.name, item.organization, item.city, item.address
+                ).any { ObjectSearch.matches(it, query) }
+            }
             .sortedWith { a, b -> ObjectSearch.compareTags(a.tag, b.tag).takeIf { it != 0 } ?: a.id.compareTo(b.id) }
             .map {
                 val title = ObjectUiPresentation.title(it.tag, it.organization, it.city, it.address)
                 Row(it.id, title, ObjectUiPresentation.status(it.archived),
                     ObjectUiPresentation.accessibilityLabel(title, it.archived))
             }.toList()
-        return Display(rows, if (rows.isEmpty()) ObjectUiPresentation.emptyList(showArchived) else null)
+        val message = if (rows.isNotEmpty()) null
+            else if (query.isNotBlank()) "Brak obiektów dla wybranych filtrów."
+            else ObjectUiPresentation.emptyList(showArchived)
+        return Display(rows, message)
     }
 }
