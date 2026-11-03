@@ -14,6 +14,8 @@ object CoreGpsCoverageRules {
         coverageGaps: Collection<Gap>
     ): Boolean {
         if (eventMs <= 0L || nowMs < eventMs) return false
+        // Missing or malformed outage timestamps must fail closed.
+        if (outageEventTimes.any { it <= 0L }) return false
         if (outageEventTimes.any { it >= eventMs && it <= nowMs }) return false
         return coverageGaps.none { gap ->
             if (gap.startMs <= 0L || gap.endMs < gap.startMs) true
