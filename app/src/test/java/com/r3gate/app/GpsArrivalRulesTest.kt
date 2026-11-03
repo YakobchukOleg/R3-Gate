@@ -106,4 +106,38 @@ class GpsArrivalRulesTest {
         assertNull(GpsArrivalRules.advance(result.state,"site",21_000).event)
     }
 
+
+    @Test fun longGapInsideConfirmedSiteDiscardsPreviousDepartureCandidate() {
+        val state=GpsArrivalRules.State("A",null,20_000L,30_000L)
+        val recovered=GpsArrivalRules.advance(state,"A",400_000L)
+        assertNull(recovered.event)
+        assertEquals("A",recovered.state.confirmedId)
+        assertNull(recovered.state.candidateId)
+        assertEquals(0L,recovered.state.candidateSinceMs)
+    }
+    @Test fun longGapInsideConfirmedSiteDiscardsPreviousOtherSiteCandidate() {
+        val state=GpsArrivalRules.State("A","B",20_000L,30_000L)
+        val recovered=GpsArrivalRules.advance(state,"A",400_000L)
+        assertNull(recovered.state.candidateId)
+        assertEquals(0L,recovered.state.candidateSinceMs)
+    }
+    @Test fun longGapWithNewSiteRequiresNewArrivalEvidence() {
+        val state=GpsArrivalRules.State("A","B",20_000L,30_000L)
+        val recovered=GpsArrivalRules.advance(state,"B",400_000L)
+        assertNull(recovered.event)
+        assertEquals(400_000L,recovered.state.candidateSinceMs)
+        assertEquals("ARRIVAL",GpsArrivalRules.advance(recovered.state,"B",461_000L).event)
+    }
+    @Test fun longGapOutsideConfirmedSiteStillRequiresNewDepartureEvidence() {
+        val state=GpsArrivalRules.State("A",null,20_000L,30_000L)
+        val recovered=GpsArrivalRules.advance(state,null,400_000L)
+        assertEquals("A",recovered.state.confirmedId)
+        assertEquals(400_000L,recovered.state.candidateSinceMs)
+        assertEquals("DEPARTURE",GpsArrivalRules.advance(recovered.state,null,461_000L).event)
+    }
+    @Test fun longGapWithMatchingConfirmedFixNeverCreatesArrival() {
+        val state=GpsArrivalRules.State(confirmedId="A",lastFixMs=30_000L)
+        val recovered=GpsArrivalRules.advance(state,"A",400_000L)
+        assertNull(GpsArrivalRules.advance(recovered.state,"A",461_000L).event)
+    }
 }
