@@ -37,6 +37,9 @@ object GpsTraceJournal {
         appendLine("Service active flag: "+prefs.getBoolean("gps_service_active",false))
         appendLine("Service problem: "+prefs.getString("gps_service_problem","none"))
         appendLine("Requested interval ms: "+prefs.getLong("gps_requested_interval_ms",0))
+        appendLine("Rejected low-quality fixes: "+prefs.getInt("gps_rejected_quality_count",0))
+        appendLine("Rejected out-of-order fixes: "+prefs.getInt("gps_rejected_order_count",0))
+        appendLine("Rejected jumps: "+prefs.getInt("gps_rejected_jump_count",0))
         for(key in listOf("gps_last_fix","gps_arrival_state","gps_trip_state",
             "gps_events","gps_trip_events","gps_coverage_gaps","gps_fix_times",KEY)) {
             appendLine("--- "+key+" ---")
