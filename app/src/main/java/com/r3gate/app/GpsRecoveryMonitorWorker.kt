@@ -1,0 +1,76 @@
+package com.r3gate.app
+
+import android.Manifest
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.Worker
+import androidx.work.WorkerParameters
+import org.json.JSONObject
+import java.util.concurrent.TimeUnit
+
+/**
+ * WorkManager may run after the GPS foreground service is killed.
+ * Never start a location foreground service from the background:
+ * notify the user and require a tap to resume it.
+ */
+class GpsRecoveryMonitorWorker(context:Context,params:WorkerParameters):Worker(context,params) {
+    override fun doWork():Result {
+        val prefs=applicationContext.getSharedPreferences("r3_gate",Context.MODE_PRIVATE)
+        val now=System.currentTimeMillis()
+        val decision=GpsRecoveryMonitorRules.decide(
+            now,prefs.getBoolean("gps_enabled",false),
+            prefs.getLong("gps_service_heartbeat_ms",0L),
+            prefs.getLong("gps_session_start",0L),
+            prefs.getLong("gps_recovery_alert_at",0L))
+        if(decision!=GpsRecoveryMonitorRules.Decision.ALERT) return Result.success()
+        prefs.edit().putLong("gps_recovery_alert_at",now)
+            .putString("gps_service_problem","stalled").apply()
+        GpsTraceJournal.append(prefs,"SERVICE_STALLED",now,
+            JSONObject().put("lastHeartbeat",prefs.getLong("gps_service_heartbeat_ms",0)))
+        val notifications=applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notifications.createNotificationChannel(NotificationChannel(
+            CHANNEL,"WorkMeter · GPS monitor",NotificationManager.IMPORTANCE_DEFAULT))
+        if(Build.VERSION.SDK_INT>=33 &&
+            applicationContext.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)
+            return Result.success()
+        val intent=Intent(applicationContext,MainActivity::class.java).apply {
+            putExtra("gps_resume_alert",true)
+            flags=Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        val pending=PendingIntent.getActivity(applicationContext,4402,intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val notification=Notification.Builder(applicationContext,CHANNEL)
+            .setSmallIcon(android.R.drawable.ic_menu_mylocation)
+            .setContentTitle("WorkMeter · GPS wymaga uwagi")
+            .setContentText("Nie otrzymano sygnału usługi GPS. Dotknij, aby sprawdzić i wznowić.")
+            .setContentIntent(pending)
+            .setAutoCancel(true).build()
+        notifications.notify(NOTIFICATION_ID,notification)
+        return Result.success()
+    }
+    companion object {
+        private const val CHANNEL="workmeter_gps_monitor"
+        private const val NOTIFICATION_ID=4502
+        private const val NAME="workmeter-gps-recovery-monitor"
+        fun schedule(context:Context) {
+            val request=PeriodicWorkRequestBuilder<GpsRecoveryMonitorWorker>(15,TimeUnit.MINUTES)
+                .addTag(NAME).build()
+            WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+                NAME,ExistingPeriodicWorkPolicy.KEEP,request)
+        }
+        fun cancel(context:Context) {
+            WorkManager.getInstance(context).cancelUniqueWork(NAME)
+            (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+                .cancel(NOTIFICATION_ID)
+        }
+    }
+}
