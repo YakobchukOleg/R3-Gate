@@ -153,10 +153,7 @@ class ObjectListPanel(
             })
         }
         val display = ObjectListUiModel.display(items, archived, query, selectedCity)
-        val total = display.rows.size
-        val noun = if (total == 1) "obiekt" else if (total % 10 in 2..4 && total % 100 !in 12..14) "obiekty" else "obiektów"
-        count.text = "${total} ${noun} · " +
-            if (archived) "archiwum" else "aktywna lista"
+        count.text = ObjectCountLabel.format(display.rows.size, archived)
         results.removeAllViews()
         if (display.emptyMessage != null) {
             results.addView(label(display.emptyMessage, muted, 14f).apply {
