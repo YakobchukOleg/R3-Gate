@@ -14,8 +14,9 @@ object ObjectListUiModel {
         val archived: Boolean,
         val name: String = ""
     )
-    data class Row(val id: String, val title: String, val status: String, val accessibilityLabel: String)
+    data class Row(val id: String, val title: String, val status: String, val accessibilityLabel: String, val city: String = "")
     data class Display(val rows: List<Row>, val emptyMessage: String?)
+    data class Group(val heading: String, val rows: List<Row>)
 
     fun display(items: List<Item>, showArchived: Boolean, query: String = ""): Display {
         val rows = items.asSequence()
@@ -29,11 +30,23 @@ object ObjectListUiModel {
             .map {
                 val title = ObjectUiPresentation.title(it.tag, it.organization, it.city, it.address)
                 Row(it.id, title, ObjectUiPresentation.status(it.archived),
-                    ObjectUiPresentation.accessibilityLabel(title, it.archived))
+                    ObjectUiPresentation.accessibilityLabel(title, it.archived), it.city.trim())
             }.toList()
         val message = if (rows.isNotEmpty()) null
             else if (query.isNotBlank()) "Brak obiektów dla wybranych filtrów."
             else ObjectUiPresentation.emptyList(showArchived)
         return Display(rows, message)
     }
+    /**
+     * The HTML object-list prototype groups active results by city.
+     * Archived results remain in one flat archive section.
+     */
+    fun groups(display: Display, groupByCity: Boolean, showArchived: Boolean): List<Group> {
+        if (display.rows.isEmpty()) return emptyList()
+        if (!groupByCity || showArchived) return listOf(Group("Obiekty", display.rows))
+        return display.rows.groupBy { it.city.ifEmpty { "Bez miasta" } }
+            .toSortedMap(String.CASE_INSENSITIVE_ORDER)
+            .map { (city, rows) -> Group(city, rows) }
+    }
+
 }
