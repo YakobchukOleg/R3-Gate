@@ -55,8 +55,8 @@ class GpsRecoveryMonitorRulesTest {
     @Test fun notificationJustBeforeCooldownIsSuppressed() {
         assertEquals(GpsRecoveryMonitorRules.Decision.IGNORE,check(now=4_699_999L,alerted=1_100_000L))
     }
-    @Test fun futureAlertTimeSuppressesNotification() {
-        assertEquals(GpsRecoveryMonitorRules.Decision.IGNORE,check(alerted=2_000_000L))
+    @Test fun futureAlertTimeDoesNotSilenceRealOutageAfterClockCorrection() {
+        assertEquals(GpsRecoveryMonitorRules.Decision.ALERT,check(alerted=2_000_000L))
     }
     @Test fun healthyStreamSuppressesNotificationEvenWithoutPreviousAlert() {
         assertEquals(GpsRecoveryMonitorRules.Decision.HEALTHY,check(heartbeat=900_000L,alerted=0L))
