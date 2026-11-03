@@ -67,32 +67,32 @@ object CoreGpsStageBridge {
         val event = choice.event ?: return
         val flagged = prefs.getStringSet("core_gps_notified", emptySet())?.toSet() ?: emptySet()
         if (event.eventId in flagged) return
-            val intent = Intent(context, MainActivity::class.java)
-                .putExtra(INTENT_EVENT, event.eventId)
-                .setData(Uri.parse("workmeter://gps-stage/" + Uri.encode(event.eventId)))
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            val pending = PendingIntent.getActivity(context, 0, intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-            val title = if (event.kind == CoreGpsProposalInbox.Kind.DEPARTURE)
-                "GPS: rozpocząć przejazd?" else "GPS: przyjazd na obiekt"
-            val notification = Notification.Builder(context, CHANNEL)
-                .setSmallIcon(android.R.drawable.ic_dialog_map)
-                .setContentTitle(title)
-                .setContentText("Dotknij, aby potwierdzić zmianę etapu pracy.")
-                .setContentIntent(pending)
-                .setAutoCancel(true)
-                .setCategory(Notification.CATEGORY_REMINDER)
-                .build()
-            // Stable tag replaces the same event even after a process restart.
-            val previous = prefs.getString("core_gps_active_notification", null)
-            if (previous != null && previous != event.eventId)
-                notifier.cancel(previous, 4502)
-            try {
-                notifier.notify(event.eventId, 4502, notification)
-            } catch (_: RuntimeException) {
-                // Don't mark as delivered: a later refresh may retry.
-                return
-            }
+        val intent = Intent(context, MainActivity::class.java)
+            .putExtra(INTENT_EVENT, event.eventId)
+            .setData(Uri.parse("workmeter://gps-stage/" + Uri.encode(event.eventId)))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        val pending = PendingIntent.getActivity(context, 0, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val title = if (event.kind == CoreGpsProposalInbox.Kind.DEPARTURE)
+            "GPS: rozpocząć przejazd?" else "GPS: przyjazd na obiekt"
+        val notification = Notification.Builder(context, CHANNEL)
+            .setSmallIcon(android.R.drawable.ic_dialog_map)
+            .setContentTitle(title)
+            .setContentText("Dotknij, aby potwierdzić zmianę etapu pracy.")
+            .setContentIntent(pending)
+            .setAutoCancel(true)
+            .setCategory(Notification.CATEGORY_REMINDER)
+            .build()
+        // Stable tag replaces the same event even after a process restart.
+        val previous = prefs.getString("core_gps_active_notification", null)
+        if (previous != null && previous != event.eventId)
+            notifier.cancel(previous, 4502)
+        try {
+            notifier.notify(event.eventId, 4502, notification)
+        } catch (_: RuntimeException) {
+            // Don't mark as delivered: a later refresh may retry.
+            return
+        }
         // Don't lose user review state if a notification was blocked.
         prefs.edit().putStringSet("core_gps_notified", flagged + event.eventId)
             .putString("core_gps_active_notification", event.eventId).commit()
