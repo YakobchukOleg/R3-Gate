@@ -20,28 +20,34 @@ object CoreGpsJournalAdapter {
         stageStartMs: Long,
         nowMs: Long
     ): List<CoreGpsProposalInbox.Event> {
-        val observed = journal.mapNotNull { raw ->
-            val kind = when(raw.event) {
+        // Check identity collisions before stage/object filtering: otherwise an
+        // ineligible conflicting row could conceal an ambiguous event ID.
+        val keyed = journal.map { raw ->
+            val id = raw.eventId?.takeIf { it.isNotBlank() }
+                ?: raw.objectId?.takeIf { it.isNotBlank() }?.let {
+                    eventId(raw.event, raw.timeMs, it)
+                }
+            id to raw
+        }
+        val candidates = keyed.filter { it.first != null }.groupBy { it.first!! }
+            .values.mapNotNull { entries ->
+                val first = entries.first().second
+                if (entries.any { it.second != first }) null else entries.first()
+            }
+        return candidates.mapNotNull { (identity, raw) ->
+            val kind = when (raw.event) {
                 "ARRIVAL" -> CoreGpsProposalInbox.Kind.ARRIVAL
                 "DEPARTURE" -> CoreGpsProposalInbox.Kind.DEPARTURE
                 else -> return@mapNotNull null
             }
             val objectId = raw.objectId?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
-            val eventId = raw.eventId?.takeIf { it.isNotBlank() }
-                ?: eventId(raw.event, raw.timeMs, objectId)
             val candidate = CoreGpsProposalInbox.Event(
-                eventId, kind, raw.timeMs, objectId,
+                identity!!, kind, raw.timeMs, objectId,
                 confidence = CoreGpsProposalInbox.Confidence.HIGH
             )
             candidate.takeIf {
                 CoreGpsStageRules.shouldNotify(it, shift, knownActiveObjectIds, stageStartMs, nowMs)
             }
-        }
-        // Identical replays are fine, but a reused ID with different evidence
-        // must never be used to select a worksite or departure.
-        return observed.groupBy { it.eventId }.values.mapNotNull { versions ->
-            val single=versions.first()
-            single.takeIf { versions.all { it == single } }
         }.sortedWith(compareBy<CoreGpsProposalInbox.Event> { it.timestampMs }.thenBy { it.eventId })
     }
 }
