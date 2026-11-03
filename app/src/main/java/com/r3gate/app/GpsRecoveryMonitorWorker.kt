@@ -27,6 +27,7 @@ class GpsRecoveryMonitorWorker(context:Context,params:WorkerParameters):Worker(c
     override fun doWork():Result {
         val prefs=applicationContext.getSharedPreferences("r3_gate",Context.MODE_PRIVATE)
         val now=System.currentTimeMillis()
+        val inspectedSession=prefs.getLong("gps_session_start",0L)
         val fine=applicationContext.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED
         val coarse=applicationContext.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)==PackageManager.PERMISSION_GRANTED
         val locationProviders=try {
@@ -41,7 +42,7 @@ class GpsRecoveryMonitorWorker(context:Context,params:WorkerParameters):Worker(c
         val decision=GpsRecoveryMonitorRules.decide(
             now,prefs.getBoolean("gps_enabled",false),
             prefs.getLong("gps_service_heartbeat_ms",0L),
-            prefs.getLong("gps_session_start",0L),
+            inspectedSession,
             prefs.getLong("gps_recovery_alert_at",0L),
             try { JSONObject(prefs.getString("gps_last_fix","{}") ?: "{}").optLong("time") }
                 catch(_:Exception) { 0L },
@@ -50,6 +51,11 @@ class GpsRecoveryMonitorWorker(context:Context,params:WorkerParameters):Worker(c
             usable)
         if(decision==GpsRecoveryMonitorRules.Decision.IGNORE ||
             decision==GpsRecoveryMonitorRules.Decision.HEALTHY) return Result.success()
+        // The Worker may race a manual GPS stop or a new foreground session.
+        if(!GpsRecoveryAlertGuard.stillRelevant(inspectedSession,
+                prefs.getLong("gps_session_start",0L),
+                prefs.getBoolean("gps_enabled",false),System.currentTimeMillis()))
+            return Result.success()
         val noFix=decision==GpsRecoveryMonitorRules.Decision.ALERT_NO_FIX
         val permission=decision==GpsRecoveryMonitorRules.Decision.ALERT_PERMISSION
         val providerOff=decision==GpsRecoveryMonitorRules.Decision.ALERT_PROVIDER_OFF
