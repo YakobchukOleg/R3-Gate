@@ -25,7 +25,7 @@ object JournalValidator {
             return Report(0, 0, 0, emptyList(), listOf("Invalid JSON object"))
         }
         // Existing model fields must never silently become empty collections.
-        for (key in listOf("objects", "shifts", "materials", "photos", "links",
+        for (key in listOf("objects", "shifts", "stages", "materials", "photos", "links",
             "notes", "logs", "payments", "expenses")) {
             if (root.has(key) && root.optJSONArray(key) == null) {
                 errors.add("$key is not an array")
@@ -63,7 +63,7 @@ object JournalValidator {
                 if (id !in ids) warnings.add("$location references unknown objectId: $id")
             }
         }
-        for (key in listOf("shifts", "materials", "photos", "links", "notes", "logs")) {
+        for (key in listOf("shifts", "stages", "materials", "photos", "links", "notes", "logs", "payments", "expenses")) {
             val array = root.optJSONArray(key) ?: continue
             for (i in 0 until array.length()) {
                 val value = array.optJSONObject(i)
