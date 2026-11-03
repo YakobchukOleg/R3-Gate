@@ -34,6 +34,10 @@ object CoreGpsStageBridge {
     fun hasContinuousCoverage(context: Context, eventMs: Long, nowMs: Long): Boolean {
         val prefs = context.getSharedPreferences("r3_gate", Context.MODE_PRIVATE)
         if (!prefs.getBoolean("gps_enabled", false)) return false
+        val lastFix = try {
+            JSONObject(prefs.getString("gps_last_fix", "{}") ?: "{}").optLong("time")
+        } catch (_: Exception) { return false }
+        if (!CoreGpsFixFreshness.isFresh(eventMs, lastFix, nowMs)) return false
         val events = try { JSONArray(prefs.getString("gps_trip_events", "[]") ?: "[]") }
             catch (_: Exception) { return false }
         val gaps = try { JSONArray(prefs.getString("gps_coverage_gaps", "[]") ?: "[]") }
