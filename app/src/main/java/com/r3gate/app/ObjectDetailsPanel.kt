@@ -98,7 +98,7 @@ class ObjectDetailsPanel(
 
     private fun renderTab(tab: ObjectDetailsTabs.Tab, state: ObjectDetailsUiModel.ViewState) {
         tabBody.removeAllViews()
-        val section = ObjectDetailsTabs.section(tab, counts)
+        val tabSection = ObjectDetailsTabs.section(tab, counts)
         if (tab == ObjectDetailsTabs.Tab.OVERVIEW) {
             tabBody.addView(section("Przegląd"))
             tabBody.addView(card().apply {
@@ -120,9 +120,9 @@ class ObjectDetailsPanel(
                 addView(text(state.notes ?: "Brak notatek. Dodaj dane kontaktowe lub ważną informację.", muted, 13f))
             })
         } else {
-            tabBody.addView(section(section.heading))
+            tabBody.addView(section(tabSection.heading))
             tabBody.addView(card().apply {
-                addView(text(section.description, muted, 14f))
+                addView(text(tabSection.description, muted, 14f))
                 if (tab == ObjectDetailsTabs.Tab.TECHNICAL) {
                     addView(text("TAG: " + state.heading, ink, 13f))
                     state.location?.let { addView(text("⌖ " + it, ink, 13f)) }
@@ -136,8 +136,8 @@ class ObjectDetailsPanel(
                 ObjectDetailsTabs.Tab.TECHNICAL -> onMaps
                 ObjectDetailsTabs.Tab.OVERVIEW -> null
             }
-            if (section.action != null && callback != null)
-                tabBody.addView(action(section.action, callback))
+            if (tabSection.action != null && callback != null)
+                tabBody.addView(action(tabSection.action, callback))
         }
     }
 
