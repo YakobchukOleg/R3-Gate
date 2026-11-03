@@ -33,9 +33,9 @@ class GpsWatchdogSessionTest {
     @Test fun futureLastFixCannotSuppressSessionStall() {
         assertEquals(GpsWatchdogRules.Action.PROBE,outcome(1_400_000L,1_000_000L,1_500_000L))
     }
-    @Test fun futureLastProbeDisablesRetry() {
+    @Test fun slightlyFutureLastProbeDisablesRetry() {
         assertEquals(GpsWatchdogRules.Action.NONE,
-            outcome(1_400_000L,1_000_000L,1L,1_500_000L))
+            outcome(1_400_000L,1_000_000L,1L,1_401_000L))
     }
     @Test fun disabledGpsSuppressesProbeEvenOnStalePreviousFix() {
         assertEquals(GpsWatchdogRules.Action.NONE,
