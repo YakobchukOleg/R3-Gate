@@ -37,9 +37,9 @@ class GpsWatchdogProviderRulesTest {
         assertTrue(GpsWatchdogProviderRules.shouldReacquire(
             GpsWatchdogProviderRules.Status.NEEDS_SUBSCRIPTION,false,280000L,100000L))
     }
-    @Test fun futureAttemptTimestampPreventsRetry() {
+    @Test fun slightlyFutureAttemptTimestampPreventsRetry() {
         assertFalse(GpsWatchdogProviderRules.shouldReacquire(
-            GpsWatchdogProviderRules.Status.NEEDS_SUBSCRIPTION,false,100000L,200000L))
+            GpsWatchdogProviderRules.Status.NEEDS_SUBSCRIPTION,false,100000L,100001L))
     }
     @Test fun invalidClockPreventsRetry() {
         assertFalse(GpsWatchdogProviderRules.shouldReacquire(
