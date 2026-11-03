@@ -36,7 +36,9 @@ class GpsRecoveryMonitorWorker(context:Context,params:WorkerParameters):Worker(c
             // Unknown provider state: never invent a disabled/unsupported provider fault.
             Pair(true,true)
         }
-        val usable=GpsProviderRules.permitted(locationProviders.first,locationProviders.second,fine,coarse)!=null
+        val availability=GpsProviderRules.availabilityProblem(
+            locationProviders.first,locationProviders.second,fine,coarse)
+        val usable=availability==null
         return GpsRecoveryMonitorRules.decide(
             now,prefs.getBoolean("gps_enabled",false),
             prefs.getLong("gps_service_heartbeat_ms",0L),
