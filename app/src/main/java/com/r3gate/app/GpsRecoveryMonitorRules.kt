@@ -23,8 +23,10 @@ object GpsRecoveryMonitorRules {
     }
 
     /** Only real user-visible notifications consume the reminder cooldown. */
-    fun shouldMarkAlertSent(permissionNeeded:Boolean,notificationPermissionGranted:Boolean):Boolean =
-        !permissionNeeded || notificationPermissionGranted
+    fun shouldMarkAlertSent(permissionNeeded:Boolean,notificationPermissionGranted:Boolean,
+                            notificationsEnabled:Boolean=true,channelEnabled:Boolean=true):Boolean =
+        (!permissionNeeded || notificationPermissionGranted) &&
+            notificationsEnabled && channelEnabled
 
     fun decide(
         nowMs:Long,
