@@ -195,9 +195,11 @@ class GpsTrackingService : Service(), LocationListener {
         }
     }
 
-    private fun providerChoice():String? = when(GpsProviderRules.preferred(
+    private fun providerChoice():String? = when(GpsProviderRules.permitted(
         manager.isProviderEnabled(LocationManager.GPS_PROVIDER),
-        manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER))) {
+        manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER),
+        checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED,
+        checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)==PackageManager.PERMISSION_GRANTED)) {
         GpsProviderRules.Provider.GPS -> LocationManager.GPS_PROVIDER
         GpsProviderRules.Provider.NETWORK -> LocationManager.NETWORK_PROVIDER
         null -> null
