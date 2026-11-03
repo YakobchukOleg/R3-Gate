@@ -87,6 +87,11 @@ class MainActivity : Activity() {
                 android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS)
         }
         migrate()
+        if (!GpsWorkdaySession.workdayOpen(prefs) &&
+            (prefs.getBoolean("gps_enabled",false) || prefs.getBoolean("gps_resume_pending",false))) {
+            if (GpsWorkdaySession.hasConsent(prefs)) prefs.edit().putBoolean(GpsWorkdaySession.CONSENT,true).apply()
+            setGpsEnabled(false)
+        }
         migrateWallet()
         DriveBackupWorker.schedule(this)
         expandedFilters.addAll(savedInstanceState?.getStringArrayList("expandedFilters") ?: emptyList())
@@ -186,11 +191,16 @@ class MainActivity : Activity() {
     }
     private fun startOnObject(obj: JSONObject) {
         val d=data(); if (active(d)!=null) { toast("Dzień pracy już rozpoczęty"); home(); return }
-        val t=System.currentTimeMillis(); d.put("active",JSONObject().put("id",UUID.randomUUID().toString()).put("start",t).put("object",objectName(obj)).put("objectId",obj.optString("id")).put("stageStart",t).put("stages",JSONArray()).put("rate",defaultRate().toPlainString())); save(d,"START",fmt.format(Date(t))); home()
+        val t=System.currentTimeMillis(); d.put("active",JSONObject().put("id",UUID.randomUUID().toString()).put("start",t).put("object",objectName(obj)).put("objectId",obj.optString("id")).put("stageStart",t).put("stages",JSONArray()).put("rate",defaultRate().toPlainString())); save(d,"START",fmt.format(Date(t)))
+        if (GpsWorkdaySession.hasConsent(prefs)) setGpsEnabled(true)
+        home()
     }
     private fun stopShift() {
         val d=data(); val a=active(d); if(a==null) { toast("Brak rozpoczętej pracy"); home(); return }
-        val end=System.currentTimeMillis(); closeStage(a,end); a.put("end",end); arr(d,"shifts").put(a); d.remove("active"); save(d,"STOP",fmt.format(Date(end))); PhotoQueue.enqueueAll(this); home()
+        val end=System.currentTimeMillis(); closeStage(a,end); a.put("end",end); arr(d,"shifts").put(a); d.remove("active"); save(d,"STOP",fmt.format(Date(end)))
+        if (GpsWorkdaySession.hasConsent(prefs)) prefs.edit().putBoolean(GpsWorkdaySession.CONSENT,true).apply()
+        setGpsEnabled(false)
+        PhotoQueue.enqueueAll(this); home()
     }
     private fun closeStage(a:JSONObject, end:Long) {
         val st=a.optLong("stageStart",a.optLong("start"))
@@ -809,7 +819,7 @@ class MainActivity : Activity() {
         if(!prefs.getBoolean("gps_resume_pending",false)) return
         label("GPS był aktywny przed restartem telefonu. Wznów go tylko, jeśli chcesz.")
         button("Wznów GPS po restarcie") {
-            prefs.edit().putBoolean("gps_resume_pending",false).apply()
+            prefs.edit().putBoolean(GpsWorkdaySession.CONSENT,true).putBoolean("gps_resume_pending",false).apply()
             setGpsEnabled(true)
             gpsScreen()
         }
@@ -818,7 +828,14 @@ class MainActivity : Activity() {
             gpsScreen()
         }
     }
+    private fun toggleGpsConsent() {
+        val allow = !GpsWorkdaySession.hasConsent(prefs)
+        prefs.edit().putBoolean(GpsWorkdaySession.CONSENT,allow).apply()
+        setGpsEnabled(allow)
+    }
+
     private fun setGpsEnabled(value:Boolean) {
+        if (value && (!GpsWorkdaySession.workdayOpen(prefs) || !GpsWorkdaySession.hasConsent(prefs))) return
         if(!value) {
             prefs.edit().putBoolean("gps_enabled",false).putBoolean("gps_resume_pending",false).apply()
             stopService(Intent(this,GpsTrackingService::class.java))
@@ -831,7 +848,8 @@ class MainActivity : Activity() {
             requestPermissions(arrayOf(android.Manifest.permission.ACCESS_COARSE_LOCATION,android.Manifest.permission.ACCESS_FINE_LOCATION),307)
             return
         }
-        prefs.edit().putBoolean("gps_enabled",true).apply()
+        prefs.edit().putBoolean(GpsWorkdaySession.CONSENT,true).putBoolean("gps_enabled",true)
+            .putBoolean("gps_resume_pending",false).apply()
         try {
             androidx.core.content.ContextCompat.startForegroundService(
                 this,Intent(this,GpsTrackingService::class.java).setAction(GpsTrackingService.ACTION_START))
@@ -963,10 +981,16 @@ class MainActivity : Activity() {
         label("Eksperymentalne: po 5 minutach bez wykrytego ruchu GPS co 90 sekund zamiast co 30 sekund. Nie wyłącza GPS; ruch telefonu nie potwierdza przejazdu.")
 
         val enabled = prefs.getBoolean("gps_enabled",false)
-        button(if(enabled) "GPS: włączony — wyłącz" else "GPS: wyłączony — włącz") {
-            setGpsEnabled(!enabled); gpsScreen()
+        button(if(GpsWorkdaySession.hasConsent(prefs)) "GPS: dozwolony w pracy — wyłącz" else "GPS: wyłączony — włącz") {
+            toggleGpsConsent(); gpsScreen()
         }
-        if(!enabled) return
+        if(!enabled) {
+            if(GpsWorkdaySession.workdayOpen(prefs) && GpsWorkdaySession.hasConsent(prefs) &&
+                !prefs.getBoolean("gps_resume_pending",false)) {
+                button("Uruchom śledzenie GPS") { setGpsEnabled(true); gpsScreen() }
+            }
+            return
+        }
         val permission=checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED ||
             checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION)==PackageManager.PERMISSION_GRANTED
         if(!permission) {
@@ -1194,9 +1218,8 @@ class MainActivity : Activity() {
         button("Język aplikacji") { language() }
         label("GPS i lokalizacja")
         if(prefs.getBoolean("gps_resume_pending",false)) button("GPS · wznowienie po restarcie") { gpsScreen() }
-        button(if(prefs.getBoolean("gps_enabled",false)) "GPS WorkMeter: WŁĄCZONY — wyłącz" else "GPS WorkMeter: WYŁĄCZONY — włącz") {
-            val next=!prefs.getBoolean("gps_enabled",false)
-            setGpsEnabled(next)
+        button(if(GpsWorkdaySession.hasConsent(prefs)) "GPS WorkMeter: DOZWOLONY W PRACY — wyłącz" else "GPS WorkMeter: WYŁĄCZONY — włącz") {
+            toggleGpsConsent()
             settings()
         }
         button("Geostrefy i lokalizacja GPS") { gpsScreen() }
@@ -1221,8 +1244,8 @@ class MainActivity : Activity() {
             "Obiekty" -> {
                 label("Obiekty i lokalizacje GPS")
                 button("Lista obiektów") { openScreen("objects") }
-                button(if(prefs.getBoolean("gps_enabled",false)) "Wyłącz GPS WorkMeter" else "Włącz GPS WorkMeter") {
-                    setGpsEnabled(!prefs.getBoolean("gps_enabled",false))
+                button(if(GpsWorkdaySession.hasConsent(prefs)) "Wyłącz GPS WorkMeter" else "Włącz GPS WorkMeter") {
+                    toggleGpsConsent()
                     sectionSettings("Obiekty")
                 }
                 button("GPS i geostrefy") { gpsScreen() }

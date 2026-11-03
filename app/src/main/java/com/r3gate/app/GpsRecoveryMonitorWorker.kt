@@ -40,7 +40,7 @@ class GpsRecoveryMonitorWorker(context:Context,params:WorkerParameters):Worker(c
             locationProviders.first,locationProviders.second,fine,coarse)
         val usable=availability==null
         return GpsRecoveryMonitorRules.decide(
-            now,prefs.getBoolean("gps_enabled",false),
+            now,GpsWorkdaySession.shouldTrack(prefs),
             prefs.getLong("gps_service_heartbeat_ms",0L),
             sessionMs,
             prefs.getLong("gps_recovery_alert_at",0L),
@@ -60,7 +60,7 @@ class GpsRecoveryMonitorWorker(context:Context,params:WorkerParameters):Worker(c
         // The Worker may race a manual GPS stop or a new foreground session.
         if(!GpsRecoveryAlertGuard.stillRelevant(inspectedSession,
                 prefs.getLong("gps_session_start",0L),
-                prefs.getBoolean("gps_enabled",false),System.currentTimeMillis()))
+                GpsWorkdaySession.shouldTrack(prefs),System.currentTimeMillis()))
             return Result.success()
         // Re-evaluate persisted evidence: a trusted fix may have arrived while
         // WorkManager checked Android permissions and provider availability.
@@ -109,7 +109,7 @@ class GpsRecoveryMonitorWorker(context:Context,params:WorkerParameters):Worker(c
         if(!GpsRecoveryAlertGuard.mayDeliver(isStopped,decision,
                 currentDecision(prefs,System.currentTimeMillis(),inspectedSession),
                 inspectedSession,prefs.getLong("gps_session_start",0L),
-                prefs.getBoolean("gps_enabled",false),System.currentTimeMillis()))
+                GpsWorkdaySession.shouldTrack(prefs),System.currentTimeMillis()))
             return Result.success()
         try { notifications.notify(NOTIFICATION_ID,notification) }
         catch(_:SecurityException) {

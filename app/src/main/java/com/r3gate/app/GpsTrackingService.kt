@@ -41,7 +41,7 @@ class GpsTrackingService : Service(), LocationListener {
     private val watchdogTick=object:Runnable {
         override fun run() {
             when(GpsWatchdogLifecycleRules.onTick(
-                sessionStarted,prefs.getBoolean("gps_enabled",false))) {
+                sessionStarted,GpsWorkdaySession.shouldTrack(prefs))) {
                 GpsWatchdogLifecycleRules.Action.IGNORE -> return
                 GpsWatchdogLifecycleRules.Action.STOP -> {
                     trace("TRACKING_DISABLED_WATCHDOG")
@@ -179,7 +179,7 @@ class GpsTrackingService : Service(), LocationListener {
     private val sensorListener=object:SensorEventListener {
         override fun onAccuracyChanged(sensor:Sensor?,accuracy:Int) {}
         override fun onSensorChanged(event:SensorEvent) {
-            if(event.sensor.type!=Sensor.TYPE_ACCELEROMETER || !prefs.getBoolean("gps_enabled",false) ||
+            if(event.sensor.type!=Sensor.TYPE_ACCELEROMETER || !GpsWorkdaySession.shouldTrack(prefs) ||
                 !prefs.getBoolean("gps_adaptive_sampling",false)) return
             val x=event.values[0].toDouble()
             val y=event.values[1].toDouble()
@@ -230,7 +230,7 @@ class GpsTrackingService : Service(), LocationListener {
     private val providerReceiver=object:BroadcastReceiver() {
         override fun onReceive(context:Context?,intent:Intent?) {
             if(intent?.action!=LocationManager.PROVIDERS_CHANGED_ACTION ||
-                !prefs.getBoolean("gps_enabled",false) ||
+                !GpsWorkdaySession.shouldTrack(prefs) ||
                 !prefs.getBoolean("gps_service_active",false)) return
             try { updateSubscription() }
             catch(_:SecurityException) {
@@ -339,12 +339,13 @@ class GpsTrackingService : Service(), LocationListener {
         if(intent?.action==ACTION_STOP) {
             GpsRecoveryMonitorWorker.cancel(this)
             trace("MANUAL_STOP")
-            prefs.edit().putBoolean("gps_enabled",false).apply()
+            prefs.edit().putBoolean(GpsWorkdaySession.CONSENT,false)
+                .putBoolean("gps_enabled",false).putBoolean("gps_resume_pending",false).apply()
             shutdown()
             return START_NOT_STICKY
         }
         when(GpsStartPermissionRules.decide(
-            prefs.getBoolean("gps_enabled",false),
+            GpsWorkdaySession.shouldTrack(prefs),
             checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED,
             checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)==PackageManager.PERMISSION_GRANTED)) {
             GpsStartPermissionRules.Decision.STOP_DISABLED -> {
@@ -436,7 +437,7 @@ class GpsTrackingService : Service(), LocationListener {
     }
     override fun onLocationChanged(location:Location) {
         when(GpsLocationCallbackRules.decide(
-            prefs.getBoolean("gps_enabled",false),
+            GpsWorkdaySession.shouldTrack(prefs),
             checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED,
             checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)==PackageManager.PERMISSION_GRANTED,
             GpsFixSourceRules.accept(currentProvider,location.provider,true))) {
@@ -765,6 +766,7 @@ class GpsTrackingService : Service(), LocationListener {
         }
     }
     private fun shutdown() {
+        if (!GpsWorkdaySession.shouldTrack(prefs)) GpsRecoveryMonitorWorker.cancel(this)
         watchdogHandler.removeCallbacks(watchdogTick)
         if(sessionStarted) { trace("SERVICE_STOP"); recordTripBoundary(); sessionStarted=false }
         stopMotionSensor()
