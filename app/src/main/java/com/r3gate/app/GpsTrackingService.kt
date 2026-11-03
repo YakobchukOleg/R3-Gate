@@ -584,6 +584,12 @@ class GpsTrackingService : Service(), LocationListener {
         val zoneEvidence=GpsGeofenceEvidence.observe(point,places,confirmedId)
         val needsEvidence=zoneEvidence.status==GpsGeofenceEvidence.Status.UNCERTAIN ||
             zoneEvidence.placeId!=confirmedId
+        if(GpsGeofenceProbeRules.clockRollbackRequiresReset(now,lastGeofenceProbeMs)) {
+            // A future-dated probe must not block new geofence evidence indefinitely.
+            lastGeofenceProbeMs=0L
+            activeGeofenceProbeSinceMs=0L
+            trace("GEOFENCE_PROBE_CLOCK_RESET",now)
+        }
         if(GpsGeofenceProbeRules.shouldBegin(now,lastGeofenceProbeMs,needsEvidence,
             !confirmedId.isNullOrBlank() || zoneEvidence.placeId!=null)) {
             lastGeofenceProbeMs=now
