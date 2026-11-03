@@ -10,7 +10,6 @@ import android.view.Gravity
 import android.view.View
 import android.widget.EditText
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 
 /**
@@ -98,11 +97,8 @@ class ObjectListPanel(
             topMargin = dp(12); bottomMargin = dp(8)
         })
 
-        val scroll = ScrollView(context).apply {
-            isFillViewport = false
-            addView(results)
-        }
-        addView(scroll, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
+        // The parent screen already scrolls; avoid a nested weighted ScrollView.
+        addView(results, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
 
         val add = button("＋ Dodaj obiekt", green).apply {
             gravity = Gravity.CENTER
