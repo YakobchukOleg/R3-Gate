@@ -28,7 +28,8 @@ object GpsArrivalRules {
         }
         if(observedId==state.confirmedId) return Decision(state.copy(candidateId=null,candidateSinceMs=0,lastFixMs=fixMs))
         val candidateMatches=state.candidateSinceMs>0 &&
-            state.candidateSinceMs<=fixMs && state.candidateId==observedId
+            state.candidateSinceMs<=fixMs &&
+            state.lastFixMs>=state.candidateSinceMs && state.candidateId==observedId
         if(!candidateMatches) return Decision(state.copy(candidateId=observedId,candidateSinceMs=fixMs,lastFixMs=fixMs))
         if(fixMs-state.candidateSinceMs<dwellMs) return Decision(state.copy(lastFixMs=fixMs))
         val event=if(observedId==null) "DEPARTURE" else "ARRIVAL"
