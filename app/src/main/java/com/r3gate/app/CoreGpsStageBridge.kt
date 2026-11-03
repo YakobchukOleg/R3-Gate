@@ -21,6 +21,7 @@ object CoreGpsStageBridge {
         val prefs = context.getSharedPreferences("r3_gate", Context.MODE_PRIVATE)
         val data = try { JSONObject(prefs.getString("data", "{}") ?: "{}") } catch (_: Exception) { return }
         val active = data.optJSONObject("active") ?: return
+        val nowMs = System.currentTimeMillis()
         val shiftStart = active.optLong("start")
         val stageStart = maxOf(shiftStart, active.optLong("stageStart", shiftStart))
         val objects = data.optJSONArray("objects") ?: JSONArray()
@@ -46,7 +47,7 @@ object CoreGpsStageBridge {
             }
             val candidate = CoreGpsProposalInbox.Event(eventId, kind, whenMs, id,
                 confidence = CoreGpsProposalInbox.Confidence.HIGH)
-            if (CoreGpsStageRules.shouldNotify(candidate, shift, activeIds, stageStart)) incoming.add(candidate)
+            if (CoreGpsStageRules.shouldNotify(candidate, shift, activeIds, stageStart, nowMs)) incoming.add(candidate)
         }
         if (incoming.isEmpty()) return
         val storage = AndroidCoreGpsProposalStorage(context)
@@ -59,7 +60,7 @@ object CoreGpsStageBridge {
         val flagged = (prefs.getStringSet("core_gps_notified", emptySet())?.toSet() ?: emptySet()).toMutableSet()
         for (event in updated.state.events) {
             if (event.eventId in flagged ||
-                !CoreGpsStageRules.shouldNotify(event, shift, activeIds, stageStart)) continue
+                !CoreGpsStageRules.shouldNotify(event, shift, activeIds, stageStart, nowMs)) continue
             val intent = Intent(context, MainActivity::class.java)
                 .putExtra(INTENT_EVENT, event.eventId)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
