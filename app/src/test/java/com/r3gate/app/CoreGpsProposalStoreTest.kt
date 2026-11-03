@@ -113,4 +113,94 @@ class CoreGpsProposalStoreTest {
         assertEquals(1, result.imported!!.rejectedInvalid)
         assertEquals(0, storage.writes)
     }
+
+    private fun numbered(i: Int) = event("history-$i").copy(
+        timestampMs=1_800_000_000_000L+i,
+        evidenceStartMs=null, evidenceEndMs=null
+    )
+
+    @Test fun compactionLeavesSmallHistoryUntouched() {
+        val events=(0 until 10).map(::numbered)
+        assertEquals(events,CoreGpsProposalStore.compact(events))
+    }
+
+    @Test fun compactionKeepsExactlyMaximumEvents() {
+        val events=(0 until 800).map(::numbered)
+        val retained=CoreGpsProposalStore.compact(events)
+        assertEquals(CoreGpsProposalStore.MAX_EVENTS,retained.size)
+        assertEquals("history-288",retained.first().eventId)
+        assertEquals("history-799",retained.last().eventId)
+    }
+
+    @Test fun outOfOrderHistoryRetainsNewestTimestamps() {
+        val events=(0 until 700).map(::numbered).reversed()
+        val retained=CoreGpsProposalStore.compact(events)
+        assertEquals("history-188",retained.first().eventId)
+        assertEquals("history-699",retained.last().eventId)
+    }
+
+    @Test fun repeatedImportDoesNotGrowStoredHistory() {
+        val storage=MemoryStorage()
+        for (chunk in 0 until 8) {
+            val batch=(chunk*100 until (chunk+1)*100).map(::numbered)
+            assertTrue(CoreGpsProposalStore.import(storage,batch,objects).changed)
+        }
+        val restored=CoreGpsProposalStore.read(storage) as CoreGpsProposalStore.ReadResult.Success
+        assertEquals(CoreGpsProposalStore.MAX_EVENTS,restored.events.size)
+        assertEquals("history-288",restored.events.first().eventId)
+    }
+
+    @Test fun latestRejectedDecisionIsRetainedDuringHeavyImports() {
+        val storage=MemoryStorage()
+        CoreGpsProposalStore.import(storage,listOf(numbered(1_000)),objects)
+        CoreGpsProposalStore.decide(storage,"history-1000",
+            CoreGpsProposalInbox.Decision.USER_REJECTED)
+        CoreGpsProposalStore.import(storage,(0 until 850).map(::numbered),objects)
+        val retained=(CoreGpsProposalStore.read(storage) as CoreGpsProposalStore.ReadResult.Success).events
+        assertEquals(CoreGpsProposalInbox.Decision.USER_REJECTED,
+            retained.single { it.eventId=="history-1000" }.decision)
+    }
+
+    @Test fun replayCannotOverwriteCompactRetainedDecision() {
+        val storage=MemoryStorage()
+        CoreGpsProposalStore.import(storage,listOf(numbered(1_000)),objects)
+        CoreGpsProposalStore.decide(storage,"history-1000",
+            CoreGpsProposalInbox.Decision.USER_CONFIRMED)
+        CoreGpsProposalStore.import(storage,(0 until 800).map(::numbered),objects)
+        val result=CoreGpsProposalStore.import(storage,listOf(numbered(1_000)),objects)
+        assertEquals(1,result.imported!!.ignoredDuplicates)
+        assertEquals(0,result.imported!!.added)
+        assertFalse(result.changed)
+    }
+
+    @Test fun compactionPreservesEventEvidenceAndObjectIdentifiers() {
+        val longEvent=event("very-recent").copy(timestampMs=1_900_000_000_000L)
+        val retained=CoreGpsProposalStore.compact((0 until 700).map(::numbered)+longEvent)
+        assertEquals(longEvent,retained.last())
+    }
+
+    @Test fun sameTimestampUsesDeterministicEventIdentity() {
+        val events=(0 until 600).map {
+            numbered(it).copy(eventId="id-%03d".format(it),timestampMs=1_800_000_000_000L)
+        }.reversed()
+        val retained=CoreGpsProposalStore.compact(events)
+        assertEquals("id-088",retained.first().eventId)
+        assertEquals("id-599",retained.last().eventId)
+    }
+
+    @Test fun compactedStoreCanBeDecodedAfterRestart() {
+        val storage=MemoryStorage()
+        CoreGpsProposalStore.import(storage,(0 until 700).map(::numbered),objects)
+        val reopened=MemoryStorage(storage.value)
+        assertEquals((CoreGpsProposalStore.read(storage) as CoreGpsProposalStore.ReadResult.Success).events,
+            (CoreGpsProposalStore.read(reopened) as CoreGpsProposalStore.ReadResult.Success).events)
+    }
+
+    @Test fun failedCompactedWriteKeepsPreviousJournal() {
+        val original=CoreGpsProposalStore.encode(listOf(numbered(1_000)))
+        val storage=MemoryStorage(original,failWrite=true)
+        val result=CoreGpsProposalStore.import(storage,(0 until 800).map(::numbered),objects)
+        assertFalse(result.changed)
+        assertEquals(original,storage.value)
+    }
 }
