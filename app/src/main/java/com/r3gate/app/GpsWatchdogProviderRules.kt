@@ -21,8 +21,10 @@ object GpsWatchdogProviderRules {
         lastAttemptMs:Long
     ):Boolean {
         if(status==Status.NO_PROVIDER || nowMs<=0L ||
-            lastAttemptMs>nowMs ||
-            lastAttemptMs>0L && nowMs-lastAttemptMs<GpsWatchdogRules.RETRY_COOLDOWN_MS)
+            lastAttemptMs>nowMs &&
+                lastAttemptMs-nowMs<GpsWatchdogRules.CLOCK_ROLLBACK_RESET_MS ||
+            lastAttemptMs>0L && lastAttemptMs<=nowMs &&
+                nowMs-lastAttemptMs<GpsWatchdogRules.RETRY_COOLDOWN_MS)
             return false
         return status==Status.NEEDS_SUBSCRIPTION ||
             status==Status.ACTIVE && noFixProbe
