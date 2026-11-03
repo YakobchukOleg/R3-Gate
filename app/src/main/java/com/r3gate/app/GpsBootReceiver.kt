@@ -9,10 +9,12 @@ class GpsBootReceiver : BroadcastReceiver() {
     override fun onReceive(context:Context,intent:Intent?) {
         if(intent?.action!=Intent.ACTION_BOOT_COMPLETED) return
         val prefs=context.getSharedPreferences("r3_gate",Context.MODE_PRIVATE)
-        if(prefs.getBoolean("gps_enabled",false)) {
-            prefs.edit().putBoolean("gps_enabled",false)
-                .putBoolean("gps_service_active",false)
-                .putBoolean("gps_resume_pending",true).commit()
-        }
+        val next=GpsBootRecoveryRules.afterBoot(GpsBootRecoveryRules.State(
+            enabled=prefs.getBoolean("gps_enabled",false),
+            active=prefs.getBoolean("gps_service_active",false),
+            resumePending=prefs.getBoolean("gps_resume_pending",false)))
+        prefs.edit().putBoolean("gps_enabled",next.enabled)
+            .putBoolean("gps_service_active",next.active)
+            .putBoolean("gps_resume_pending",next.resumePending).commit()
     }
 }
