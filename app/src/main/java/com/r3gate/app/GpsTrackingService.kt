@@ -188,6 +188,19 @@ class GpsTrackingService : Service(), LocationListener {
         GpsProviderRules.Provider.NETWORK -> LocationManager.NETWORK_PROVIDER
         null -> null
     }
+    /** Cleanup must succeed even after Android revokes location permission. */
+    private fun removeLocationUpdatesSafely() {
+        if(!subscribed) return
+        subscribed=false
+        currentProvider=null
+        try { manager.removeUpdates(this) }
+        catch(_:SecurityException) {
+            trace("REMOVE_UPDATES_PERMISSION_REVOKED")
+        }
+        catch(_:IllegalArgumentException) {
+            trace("REMOVE_UPDATES_INVALID_LISTENER")
+        }
+    }
     private fun updateSubscription() {
         if(checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)!=PackageManager.PERMISSION_GRANTED &&
             checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)!=PackageManager.PERMISSION_GRANTED) {
@@ -198,12 +211,12 @@ class GpsTrackingService : Service(), LocationListener {
         if(chosen==null) {
             trace("NO_PROVIDER")
             prefs.edit().putString("gps_service_problem","no_provider").apply()
-            if(subscribed) manager.removeUpdates(this)
+            removeLocationUpdatesSafely()
             subscribed=false; currentProvider=null
             return
         }
         if(subscribed && chosen==currentProvider && subscribedIntervalMs==samplingIntervalMs) return
-        if(subscribed) manager.removeUpdates(this)
+        removeLocationUpdatesSafely()
         subscribed=false;currentProvider=null
         manager.requestLocationUpdates(chosen,samplingIntervalMs,0f,this,Looper.getMainLooper())
         currentProvider=chosen;subscribed=true;subscribedIntervalMs=samplingIntervalMs
@@ -642,7 +655,7 @@ class GpsTrackingService : Service(), LocationListener {
         watchdogHandler.removeCallbacks(watchdogTick)
         if(sessionStarted) { trace("SERVICE_STOP"); recordTripBoundary(); sessionStarted=false }
         stopMotionSensor()
-        if(subscribed) { manager.removeUpdates(this);subscribed=false;currentProvider=null }
+        removeLocationUpdatesSafely()
         prefs.edit().putBoolean("gps_service_active",false).apply()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -652,7 +665,7 @@ class GpsTrackingService : Service(), LocationListener {
         if(sessionStarted) { recordTripBoundary(); sessionStarted=false }
         stopMotionSensor()
         unregisterReceiver(providerReceiver)
-        if(subscribed) { manager.removeUpdates(this);subscribed=false;currentProvider=null }
+        removeLocationUpdatesSafely()
         prefs.edit().putBoolean("gps_service_active",false).apply()
         super.onDestroy()
     }
