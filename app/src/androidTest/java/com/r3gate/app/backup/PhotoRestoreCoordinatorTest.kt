@@ -16,6 +16,7 @@ class PhotoRestoreCoordinatorTest {
     private val context: Context get() = ApplicationProvider.getApplicationContext()
     private val prefs get() = context.getSharedPreferences("r3_gate", Context.MODE_PRIVATE)
     private var previous: String? = null
+    private val madeStages = mutableListOf<java.io.File>()
     private val old = """{"objects":[{"id":"old"}]}"""
     private val restored = """{"objects":[{"id":"archived","archived":true}],
         "links":[{"objectId":"archived","photos":["content://source/one"]}]}"""
@@ -25,6 +26,7 @@ class PhotoRestoreCoordinatorTest {
         assertTrue(prefs.edit().putString("data", old).commit())
     }
     @After fun restorePreferences() {
+        madeStages.forEach { it.deleteRecursively() }
         assertTrue(prefs.edit().apply {
             if (previous == null) remove("data") else putString("data", previous)
         }.commit())
@@ -38,6 +40,7 @@ class PhotoRestoreCoordinatorTest {
     private fun session(): PhotoRestoreCoordinator.Session {
         val bytes = archive()
         return PhotoRestoreCoordinator.prepare(context) { ByteArrayInputStream(bytes) }
+            .also { madeStages.add(it.stagingDirectory) }
     }
 
     @Test fun confirmedRestoreKeepsPhotosReadable() {
@@ -73,10 +76,7 @@ class PhotoRestoreCoordinatorTest {
 
     @Test fun changingStagedPhotoBlocksCommit() {
         val task = session()
-        val files = java.io.File(context.filesDir, "photos")
-        val stage = files.listFiles().orEmpty().filter { it.name.startsWith("restore-") }
-            .maxByOrNull { it.lastModified() } ?: error("No stage found")
-        stage.listFiles().orEmpty().first().writeText("modified")
+        task.stagingDirectory.listFiles().orEmpty().single().writeText("modified")
         try { task.commit(context, true); fail("Tampered photo accepted") }
         catch (_: IllegalArgumentException) { }
         assertEquals(old, prefs.getString("data", null))
