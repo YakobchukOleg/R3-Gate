@@ -1,6 +1,10 @@
 package com.r3gate.app
 
 import android.app.*
+import android.location.LocationManager
+import android.location.LocationListener
+import android.location.Location
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
@@ -293,6 +297,13 @@ class MainActivity : Activity() {
         val top=View(this); frame.addView(top,LinearLayout.LayoutParams(-1,0))
         val header=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; gravity=Gravity.CENTER_VERTICAL; setPadding(dp(16),0,dp(8),0); setBackgroundColor(0xFF37474F.toInt()) }
         header.addView(TextView(this).apply { text=title; textSize=27f; gravity=Gravity.CENTER_VERTICAL; setTextColor(Color.WHITE); setTypeface(resources.getFont(R.font.clash_grotesk),android.graphics.Typeface.BOLD) },LinearLayout.LayoutParams(0,dp(56),1f).apply { gravity=Gravity.CENTER_VERTICAL })
+        if(title=="WorkMeter") header.addView(TextView(this).apply {
+            text="SOLO"
+            textSize=11f
+            setTextColor(0xFFAFE3CE.toInt())
+            setPadding(dp(7),dp(5),dp(7),dp(5))
+            background=background(0xFF28443F.toInt())
+        },LinearLayout.LayoutParams(-2,-2).apply { rightMargin=dp(7) })
         if(title=="WorkMeter") header.addView(Button(this).apply {
             text="⚙"; textSize=27f; contentDescription="Ustawienia"; setTextColor(Color.WHITE)
             background=android.graphics.drawable.ColorDrawable(Color.TRANSPARENT); backgroundTintList=null; setPadding(0,0,0,0)
@@ -303,6 +314,43 @@ class MainActivity : Activity() {
         root=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(dp(16),dp(12),dp(16),dp(24)); isFocusableInTouchMode=true; descendantFocusability=ViewGroup.FOCUS_BEFORE_DESCENDANTS }
         scroll.addView(root,FrameLayout.LayoutParams(-1,-2))
         frame.addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
+        // Persistent six-item navigation mirrors the supplied WorkMeter 4.0 prototype.
+        // It lives outside the screen-specific content, so forms and history remain intact.
+        val navigation=LinearLayout(this).apply {
+            orientation=LinearLayout.HORIZONTAL
+            gravity=Gravity.CENTER_VERTICAL
+            setPadding(dp(3),dp(4),dp(3),dp(3))
+            setBackgroundColor(Color.WHITE)
+            elevation=dp(4).toFloat()
+        }
+        val destinations=listOf(
+            Triple("⌂","Dzisiaj","home"),
+            Triple("◷","Mój czas","report"),
+            Triple("▦","Obiekty","objects"),
+            Triple("▧","Zdjęcia","list:links:"),
+            Triple("▤","Materiały","list:materials:"),
+            Triple("☷","Więcej","menu")
+        )
+        destinations.forEach { (symbol,name,target) ->
+            navigation.addView(Button(this).apply {
+                text="$symbol\n$name"
+                contentDescription=name
+                textSize=10f
+                isAllCaps=false
+                minHeight=dp(52); minimumHeight=dp(52)
+                setPadding(0,0,0,0)
+                setTextColor(if(screen==target || (target=="menu" && screen.startsWith("menu"))) 0xFF32916F.toInt() else 0xFF667E87.toInt())
+                background=android.graphics.drawable.ColorDrawable(Color.TRANSPARENT)
+                backgroundTintList=null
+                setOnClickListener {
+                    when(target) {
+                        "report" -> report()
+                        else -> openScreen(target)
+                    }
+                }
+            },LinearLayout.LayoutParams(0,dp(55),1f))
+        }
+        frame.addView(navigation,LinearLayout.LayoutParams(-1,dp(62)))
         val bottom=View(this); frame.addView(bottom,LinearLayout.LayoutParams(-1,0))
         frame.setOnApplyWindowInsetsListener { _,insets ->
             val topInset:Int; val bottomInset:Int
@@ -374,6 +422,14 @@ class MainActivity : Activity() {
         when {
             screen == "home" -> finish()
             screen == "sms" -> openScreen(smsParent)
+            screen=="menu" -> home()
+            screen=="sectionSettings" -> settings()
+            screen=="gps" -> sectionSettings("Obiekty")
+            screen=="gpsPlaceKinds" -> gpsScreen()
+            screen=="gpsCategories" -> report()
+            screen=="gpsDiagnostics" -> gpsScreen()
+            screen=="gpsPay" -> settings()
+            screen.startsWith("menuFeature:") -> menu()
             screen in listOf("drive","logs","about","widgetSettings","wallet","language") -> settings()
             screen == "payment" || screen=="expenses" -> wallet()
             screen=="car" || screen.startsWith("materialGroup:") -> openScreen("list:materials:")
@@ -511,16 +567,603 @@ class MainActivity : Activity() {
             "🏢  OBIEKTY" to { openScreen("objects") })
         section("PRZEGLĄD")
         actionRow("◷  MÓJ CZAS" to { report() }, "▥  GRAFIKI" to { charts() })
+        root.addView(action("☷  WIĘCEJ · MENU P1–P4") { menu() },LinearLayout.LayoutParams(-1,dp(50)))
     }
+
+    // Native WorkMeter 4.0 menu inspired by the user's P1–P4 interactive prototype.
+    // Not-yet-implemented modules are transparent informational destinations, never fake actions.
+    private data class MenuModule(val id:String,val title:String,val detail:String,val phase:String)
+    private val prototypeModules get() = listOf(
+        MenuModule("backups","Kopie i dane","Kopie lokalne, import, eksport i Google Disk","P1"),
+        MenuModule("widgets","Galeria widżetów","Wygląd, przezroczystość i podgląd","P1"),
+        MenuModule("jobs","Zlecenia","Powiązanie pracy z obiektem","P2"),
+        MenuModule("planner","Planer","Plan dnia i zadania","P2"),
+        MenuModule("schedule","Harmonogram","Kalendarz wizyt i zadania","P2"),
+        MenuModule("protocols","Protokoły","Odbiory, podpisy i PDF","P2"),
+        MenuModule("quality","Jakość i gwarancje","Usterki, reklamacje i historia","P2"),
+        MenuModule("company","Finanse firmy","Koszty, przychody i raporty","P3"),
+        MenuModule("clients","Klienci","Lista klientów i kontakty","P3"),
+        MenuModule("equipment","Sprzęt","Rejestr urządzeń i serwis","P3"),
+        MenuModule("team","Zespół","Pracownicy i dyspozycyjność","P3"),
+        MenuModule("service","Serwis cykliczny","Przeglądy i przypomnienia","P3"),
+        MenuModule("inventory","Magazyn","Stan auta, materiały i zestawy","P3"),
+        MenuModule("documents","Dokumenty","Zdjęcia, paragony i umowy","P3"),
+        MenuModule("access","Role i dostęp","Prywatność i uprawnienia","P3"),
+        MenuModule("clientportal","Portal klienta","Akceptacje i statusy","P3"),
+        MenuModule("routes","Trasy i dojazdy","Mapa obiektów i kolejność wizyt","P4"),
+        MenuModule("estimator","AI kosztorys","Roboczogodziny, materiały i marża","P4"),
+        MenuModule("insights","Rekomendacje AI","Porównanie planu i rzeczywistości","P4")
+    )
+    private fun menu() {
+        screen="menu"
+        base("Menu WorkMeter")
+        root.setBackgroundColor(0xFFF4F7F8.toInt())
+        nav()
+        val banner=TextView(this).apply {
+            text="WORKMETER · SOLO\nWSZYSTKIE FUNKCJE · P1–P4"
+            textSize=13f
+            setTextColor(0xFF2E725D.toInt())
+            setTypeface(null,android.graphics.Typeface.BOLD)
+            setPadding(dp(14),dp(12),dp(14),dp(12))
+            background=GradientDrawable().apply {
+                setColor(0xFFE1F2EB.toInt())
+                cornerRadius=dp(13).toFloat()
+            }
+        }
+        root.addView(banner,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(12) })
+        label("Główne działy")
+        tiles(listOf(
+            "⌂  Dzisiaj" to { home() },
+            "◷  Mój czas" to { report() },
+            "▦  Obiekty" to { objects() },
+            "▧  Zdjęcia" to { openScreen("list:links:") },
+            "▤  Materiały" to { openScreen("list:materials:") },
+            "◔  Grafiki" to { charts() },
+            "🔐  Portfel" to { confirmPin { walletUnlocked=true;wallet() } },
+            "⚙  Ustawienia" to { settings() }
+        ))
+        for(phase in listOf("P1","P2","P3","P4")) {
+            label("$phase · "+when(phase) {
+                "P1" -> "Fundamenty";"P2" -> "Organizacja pracy"
+                "P3" -> "Zespół i dokumenty";else -> "Planowanie i analityka"
+            })
+            prototypeModules.filter { it.phase==phase }.forEach { module ->
+                root.addView(makeButton("›  "+module.title+"\n"+module.detail) { menuFeature(module.id) }.apply {
+                    textSize=13f
+                    gravity=Gravity.CENTER_VERTICAL or Gravity.START
+                    minHeight=dp(62); minimumHeight=dp(62)
+                    setTextColor(0xFF344953.toInt())
+                    setPadding(dp(14),dp(10),dp(12),dp(10))
+                    background=GradientDrawable().apply {
+                        setColor(Color.WHITE)
+                        cornerRadius=dp(13).toFloat()
+                        setStroke(dp(1),0xFFE2E9EC.toInt())
+                    }
+                },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(7) })
+            }
+        }
+    }
+    private fun menuFeature(id:String) {
+        when(id) {
+            "backups" -> { logs(); return }
+            "widgets" -> { widgetSettings(); return }
+            "inventory" -> { carStock(); return }
+            "insights" -> { charts(); return }
+        }
+        val module=prototypeModules.firstOrNull { it.id==id } ?: return menu()
+        screen="menuFeature:$id"
+        base(module.title)
+        nav()
+        label(module.phase+" · "+module.detail)
+        label("Ten moduł jest częścią wizualnego prototypu P1–P4. Pełna obsługa wymaga osobnego wdrożenia. Dostępne działania poniżej korzystają z prawdziwych danych WorkMeter.")
+        when(id) {
+            "schedule","jobs","planner" -> {
+                button("◷  Historia pracy i kalendarz") { report() }
+                button("▦  Obiekty") { objects() }
+            }
+            "protocols","quality","service" -> {
+                button("📝  Notatki i historia") { openScreen("notes") }
+                button("▦  Obiekty") { objects() }
+                button("📷  Zdjęcia") { openScreen("list:links:") }
+            }
+            "team","access","clients" -> {
+                button("▦  Obiekty") { objects() }
+                button("⚙  Ustawienia") { settings() }
+                button("🔐  Portfel prywatny (PIN)") { confirmPin { walletUnlocked=true; wallet() } }
+            }
+            "equipment" -> {
+                button("▦  Obiekty i dane urządzeń") { objects() }
+                button("📝  Notatki serwisowe") { openScreen("notes") }
+            }
+            "company" -> {
+                button("🔐  Rozliczenia prywatne (PIN)") { confirmPin { walletUnlocked=true;wallet() } }
+                button("▤  Materiały") { openScreen("list:materials:") }
+            }
+            "documents" -> {
+                button("📷  Zdjęcia") { openScreen("list:links:") }
+                button("🧾  Paragony i zakupy") { expenseList() }
+                button("☁  Kopia i import danych") { logs() }
+            }
+            "routes" -> {
+                button("▦  Obiekty i ich adresy") { objects() }
+                button("↗  Trasa do obiektu w Google Maps") {
+                    chooseObject(false) { obj -> if(obj!=null) openLink("https://www.google.com/maps/dir/?api=1&destination="+URLEncoder.encode(obj.optString("city")+" "+obj.optString("Adres"),"UTF-8")) }
+                }
+            }
+            "estimator" -> {
+                button("▤  Materiały") { openScreen("list:materials:") }
+                button("🔐  Stawki i rozliczenia (PIN)") { confirmPin { walletUnlocked=true;wallet() } }
+            }
+            "clientportal" -> {
+                button("▦  Obiekty") { objects() }
+                button("📝  Notatki") { openScreen("notes") }
+            }
+        }
+        button("☷  Wróć do pełnego menu") { menu() }
+    }
+    private fun recordGpsArrival(loc:Location) {
+        if(loc.accuracy>100f || !loc.latitude.isFinite() || !loc.longitude.isFinite()) return
+        val now=System.currentTimeMillis()
+        val point=GpsWorkRules.Point(loc.latitude,loc.longitude,loc.accuracy.toDouble(),now)
+        val places=rows(data(),"objects").filter { !it.optBoolean("archived") }.mapNotNull { o ->
+            try {
+                val geo=JSONObject(prefs.getString("gps_object_"+o.optString("id"),"{}") ?: "{}")
+                if(!geo.has("lat") || !geo.has("lon")) null else
+                    GpsWorkRules.Place(o.optString("id"),GpsWorkRules.Kind.OBJECT,geo.getDouble("lat"),geo.getDouble("lon"),geo.optDouble("radius",100.0))
+            } catch(_:Exception) { null }
+        }
+        val observed=GpsWorkRules.nearest(point,places)?.place?.id
+        val saved=JSONObject(prefs.getString("gps_arrival_state","{}") ?: "{}")
+        val state=GpsArrivalRules.State(
+            confirmedId=saved.optString("confirmed").ifBlank { null },
+            candidateId=saved.optString("candidate").ifBlank { null },
+            candidateSinceMs=saved.optLong("since"),
+            lastFixMs=saved.optLong("last")
+        )
+        val result=GpsArrivalRules.advance(state,observed,now)
+        val next=result.state
+        val stateJson=JSONObject().put("confirmed",next.confirmedId ?: "").put("candidate",next.candidateId ?: "")
+            .put("since",next.candidateSinceMs).put("last",next.lastFixMs)
+        val editor=prefs.edit().putString("gps_arrival_state",stateJson.toString())
+        if(result.event!=null) {
+            val history=try { JSONArray(prefs.getString("gps_events","[]") ?: "[]") } catch(_:Exception) { JSONArray() }
+            history.put(JSONObject().put("event",result.event).put("objectId",result.placeId ?: "").put("time",now))
+            val recent=JSONArray()
+            for(i in maxOf(0,history.length()-100) until history.length()) recent.put(history.get(i))
+            editor.putString("gps_events",recent.toString())
+        }
+        editor.apply()
+    }
+
+    private fun gpsResumePrompt() {
+        if(!prefs.getBoolean("gps_resume_pending",false)) return
+        label("GPS był aktywny przed restartem telefonu. Wznów go tylko, jeśli chcesz.")
+        button("Wznów GPS po restarcie") {
+            prefs.edit().putBoolean("gps_resume_pending",false).apply()
+            setGpsEnabled(true)
+            gpsScreen()
+        }
+        button("Nie wznawiaj GPS") {
+            prefs.edit().putBoolean("gps_resume_pending",false).apply()
+            gpsScreen()
+        }
+    }
+    private fun setGpsEnabled(value:Boolean) {
+        if(!value) {
+            prefs.edit().putBoolean("gps_enabled",false).putBoolean("gps_resume_pending",false).apply()
+            stopService(Intent(this,GpsTrackingService::class.java))
+            return
+        }
+        val fine=checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED
+        val coarse=checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION)==PackageManager.PERMISSION_GRANTED
+        if(!fine && !coarse) {
+            requestPermissions(arrayOf(android.Manifest.permission.ACCESS_COARSE_LOCATION,android.Manifest.permission.ACCESS_FINE_LOCATION),307)
+            return
+        }
+        prefs.edit().putBoolean("gps_enabled",true).apply()
+        try {
+            androidx.core.content.ContextCompat.startForegroundService(
+                this,Intent(this,GpsTrackingService::class.java).setAction(GpsTrackingService.ACTION_START))
+        } catch(e:Exception) {
+            prefs.edit().putBoolean("gps_enabled",false).apply()
+            Toast.makeText(this,"Nie można uruchomić GPS: "+e.javaClass.simpleName,Toast.LENGTH_LONG).show()
+        }
+    }
+    private fun gpsDeviceDiagnostics() {
+        base("GPS · diagnostyka Android"); screen="gpsDiagnostics"; nav()
+        val fine=checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED
+        val coarse=checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION)==PackageManager.PERMISSION_GRANTED
+        val locationManager=getSystemService(LOCATION_SERVICE) as LocationManager
+        val locationEnabled=locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
+            locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+        val power=getSystemService(POWER_SERVICE) as PowerManager
+        val batteryUnrestricted=power.isIgnoringBatteryOptimizations(packageName)
+        val snapshot=GpsDeviceDiagnostics.Snapshot(fine || coarse,locationEnabled,batteryUnrestricted,
+            prefs.getBoolean("gps_enabled",false),prefs.getBoolean("gps_service_active",false))
+        label("Lokalizacja: "+if(locationEnabled) "włączona" else "wyłączona")
+        label("Uprawnienie GPS: "+if(fine) "dokładne" else if(coarse) "przybliżone" else "brak")
+        label("Ograniczenia baterii: "+if(batteryUnrestricted) "bez optymalizacji Android" else "możliwe ograniczenia")
+        label("Usługa GPS: "+if(snapshot.serviceReportedActive) "zgłosiła uruchomienie" else "nie zgłasza uruchomienia")
+        for(issue in GpsDeviceDiagnostics.issues(snapshot)) {
+            label(when(issue) {
+                GpsDeviceDiagnostics.Issue.LOCATION_PERMISSION -> "Wymagane pozwolenie GPS"
+                GpsDeviceDiagnostics.Issue.LOCATION_SWITCH -> "Lokalizacja telefonu jest wyłączona"
+                GpsDeviceDiagnostics.Issue.BATTERY_RESTRICTIONS -> "Android może ograniczać działanie GPS przy zgaszonym ekranie"
+                GpsDeviceDiagnostics.Issue.SERVICE_NOT_ACTIVE -> "Usługa GPS nie zgłasza działania"
+            })
+        }
+        val fixJournal=try { JSONArray(prefs.getString("gps_fix_times","[]") ?: "[]") } catch(_:Exception) { JSONArray() }
+        val samples=(0 until fixJournal.length()).map { fixJournal.optLong(it) }
+        val quality=GpsSamplingHealth.assess(snapshot.serviceReportedActive,
+            prefs.getLong("gps_session_start",0),samples,System.currentTimeMillis())
+        label("Pomiary w tej sesji: "+quality.samples)
+        label("Odrzucone pomiary (niska jakość): "+prefs.getInt("gps_rejected_quality_count",0))
+        label("Odrzucone pomiary (powtórzone lub opóźnione): "+prefs.getInt("gps_rejected_order_count",0))
+        label("Odrzucone skoki lokalizacji GPS: "+prefs.getInt("gps_rejected_jump_count",0))
+        label("Liczniki dotyczą bieżącej sesji i nie wpływają na zapisane godziny.")
+        val requestedMs=prefs.getLong("gps_requested_interval_ms",30_000L)
+        val cadence=GpsCadenceStats.assess(samples,prefs.getLong("gps_session_start",0),
+            System.currentTimeMillis(),requestedMs)
+        label("Żądany odstęp pomiarów: "+(requestedMs/1000)+" s")
+        label("Mediana faktycznych odstępów: "+
+            (cadence.medianIntervalMs?.let { (it/1000).toString()+" s" } ?: "brak danych"))
+        label("Najdłuższa przerwa: "+
+            (cadence.longestGapMs?.let { (it/1000).toString()+" s" } ?: "brak danych"))
+        label("Opóźnione odstępy: "+cadence.delayedIntervals)
+        label("Przerwy w pomiarach GPS ponad 4 minuty: "+cadence.coverageInterruptions)
+        label("Odstępy pomiarów nie oznaczają zmierzonego zużycia baterii.")
+        label("Jakość pomiarów w tle: "+when(quality.level) {
+            GpsSamplingHealth.Level.NO_SESSION -> "brak aktywnej sesji"
+            GpsSamplingHealth.Level.WAITING_FOR_FIRST_FIX -> "oczekiwanie na pierwszy pomiar"
+            GpsSamplingHealth.Level.FRESH -> "aktualne pomiary"
+            GpsSamplingHealth.Level.DELAYED -> "opóźnione pomiary"
+            GpsSamplingHealth.Level.STALE -> "brak pomiarów ponad 15 minut"
+        })
+        if(quality.level==GpsSamplingHealth.Level.STALE)
+            label("Sprawdź oszczędzanie energii i dostęp GPS. Nie dopisujemy brakujących godzin.")
+        button("Ustawienia lokalizacji telefonu") {
+            startActivity(Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+        }
+        button("Ustawienia baterii WorkMeter") {
+            startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:"+packageName)))
+        }
+        button("Uprawnienia WorkMeter") {
+            startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:"+packageName)))
+        }
+        label("Te informacje nie zastępują testu GPS na zablokowanym telefonie.")
+        button("Odśwież diagnostykę") { gpsDeviceDiagnostics() }
+    }
+
+    private fun gpsPlaceKinds() {
+        base("GPS · typy geostref"); screen="gpsPlaceKinds"; nav()
+        label("Oznacz zapisany obiekt jako sklep z materiałami tylko wtedy, gdy faktycznie nim jest. Sam GPS nie rozpoznaje celu wizyty.")
+        label("Zmiana typu nie wpływa na czas pracy, wynagrodzenie ani historię przejazdów.")
+        val objects=rows(data(),"objects").filter { !it.optBoolean("archived") }
+        if(objects.isEmpty()) label("Brak obiektów. Dodaj lokalizację w sekcji Obiekty.")
+        for(o in objects) {
+            val id=o.optString("id")
+            if(id.isBlank()) continue
+            val key="gps_place_kind_"+id
+            val isShop=prefs.getString(key,"WORKSITE")=="SHOPPING"
+            button(objectName(o)+" · "+if(isShop) "SKLEP Z MATERIAŁAMI" else "OBIEKT PRACY") {
+                prefs.edit().putString(key,if(isShop) "WORKSITE" else "SHOPPING").apply()
+                gpsPlaceKinds()
+            }
+        }
+        button("GPS · wróć") { gpsScreen() }
+    }
+
+    private fun gpsScreen() {
+        base("GPS · WorkMeter"); screen="gps"; nav()
+        label("GPS aktywny działa w tle z widocznym powiadomieniem. Wyłącz GPS, aby zakończyć rejestrację.")
+        gpsResumePrompt()
+        button("Diagnostyka GPS i baterii Android") { gpsDeviceDiagnostics() }
+        button("Typy geostref: obiekt / sklep z materiałami") { gpsPlaceKinds() }
+        val adaptive=prefs.getBoolean("gps_adaptive_sampling",false)
+        button("Oszczędzanie GPS z akcelerometrem: "+if(adaptive) "WŁĄCZONE" else "WYŁĄCZONE") {
+            prefs.edit().putBoolean("gps_adaptive_sampling",!adaptive).apply()
+            if(prefs.getBoolean("gps_enabled",false)) {
+                stopService(Intent(this,GpsTrackingService::class.java))
+                setGpsEnabled(true)
+            }
+            gpsScreen()
+        }
+        label("Eksperymentalne: po 5 minutach bez wykrytego ruchu GPS co 90 sekund zamiast co 30 sekund. Nie wyłącza GPS; ruch telefonu nie potwierdza przejazdu.")
+
+        val enabled = prefs.getBoolean("gps_enabled",false)
+        button(if(enabled) "GPS: włączony — wyłącz" else "GPS: wyłączony — włącz") {
+            setGpsEnabled(!enabled); gpsScreen()
+        }
+        if(!enabled) return
+        val permission=checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED ||
+            checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION)==PackageManager.PERMISSION_GRANTED
+        if(!permission) {
+            label("Wymagane pozwolenie na lokalizację.")
+            button("Zezwól na GPS") { requestPermissions(arrayOf(android.Manifest.permission.ACCESS_COARSE_LOCATION,android.Manifest.permission.ACCESS_FINE_LOCATION),307) }
+            return
+        }
+        val lastGps=try { JSONObject(prefs.getString("gps_last_fix","{}") ?: "{}") } catch(_:Exception) { JSONObject() }
+        val status=GpsServiceStatusRules.status(enabled,permission,
+            prefs.getBoolean("gps_resume_pending",false),lastGps.optLong("time"),System.currentTimeMillis())
+        label(when(status) {
+            GpsServiceStatusRules.Status.NO_RECENT_FIX ->
+                "Brak aktualnego pomiaru GPS. Może to oznaczać słaby sygnał lub zatrzymanie usługi."
+            GpsServiceStatusRules.Status.RECENT_FIX -> "Ostatni pomiar GPS jest aktualny."
+            GpsServiceStatusRules.Status.PERMISSION_REQUIRED -> "Brak pozwolenia na GPS."
+            GpsServiceStatusRules.Status.RESUME_AFTER_REBOOT -> "GPS wymaga wznowienia."
+            GpsServiceStatusRules.Status.OFF -> "GPS wyłączony."
+        })
+        button("Uruchom ponownie śledzenie GPS") {
+            stopService(Intent(this,GpsTrackingService::class.java))
+            setGpsEnabled(true)
+            gpsScreen()
+        }
+        button("Sprawdź aktualną pozycję") {
+            val manager=getSystemService(LOCATION_SERVICE) as LocationManager
+            val provider=when {
+                manager.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
+                manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
+                else -> ""
+            }
+            if(provider.isEmpty()) { Toast.makeText(this,"Włącz lokalizację w telefonie",Toast.LENGTH_LONG).show(); return@button }
+            try {
+                manager.requestSingleUpdate(provider,object:LocationListener {
+                    override fun onLocationChanged(loc:Location) {
+                        // Manual location checks are previews only: never overwrite the
+                        // tracking service's latest fix or advance arrival/trip evidence.
+                        val observedAt=System.currentTimeMillis()
+                        if(GpsLocationQuality.acceptable(observedAt,loc.time,loc.accuracy.toDouble(),
+                                loc.latitude,loc.longitude)) {
+                            prefs.edit().putString("gps_manual_preview",JSONObject()
+                                .put("lat",loc.latitude).put("lon",loc.longitude)
+                                .put("accuracy",loc.accuracy.toDouble())
+                                .put("time",observedAt).toString()).apply()
+                        } else {
+                            Toast.makeText(this@MainActivity,"Pomiar nieaktualny lub niedokładny",Toast.LENGTH_LONG).show()
+                        }
+                        if(screen=="gps") gpsScreen()
+                    }
+                },Looper.getMainLooper())
+            } catch(e:SecurityException) { Toast.makeText(this,"Brak uprawnienia GPS",Toast.LENGTH_LONG).show() }
+        }
+        val preview=try { JSONObject(prefs.getString("gps_manual_preview","{}") ?: "{}") } catch(_:Exception) { JSONObject() }
+        val previewAge=System.currentTimeMillis()-preview.optLong("time")
+        if(preview.optLong("time")>0 && previewAge in 0..120_000L)
+            label("Ręczny odczyt (podgląd, bez zapisu zdarzeń): "+
+                "%.5f".format(preview.optDouble("lat"))+", "+"%.5f".format(preview.optDouble("lon"))+
+                " · dokładność ok. "+preview.optInt("accuracy")+" m")
+        val arrivalLog=try { JSONArray(prefs.getString("gps_events","[]") ?: "[]") } catch(_:Exception) { JSONArray() }
+        val travelLog=try { JSONArray(prefs.getString("gps_trip_events","[]") ?: "[]") } catch(_:Exception) { JSONArray() }
+        val activityEvents=mutableListOf<GpsActivitySuggestionRules.Event>()
+        for(i in 0 until arrivalLog.length()) {
+            val event=arrivalLog.optJSONObject(i) ?: continue
+            activityEvents.add(GpsActivitySuggestionRules.Event(event.optString("event"),
+                event.optLong("time"),event.optString("objectId")))
+        }
+        for(i in 0 until travelLog.length()) {
+            val event=travelLog.optJSONObject(i) ?: continue
+            activityEvents.add(GpsActivitySuggestionRules.Event(event.optString("event"),event.optLong("time")))
+        }
+        // Only configured work objects are recognized here; an untagged location
+        // must never be silently inferred to be a material supplier.
+        val worksiteKinds=mutableMapOf<String,GpsActivitySuggestionRules.Kind>()
+        val objectRows=rows(data(),"objects")
+        for(o in objectRows) {
+            val id=o.optString("id")
+            if(id.isNotBlank() && !o.optBoolean("archived"))
+                worksiteKinds[id]=if(prefs.getString("gps_place_kind_"+id,"WORKSITE")=="SHOPPING")
+                    GpsActivitySuggestionRules.Kind.SHOPPING
+                else GpsActivitySuggestionRules.Kind.WORKSITE
+        }
+        val hint=GpsActivitySuggestionRules.latest(activityEvents,worksiteKinds,System.currentTimeMillis())
+        if(hint!=null) {
+            when(hint.kind) {
+                GpsActivitySuggestionRules.Kind.WORKSITE ->
+                    label("GPS · możliwy przyjazd na obiekt: "+
+                        (hint.placeId?.let { objectById(it)?.let { obj -> objectName(obj) } } ?: hint.placeId ?: ""))
+                GpsActivitySuggestionRules.Kind.SHOPPING -> {
+                    label("GPS · możliwy postój na zakupy materiałów")
+                    val shopId=hint.placeId
+                    if(!shopId.isNullOrBlank()) {
+                        val visits=GpsShopVisitHistory.confirmedVisits(
+                            activityEvents.map { GpsShopVisitHistory.Event(it.type,it.timeMs,it.placeId) },
+                            shopId,System.currentTimeMillis())
+                        if(visits>=2)
+                            label("W tej lokalizacji wykryto "+visits+
+                                " potwierdzone postoje w ciągu 30 dni. Sprawdź kategorię przejazdu ręcznie.")
+                        val observedTrips=activityEvents.map {
+                            GpsShiftEstimate.Event(it.type,it.timeMs)
+                        }
+                        val matched=GpsShopTripMatch.matchingTrip(
+                            observedTrips,hint.atMs,true)
+                        if(matched!=null) {
+                            val categoryKey="gps_trip_category_"+matched.startMs
+                            val category=prefs.getString(categoryKey,"UNKNOWN")
+                            if(category=="UNKNOWN") {
+                                button("Potwierdź kategorię tej podróży") {
+                                    AlertDialog.Builder(this,R.style.WorkMeterDialogTheme)
+                                        .setTitle("Zakupy materiałów?")
+                                        .setMessage("Przejazd: "+
+                                            fmt.format(Date(matched.startMs))+
+                                            " – "+fmt.format(Date(matched.endMs))+
+                                            ". Czy potwierdzasz zakupy materiałów? "+
+                                            "Zmiana dotyczy tylko kategorii szacunku GPS, nie ewidencji pracy.")
+                                        .setPositiveButton("Potwierdź") { _,_ ->
+                                            val freshLog=try {
+                                                JSONArray(prefs.getString("gps_trip_events","[]") ?: "[]")
+                                            } catch(_:Exception) { JSONArray() }
+                                            val freshEvents=mutableListOf<GpsShiftEstimate.Event>()
+                                            for(i in 0 until freshLog.length()) {
+                                                val e=freshLog.optJSONObject(i) ?: continue
+                                                freshEvents.add(GpsShiftEstimate.Event(
+                                                    e.optString("event"),e.optLong("time")))
+                                            }
+                                            if(GpsShopConfirmationRules.canConfirm(
+                                                freshEvents,matched.startMs,matched.endMs,
+                                                prefs.getString("gps_place_kind_"+shopId,"WORKSITE")=="SHOPPING",
+                                                prefs.getString(categoryKey,"UNKNOWN") ?: "UNKNOWN",
+                                                System.currentTimeMillis())) {
+                                                prefs.edit().putString(categoryKey,"SHOPPING").apply()
+                                                toast("Zatwierdzono kategorię zakupów")
+                                            } else {
+                                                toast("Nie zapisano: przejazd lub oznaczenie miejsca uległo zmianie")
+                                            }
+                                            gpsScreen()
+                                        }
+                                        .setNegativeButton("Anuluj",null).show()
+                                }
+                            } else label("Kategoria tego przejazdu: "+category+
+                                " · zmień ręcznie w kategorii przejazdów.")
+                        }
+                        button("Wszystkie kategorie przejazdów") { gpsTripCategories() }
+                    }
+                }
+                GpsActivitySuggestionRules.Kind.STOP ->
+                    label("GPS · wykryto dłuższy postój; jego cel jest nieznany")
+            }
+            label("To tylko sugestia. Potwierdź czynność ręcznie; GPS nie zmienia godzin ani wypłat.")
+        }
+        val current=JSONObject(prefs.getString("gps_arrival_state","{}") ?: "{}").optString("confirmed")
+        if(current.isNotBlank()) label("Potwierdzona strefa: "+(objectById(current)?.let { objectName(it) } ?: current))
+        val gpsEvents=try { JSONArray(prefs.getString("gps_events","[]") ?: "[]") } catch(_:Exception) { JSONArray() }
+        if(gpsEvents.length()>0) {
+            label("Ostatnie zdarzenia GPS (tylko lokalnie):")
+            for(i in gpsEvents.length()-1 downTo maxOf(0,gpsEvents.length()-5)) {
+                val event=gpsEvents.optJSONObject(i) ?: continue
+                val title=if(event.optString("event")=="ARRIVAL") "Przyjazd" else "Wyjazd"
+                label(title+" · "+(objectById(event.optString("objectId"))?.let { objectName(it) } ?: event.optString("objectId"))+
+                    " · "+fmt.format(Date(event.optLong("time"))))
+            }
+        }
+        label("Powiadomienie o dłuższym postoju")
+        val stopMinutes=prefs.getInt("gps_stop_minutes",10)
+        button("Próg postoju: "+stopMinutes+" min — zmień") {
+            val options=intArrayOf(5,10,15,30)
+            AlertDialog.Builder(this,R.style.WorkMeterDialogTheme)
+                .setTitle("Próg postoju")
+                .setSingleChoiceItems(arrayOf("5 min","10 min","15 min","30 min"),options.indexOf(stopMinutes)) { dialog,index ->
+                    prefs.edit().putInt("gps_stop_minutes",options[index]).apply()
+                    dialog.dismiss(); gpsScreen()
+                }.setNegativeButton("Anuluj",null).show()
+        }
+        val trips=try { JSONArray(prefs.getString("gps_trip_events","[]") ?: "[]") } catch(_:Exception) { JSONArray() }
+        if(trips.length()>0) {
+            label("Ostatnie przejazdy i postoje")
+            for(i in trips.length()-1 downTo maxOf(0,trips.length()-5)) {
+                val event=trips.optJSONObject(i) ?: continue
+                val title=when(event.optString("event")) {
+                    "TRIP_START" -> "Rozpoczęto przejazd"
+                    "TRIP_STOP" -> "Zakończono przejazd"
+                    else -> "Dłuższy postój"
+                }
+                label(title+" · "+fmt.format(Date(event.optLong("time"))))
+            }
+        }
+        val coverageGaps=try { JSONArray(prefs.getString("gps_coverage_gaps","[]") ?: "[]") } catch(_:Exception) { JSONArray() }
+        if(coverageGaps.length()>0) {
+            label("Przerwy w GPS (nie uzupełniamy czasu automatycznie):")
+            for(i in coverageGaps.length()-1 downTo maxOf(0,coverageGaps.length()-3)) {
+                val gap=coverageGaps.optJSONObject(i) ?: continue
+                label(fmt.format(Date(gap.optLong("start")))+" – "+fmt.format(Date(gap.optLong("end"))))
+            }
+        }
+        val fix=JSONObject(prefs.getString("gps_last_fix","{}") ?: "{}")
+        val time=fix.optLong("time")
+        if(time>0) {
+            label("Ostatni pomiar: "+fmt.format(Date(time))+" · dokładność "+fix.optDouble("accuracy").toInt()+" m")
+            val point=GpsWorkRules.Point(fix.optDouble("lat"),fix.optDouble("lon"),fix.optDouble("accuracy"),time)
+            val places=rows(data(),"objects").mapNotNull { o ->
+                val geo=prefs.getString("gps_object_"+o.optString("id"),null) ?: return@mapNotNull null
+                try {
+                    val j=JSONObject(geo)
+                    GpsWorkRules.Place(o.optString("id"),GpsWorkRules.Kind.OBJECT,j.getDouble("lat"),j.getDouble("lon"),j.optDouble("radius",100.0))
+                } catch(_:Exception) { null }
+            }
+            val nearest=GpsWorkRules.nearest(point,places)
+            label(if(nearest==null) "Poza zapisanymi strefami obiektów." else
+                "W strefie: "+(objectById(nearest.place.id)?.let { objectName(it) } ?: nearest.place.id))
+            label("Przypisz bieżącą lokalizację do obiektu (promień 100 m):")
+            rows(data(),"objects").filter { !it.optBoolean("archived") }.forEach { o ->
+                button("📍 "+objectName(o)) {
+                    prefs.edit().putString("gps_object_"+o.optString("id"),
+                        JSONObject().put("lat",point.latitude).put("lon",point.longitude).put("radius",100).toString()).apply()
+                    gpsScreen()
+                }
+            }
+        }
+    }
+
     private fun settings() {
         base("Ustawienia"); screen="settings"; nav()
+        root.setBackgroundColor(0xFFF4F7F8.toInt())
+        label("WSZYSTKIE USTAWIENIA · SOLO")
+        label("Z poziomu głównego dostępne są ustawienia wszystkich działów.")
+        // Backward-compatible entry points retained for existing flows and tests.
         button("Portfel / rozliczenia (PIN)") { confirmPin { walletUnlocked=true; wallet() } }
         button("GENERUJ RAPORT SMS") { weeklySms() }
-        button("Google Disk") { driveSettings() }
         button("Logi / eksport / import") { logs() }
+        label("Kopie i synchronizacja")
+        button("Google Disk") { driveSettings() }
+        button("Centrum kopii / eksport / import") { logs() }
+        label("Widżet i interfejs")
         button("Wygląd widżetu") { widgetSettings() }
         button("Język aplikacji") { language() }
+        label("GPS i lokalizacja")
+        if(prefs.getBoolean("gps_resume_pending",false)) button("GPS · wznowienie po restarcie") { gpsScreen() }
+        button(if(prefs.getBoolean("gps_enabled",false)) "GPS WorkMeter: WŁĄCZONY — wyłącz" else "GPS WorkMeter: WYŁĄCZONY — włącz") {
+            val next=!prefs.getBoolean("gps_enabled",false)
+            setGpsEnabled(next)
+            settings()
+        }
+        button("Geostrefy i lokalizacja GPS") { gpsScreen() }
+        button("GPS · zasady rozliczania czasu") { gpsPaySettings() }
+        label("Ustawienia działów")
+        listOf("Mój czas","Obiekty","Zdjęcia","Materiały","Grafiki","Portfel").forEach { item ->
+            button("⚙  $item  ›") { sectionSettings(item) }
+        }
+        label("Informacje")
         button("O aplikacji") { about() }
+    }
+    private fun sectionSettings(section:String) {
+        base("Ustawienia · $section"); screen="sectionSettings"; nav()
+        root.setBackgroundColor(0xFFF4F7F8.toInt())
+        when(section) {
+            "Mój czas" -> {
+                label("Czas pracy i raporty")
+                button("Raport SMS") { weeklySms("settings") }
+                button("Historia pracy") { report() }
+            }
+            "Obiekty" -> {
+                label("Obiekty i lokalizacje GPS")
+                button("Lista obiektów") { openScreen("objects") }
+                button(if(prefs.getBoolean("gps_enabled",false)) "Wyłącz GPS WorkMeter" else "Włącz GPS WorkMeter") {
+                    setGpsEnabled(!prefs.getBoolean("gps_enabled",false))
+                    sectionSettings("Obiekty")
+                }
+                button("GPS i geostrefy") { gpsScreen() }
+            }
+            "Zdjęcia" -> {
+                label("Kolejka wysyłania i Google Drive")
+                button("Kolejka zdjęć") { openScreen("queue") }
+                button("Google Disk") { driveSettings() }
+            }
+            "Materiały" -> {
+                label("Katalog i historia materiałów")
+                button("Otwórz materiały") { openScreen("list:materials:") }
+            }
+            "Grafiki" -> {
+                label("Analiza czasu")
+                button("Grafiki i filtry") { charts() }
+            }
+            "Portfel" -> {
+                label("Prywatne rozliczenia chronione PIN")
+                button("Otwórz Portfel") { confirmPin { walletUnlocked=true; wallet() } }
+            }
+        }
+        label("Dodatkowe przełączniki pojawią się po podłączeniu rzeczywistej logiki Android.")
+        button("Wszystkie ustawienia") { settings() }
     }
     private fun about() {
         base("O aplikacji"); screen="about"; nav()
@@ -688,9 +1331,111 @@ class MainActivity : Activity() {
             val d=data(); walletConfig(d).put("openingCents",amount); save(d,"OPENING_BALANCE_EDIT",""); dialog.dismiss(); wallet()
         } }; dialog.show()
     }
+    private fun gpsTripCategories() {
+        base("GPS · kategorie przejazdów"); screen="gpsCategories"; nav()
+        label("Wybierz kategorię przejazdu. Nie zmienia to zapisanych godzin pracy.")
+        val events=try { JSONArray(prefs.getString("gps_trip_events","[]") ?: "[]") } catch(_:Exception) { JSONArray() }
+        val list=mutableListOf<GpsShiftEstimate.Event>()
+        for(i in 0 until events.length()) {
+            val event=events.optJSONObject(i) ?: continue
+            list.add(GpsShiftEstimate.Event(event.optString("event"),event.optLong("time")))
+        }
+        val trips=GpsTripBilling.pair(list,emptyMap()).takeLast(25).asReversed()
+        val categories=listOf(
+            GpsTripBilling.Category.UNKNOWN to "Nieustalony",
+            GpsTripBilling.Category.OUTBOUND to "Dojazd z domu",
+            GpsTripBilling.Category.RETURN to "Powrót do domu",
+            GpsTripBilling.Category.BETWEEN to "Między obiektami",
+            GpsTripBilling.Category.SHOPPING to "Zakupy materiałów",
+            GpsTripBilling.Category.PRIVATE to "Prywatny"
+        )
+        if(trips.isEmpty()) label("Brak zakończonych przejazdów GPS.")
+        for(trip in trips) {
+            val key="gps_trip_category_"+trip.startMs
+            val current=categories.find { it.first.name==prefs.getString(key,"UNKNOWN") }?.second ?: "Nieustalony"
+            button(fmt.format(Date(trip.startMs))+" · "+duration(trip.endMs-trip.startMs)+" · "+current) {
+                AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Rodzaj przejazdu")
+                    .setItems(categories.map { it.second }.toTypedArray()) { _,index ->
+                        prefs.edit().putString(key,categories[index].first.name).apply()
+                        gpsTripCategories()
+                    }.setNegativeButton("Anuluj",null).show()
+            }
+        }
+    }
+
+    private fun gpsPaySettings() {
+        base("GPS · rozliczanie czasu"); screen="gpsPay"; nav()
+        label("Ustawienia dotyczą tylko szacunków GPS. Nie zmieniają zapisanych godzin pracy.")
+        button("Przypisz kategorie przejazdów GPS") { gpsTripCategories() }
+        val choices=listOf(
+            "gps_pay_outbound" to "Dojazd z domu",
+            "gps_pay_return" to "Powrót do domu",
+            "gps_pay_between" to "Przejazdy między obiektami",
+            "gps_pay_shopping" to "Zakupy materiałów",
+            "gps_pay_stop" to "Dłuższe postoje"
+        )
+        for((key,title) in choices) {
+            val selected=prefs.getBoolean(key,key=="gps_pay_between" || key=="gps_pay_shopping")
+            button(title+": "+if(selected) "PŁATNY" else "NIEPŁATNY") {
+                prefs.edit().putBoolean(key,!selected).apply(); gpsPaySettings()
+            }
+        }
+        label("Nieznane przejazdy są domyślnie niepłatne. Ich rodzaju nie da się pewnie ustalić wyłącznie z GPS.")
+        button("Mój czas") { report() }
+    }
+    private fun gpsEstimate(sh:JSONObject,endMs:Long):GpsShiftEstimate.Summary {
+        val events=try { JSONArray(prefs.getString("gps_trip_events","[]") ?: "[]") } catch(_:Exception) { JSONArray() }
+        val list=mutableListOf<GpsShiftEstimate.Event>()
+        for(i in 0 until events.length()) {
+            val event=events.optJSONObject(i) ?: continue
+            list.add(GpsShiftEstimate.Event(event.optString("event"),event.optLong("time")))
+        }
+        val trips=GpsTripBilling.pair(list,emptyMap()).map { trip ->
+            val category=GpsTripBilling.Category.entries.find {
+                it.name==prefs.getString("gps_trip_category_"+trip.startMs,"UNKNOWN")
+            } ?: GpsTripBilling.Category.UNKNOWN
+            trip.copy(category=category)
+        }
+        val totals=GpsTripBilling.calculate(trips,GpsShiftEstimate.Window(sh.optLong("start"),endMs),
+            GpsTripBilling.Rules(
+                outbound=prefs.getBoolean("gps_pay_outbound",false),
+                returnTrip=prefs.getBoolean("gps_pay_return",false),
+                between=prefs.getBoolean("gps_pay_between",true),
+                shopping=prefs.getBoolean("gps_pay_shopping",true)))
+        return GpsShiftEstimate.Summary(totals.elapsedMs,totals.payableMs,totals.trips)
+    }
     private fun report() {
         base("Mój czas"); screen="report"; nav()
         button("GENERUJ RAPORT SMS") { weeklySms("report") }
+        button("GPS · zasady rozliczania") { gpsPaySettings() }
+        button("GPS · kategorie przejazdów") { gpsTripCategories() }
+        val currentShift=active(data()) ?: rows(data(),"shifts").lastOrNull()
+        if(currentShift!=null) {
+            val end=if(currentShift.has("end")) currentShift.optLong("end") else System.currentTimeMillis()
+            val estimate=gpsEstimate(currentShift,end)
+            label("GPS · szacunkowy czas przejazdów: "+duration(estimate.actualTravelMs)+
+                " · zatwierdzone do wypłaty: "+duration(estimate.payableTravelMs))
+            label("Wykryto "+estimate.completeTrips+" zakończonych przejazdów. Szacunek GPS nie zmienia ewidencji pracy.")
+            val tripEvents=try { JSONArray(prefs.getString("gps_trip_events","[]") ?: "[]") } catch(_:Exception) { JSONArray() }
+            val observed=mutableListOf<GpsShiftEstimate.Event>()
+            for(i in 0 until tripEvents.length()) {
+                val entry=tripEvents.optJSONObject(i) ?: continue
+                observed.add(GpsShiftEstimate.Event(entry.optString("event"),entry.optLong("time")))
+            }
+            val fixArray=try { JSONArray(prefs.getString("gps_fix_times","[]") ?: "[]") } catch(_:Exception) { JSONArray() }
+            val fixes=(0 until fixArray.length()).map { fixArray.optLong(it) }
+            val review=GpsShiftReconciliation.review(observed,
+                GpsShiftReconciliation.Window(currentShift.optLong("start"),end),fixes)
+            label("GPS · kontrola jakości danych: "+
+                if(review.requiresReview) "wymaga sprawdzenia" else "bez wykrytych problemów")
+            label("Braki pomiarów: "+review.missingLocationIntervals+
+                " · niezakończone przejazdy: "+review.incompleteTripStarts+
+                " · nakładające się przejazdy: "+review.overlappingTrips)
+            label("Przejazdy poza zmianą: "+duration(review.travelOutsideMs)+
+                ". GPS nie zmienia zapisanych godzin ani wypłat.")
+
+        }
+
         val from=prefs.getString("reportFrom","").orEmpty(); val to=prefs.getString("reportTo","").orEmpty()
         fun setPeriod(key:String,date:LocalDate) {
             val f=if(key=="reportFrom") date.toString() else from
@@ -952,6 +1697,8 @@ class MainActivity : Activity() {
         screen=target
         when {
             target=="home" -> home()
+            target=="menu" -> menu()
+            target.startsWith("menuFeature:") -> menuFeature(target.substringAfter(":"))
             target=="settings" -> settings()
             target=="language" -> language()
             target=="charts" -> charts()
@@ -1395,6 +2142,11 @@ class MainActivity : Activity() {
     }
     override fun onRequestPermissionsResult(requestCode:Int,permissions:Array<out String>,grantResults:IntArray) {
         super.onRequestPermissionsResult(requestCode,permissions,grantResults)
+        if(requestCode==307) {
+            if(grantResults.any { it==PackageManager.PERMISSION_GRANTED }) setGpsEnabled(true)
+            else toast("Bez pozwolenia na lokalizację GPS pozostanie wyłączony.")
+            if(screen=="gps") gpsScreen()
+        }
         if(requestCode in listOf(204,205)) {
             if(grantResults.firstOrNull()==android.content.pm.PackageManager.PERMISSION_GRANTED) UploadNotifications.shortcut(this)
             else toast("Powiadomienia są wyłączone. Możesz włączyć je w ustawieniach telefonu.")

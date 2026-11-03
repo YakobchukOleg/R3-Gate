@@ -595,4 +595,27 @@ class AppFlowTest {
         }
     }
 
+    @Test fun nativePrototypeMenuHasWorkingNavigationAndModuleRoutes() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { a ->
+                val more=all(a).filterIsInstance<Button>().firstOrNull { it.contentDescription=="Więcej" }
+                assertNotNull("Bottom navigation must expose Więcej",more)
+                more!!.performClick()
+                assertTrue(all(a).filterIsInstance<TextView>().any { it.text.toString().contains("WSZYSTKIE FUNKCJE · P1–P4") })
+                assertTrue(has(a,"P1 · Fundamenty"))
+                assertTrue(has(a,"P2 · Organizacja pracy"))
+                assertTrue(has(a,"P3 · Zespół i dokumenty"))
+                assertTrue(has(a,"P4 · Planowanie i analityka"))
+                click(a,"›  Harmonogram\nKalendarz wizyt i zadania")
+                assertTrue(has(a,"Ten moduł jest częścią wizualnego prototypu P1–P4. Pełna obsługa wymaga osobnego wdrożenia. Dostępne działania poniżej korzystają z prawdziwych danych WorkMeter."))
+                click(a,"◷  Historia pracy i kalendarz")
+                assertTrue(has(a,"Mój czas"))
+                val nav=all(a).filterIsInstance<Button>().firstOrNull { it.contentDescription=="Dzisiaj" }
+                assertNotNull("Home tab should remain available on report screens",nav)
+                nav!!.performClick()
+                assertTrue(has(a,"WorkMeter"))
+            }
+        }
+    }
+
 }

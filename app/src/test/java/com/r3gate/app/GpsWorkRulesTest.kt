@@ -1,0 +1,165 @@
+package com.r3gate.app
+
+import org.junit.Assert.*
+import org.junit.Test
+
+class GpsWorkRulesTest {
+    private val base=GpsWorkRules.Point(54.092,18.776,8.0,100000)
+    @Test fun geozoneMatchesKnownPlaceAndRejectsInaccurateFix() {
+        val places=listOf(GpsWorkRules.Place("base",GpsWorkRules.Kind.BASE,54.092,18.776,100.0))
+        assertEquals("base",GpsWorkRules.nearest(base,places)?.place?.id)
+        assertNull(GpsWorkRules.nearest(base.copy(accuracyM=250.0),places))
+    }
+    @Test fun movingAndStoppingAreNotConfusedWithGpsNoise() {
+        val move=GpsWorkRules.Point(54.097,18.776,8.0,160000)
+        assertTrue(GpsWorkRules.traveling(base,move))
+        assertFalse(GpsWorkRules.traveling(base,base.copy(timestampMs=160000,latitude=54.09201)))
+        assertFalse(GpsWorkRules.traveling(base,move.copy(accuracyM=400.0)))
+    }
+    @Test fun confirmsArrivalAfterDwellAndOptionalStopThreshold() {
+        assertFalse(GpsWorkRules.stable(1000,30000,60000))
+        assertTrue(GpsWorkRules.stable(1000,61000,60000))
+        assertTrue(GpsWorkRules.longStop(0,300000,GpsWorkRules.Settings(stopMinutes=5)))
+        assertFalse(GpsWorkRules.longStop(0,300000,GpsWorkRules.Settings(notifyLongStops=false)))
+    }
+    @Test fun commutePayRulesSeparateElapsedAndPayableHours() {
+        val activity=GpsWorkRules.Activity.OBJECT
+        val segments=listOf(
+            GpsWorkRules.Segment(0,3600000,GpsWorkRules.Activity.TRAVEL,"outbound"),
+            GpsWorkRules.Segment(3600000,7200000,GpsWorkRules.Activity.OBJECT),
+            GpsWorkRules.Segment(7200000,9000000,GpsWorkRules.Activity.SHOPPING),
+            GpsWorkRules.Segment(9000000,10800000,GpsWorkRules.Activity.TRAVEL,"return"))
+        assertEquals(10800000L to 5400000L,GpsWorkRules.totals(segments,GpsWorkRules.PayRules()))
+        assertEquals(10800000L to 10800000L,GpsWorkRules.totals(segments,GpsWorkRules.PayRules(outboundCommute=true,returnCommute=true)))
+    }
+    @Test fun temporaryIdIsStableAndDepartureMustHaveDwell() {
+        assertEquals("temporary-36000000",GpsWorkRules.temporaryObjectId(36000000))
+        assertFalse(GpsWorkRules.stable(10000,20000,30000))
+        assertTrue(GpsWorkRules.stable(10000,40000,30000))
+    }
+    @Test fun accuracyCircleCrossingGeofenceEdgeCannotConfirmArrival() {
+        val center=GpsWorkRules.Place("site",GpsWorkRules.Kind.OBJECT,54.092,18.776,100.0)
+        val nearEdge=base.copy(latitude=54.09272,accuracyM=30.0)
+        assertNull(GpsWorkRules.nearest(nearEdge,listOf(center)))
+        assertEquals("site",GpsWorkRules.nearest(nearEdge.copy(accuracyM=5.0),listOf(center))?.place?.id)
+    }
+    @Test fun closeOverlappingWorkplacesDoNotAssignArbitraryObject() {
+        val left=GpsWorkRules.Place("left",GpsWorkRules.Kind.OBJECT,54.092,18.776,100.0)
+        val right=GpsWorkRules.Place("right",GpsWorkRules.Kind.OBJECT,54.092,18.7761,100.0)
+        assertNull(GpsWorkRules.nearest(base.copy(accuracyM=10.0),listOf(left,right)))
+    }
+    @Test fun sufficientlySeparatedNearestWorkplaceRemainsEligible() {
+        val left=GpsWorkRules.Place("left",GpsWorkRules.Kind.OBJECT,54.092,18.776,100.0)
+        val right=GpsWorkRules.Place("right",GpsWorkRules.Kind.OBJECT,54.092,18.777,100.0)
+        assertEquals("left",GpsWorkRules.nearest(base.copy(accuracyM=8.0),listOf(left,right))?.place?.id)
+    }
+    @Test fun rejectsNonFiniteFixCoordinatesAndAccuracy() {
+        val place=GpsWorkRules.Place("site",GpsWorkRules.Kind.OBJECT,54.092,18.776,100.0)
+        assertNull(GpsWorkRules.nearest(base.copy(accuracyM=Double.NaN),listOf(place)))
+        assertNull(GpsWorkRules.nearest(base.copy(accuracyM=Double.POSITIVE_INFINITY),listOf(place)))
+        assertNull(GpsWorkRules.nearest(base.copy(latitude=91.0),listOf(place)))
+        assertNull(GpsWorkRules.nearest(base.copy(longitude=181.0),listOf(place)))
+    }
+    @Test fun rejectsBrokenSavedGeofencesWithoutHidingValidSite() {
+        val invalid=listOf(
+            GpsWorkRules.Place("nan",GpsWorkRules.Kind.OBJECT,Double.NaN,18.776,100.0),
+            GpsWorkRules.Place("infinite",GpsWorkRules.Kind.OBJECT,54.092,18.776,Double.POSITIVE_INFINITY),
+            GpsWorkRules.Place("outside",GpsWorkRules.Kind.OBJECT,95.0,18.776,100.0),
+            GpsWorkRules.Place("",GpsWorkRules.Kind.OBJECT,54.092,18.776,100.0))
+        assertNull(GpsWorkRules.nearest(base,invalid))
+        val site=GpsWorkRules.Place("good",GpsWorkRules.Kind.OBJECT,54.092,18.776,100.0)
+        assertEquals("good",GpsWorkRules.nearest(base,invalid+site)?.place?.id)
+    }
+    @Test fun movementMustUseRecentValidGpsFixes() {
+        val destination=base.copy(latitude=54.097,timestampMs=base.timestampMs+60_000)
+        assertTrue(GpsWorkRules.traveling(base,destination))
+        assertFalse(GpsWorkRules.traveling(base,destination.copy(
+            timestampMs=base.timestampMs+GpsTripRules.MAX_EVIDENCE_GAP_MS+1)))
+        assertFalse(GpsWorkRules.traveling(base,destination.copy(timestampMs=base.timestampMs)))
+        assertFalse(GpsWorkRules.traveling(base.copy(accuracyM=Double.NaN),destination))
+        assertFalse(GpsWorkRules.traveling(base.copy(latitude=91.0),destination))
+        assertFalse(GpsWorkRules.traveling(base,destination.copy(longitude=181.0)))
+    }
+    @Test fun sameSecondGpsJumpCannotPretendToBeDriving() {
+        val jump=base.copy(latitude=54.097,timestampMs=base.timestampMs+1_000)
+        assertFalse(GpsWorkRules.traveling(base,jump))
+    }
+
+    @Test fun fourSecondGpsJitterCannotStartTrip() {
+        val jump=base.copy(latitude=54.097,timestampMs=base.timestampMs+4_999)
+        assertFalse(GpsWorkRules.traveling(base,jump))
+    }
+
+    @Test fun fiveSecondMovementStillMeetsMinimumObservationInterval() {
+        val destination=base.copy(latitude=54.097,timestampMs=base.timestampMs+5_000)
+        assertTrue(GpsWorkRules.traveling(base,destination))
+    }
+
+    @Test fun invalidNegativeSpeedThresholdCannotClassifyStationaryPhoneAsMoving() {
+        val atRest=base.copy(timestampMs=base.timestampMs+30_000)
+        assertFalse(GpsWorkRules.traveling(base,atRest,
+            GpsWorkRules.Settings(minimumTravelSpeedMps=-1.0)))
+    }
+
+    @Test fun zeroSpeedThresholdCannotClassifyNoiseAsTravel() {
+        val atRest=base.copy(timestampMs=base.timestampMs+30_000)
+        assertFalse(GpsWorkRules.traveling(base,atRest,
+            GpsWorkRules.Settings(minimumTravelSpeedMps=0.0)))
+    }
+
+    @Test fun nonFiniteSpeedThresholdCannotClassifyTravel() {
+        val moved=base.copy(latitude=54.097,timestampMs=base.timestampMs+30_000)
+        assertFalse(GpsWorkRules.traveling(base,moved,
+            GpsWorkRules.Settings(minimumTravelSpeedMps=Double.NaN)))
+        assertFalse(GpsWorkRules.traveling(base,moved,
+            GpsWorkRules.Settings(minimumTravelSpeedMps=Double.POSITIVE_INFINITY)))
+    }
+
+    @Test fun invalidGpsTimestampCannotConfirmMovement() {
+        val initial=base.copy(timestampMs=0)
+        val later=base.copy(latitude=54.097,timestampMs=30_000)
+        assertFalse(GpsWorkRules.traveling(initial,later))
+    }
+
+    @Test fun normallySpacedReliableFixesStillConfirmMovement() {
+        val moved=base.copy(latitude=54.097,timestampMs=base.timestampMs+30_000)
+        assertTrue(GpsWorkRules.traveling(base,moved))
+    }
+
+    @Test fun suddenGpsTeleportCannotBecomeDriving() {
+        val teleport=base.copy(latitude=54.5,timestampMs=base.timestampMs+30_000)
+        assertFalse(GpsWorkRules.traveling(base,teleport))
+    }
+
+    @Test fun largeJumpOverFiveSecondsIsRejected() {
+        val jump=base.copy(latitude=54.2,timestampMs=base.timestampMs+5_000)
+        assertFalse(GpsWorkRules.traveling(base,jump))
+    }
+
+    @Test fun largeJumpOverFullMinuteIsRejected() {
+        val jump=base.copy(latitude=54.3,timestampMs=base.timestampMs+60_000)
+        assertFalse(GpsWorkRules.traveling(base,jump))
+    }
+
+    @Test fun veryFastButPlausibleFixesStillSuggestTravel() {
+        val fast=base.copy(latitude=54.12,timestampMs=base.timestampMs+30_000)
+        assertTrue(GpsWorkRules.traveling(base,fast))
+    }
+
+    @Test fun ordinaryDrivingSpeedRemainsRecognized() {
+        val drive=base.copy(latitude=54.095,timestampMs=base.timestampMs+30_000)
+        assertTrue(GpsWorkRules.traveling(base,drive))
+    }
+
+    @Test fun accuracyMarginAloneCannotTurnTeleportIntoMovement() {
+        val jump=base.copy(latitude=54.5,accuracyM=100.0,
+            timestampMs=base.timestampMs+30_000)
+        assertFalse(GpsWorkRules.traveling(base.copy(accuracyM=100.0),jump))
+    }
+
+    @Test fun stationaryPhoneAfterBadTeleportDoesNotStartTrip() {
+        val still=base.copy(latitude=54.09201,timestampMs=base.timestampMs+30_000)
+        assertFalse(GpsWorkRules.traveling(base,still))
+    }
+
+}
