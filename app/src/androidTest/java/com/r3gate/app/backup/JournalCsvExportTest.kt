@@ -52,4 +52,22 @@ class JournalCsvExportTest {
             fail("Invalid duration was accepted")
         } catch (_: IllegalArgumentException) { }
     }
+    @Test fun materialQuantityMustBePositiveNumericValue() {
+        for (quantity in listOf("abc", "-1", "0", "")) {
+            val invalid = """{"materials":[{"date":"2026-11-03","name":"Test","quantity":"$quantity"}]}"""
+            try {
+                JournalCsvExport.write(invalid, JournalCsvExport.Report.MATERIALS,
+                    JournalCsvExport.Period(), ByteArrayOutputStream())
+                fail("Invalid quantity accepted: $quantity")
+            } catch (_: IllegalArgumentException) { }
+        }
+    }
+
+    @Test fun positivePolishDecimalQuantityIsPreserved() {
+        val out = ByteArrayOutputStream()
+        JournalCsvExport.write(data, JournalCsvExport.Report.MATERIALS,
+            JournalCsvExport.Period(), out)
+        assertTrue(out.toString("UTF-8").contains("2,5"))
+    }
+
 }
