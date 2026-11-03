@@ -1061,15 +1061,18 @@ class MainActivity : Activity() {
         // Only configured work objects are recognized here; an untagged location
         // must never be silently inferred to be a material supplier.
         val worksiteKinds=mutableMapOf<String,GpsActivitySuggestionRules.Kind>()
-        val objectRows=rows(data(),"objects")
-        for(o in objectRows) {
-            val id=o.optString("id")
+        val objectsById=rows(data(),"objects").groupBy { it.optString("id") }
+        for((id,matching) in objectsById) {
+            val o=matching.singleOrNull() ?: continue
             if(id.isNotBlank() && !o.optBoolean("archived"))
                 worksiteKinds[id]=if(prefs.getString("gps_place_kind_"+id,"WORKSITE")=="SHOPPING")
                     GpsActivitySuggestionRules.Kind.SHOPPING
                 else GpsActivitySuggestionRules.Kind.WORKSITE
         }
-        val hint=GpsActivitySuggestionRules.latest(activityEvents,worksiteKinds,System.currentTimeMillis())
+        val workSuggestionsAllowed=GpsActivitySuggestionRules.workSuggestionsAllowed(
+            active(data())?.optString("kind","Obiekt"))
+        val hint=GpsActivitySuggestionRules.latest(
+            activityEvents,worksiteKinds,System.currentTimeMillis(),workSuggestionsAllowed)
         if(hint!=null) {
             when(hint.kind) {
                 GpsActivitySuggestionRules.Kind.WORKSITE ->
@@ -1112,9 +1115,15 @@ class MainActivity : Activity() {
                                                 freshEvents.add(GpsShiftEstimate.Event(
                                                     e.optString("event"),e.optLong("time")))
                                             }
+                                            val latest=data()
+                                            val shop=rows(latest,"objects").singleOrNull { it.optString("id")==shopId }
+                                            val stillEligible=GpsWorkdaySession.shouldTrack(prefs) &&
+                                                GpsActivitySuggestionRules.workSuggestionsAllowed(
+                                                    active(latest)?.optString("kind","Obiekt")) &&
+                                                shop?.optBoolean("archived")==false &&
+                                                prefs.getString("gps_place_kind_"+shopId,"WORKSITE")=="SHOPPING"
                                             if(GpsShopConfirmationRules.canConfirm(
-                                                freshEvents,matched.startMs,matched.endMs,
-                                                prefs.getString("gps_place_kind_"+shopId,"WORKSITE")=="SHOPPING",
+                                                freshEvents,matched.startMs,matched.endMs,stillEligible,
                                                 prefs.getString(categoryKey,"UNKNOWN") ?: "UNKNOWN",
                                                 System.currentTimeMillis())) {
                                                 prefs.edit().putString(categoryKey,"SHOPPING").apply()

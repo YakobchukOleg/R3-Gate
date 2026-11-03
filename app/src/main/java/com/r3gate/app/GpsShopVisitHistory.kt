@@ -11,7 +11,7 @@ object GpsShopVisitHistory {
         var arrivalAt:Long?=null
         var stopAt:Long?=null
         var visits=0
-        for(e in events.filter { it.timeMs in 1..nowMs }.sortedBy { it.timeMs }) {
+        for(e in events.filter { it.timeMs in 1..nowMs }.distinct().sortedBy { it.timeMs }) {
             when(e.type) {
                 "ARRIVAL" -> {
                     if(e.placeId!=shopId) {
