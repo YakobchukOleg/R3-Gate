@@ -79,8 +79,10 @@ class GpsRecoveryMonitorWorker(context:Context,params:WorkerParameters):Worker(c
         val notifications=applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notifications.createNotificationChannel(NotificationChannel(
             CHANNEL,"WorkMeter · GPS monitor",NotificationManager.IMPORTANCE_DEFAULT))
+        val channelEnabled=notifications.getNotificationChannel(CHANNEL)?.importance!=NotificationManager.IMPORTANCE_NONE
         if(!GpsRecoveryMonitorRules.shouldMarkAlertSent(Build.VERSION.SDK_INT>=33,
-                applicationContext.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)==PackageManager.PERMISSION_GRANTED))
+                applicationContext.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)==PackageManager.PERMISSION_GRANTED,
+                notifications.areNotificationsEnabled(),channelEnabled))
             return Result.success()
         val intent=Intent(applicationContext,MainActivity::class.java).apply {
             putExtra("gps_resume_alert",true)
