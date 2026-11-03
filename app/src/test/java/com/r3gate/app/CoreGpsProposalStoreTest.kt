@@ -203,4 +203,68 @@ class CoreGpsProposalStoreTest {
         assertFalse(result.changed)
         assertEquals(original,storage.value)
     }
+
+    @Test fun staleEventOutsideCompactedWindowDoesNotWriteAgain() {
+        val storage=MemoryStorage()
+        CoreGpsProposalStore.import(storage,(0 until 700).map(::numbered),objects)
+        val before=storage.value
+        val writes=storage.writes
+        val result=CoreGpsProposalStore.import(storage,listOf(numbered(0)),objects)
+        assertFalse(result.changed)
+        assertEquals(before,storage.value)
+        assertEquals(writes,storage.writes)
+        assertEquals(0,result.imported!!.events.count { it.eventId=="history-0" })
+    }
+
+    @Test fun staleBatchDoesNotRewriteCompactedJournal() {
+        val storage=MemoryStorage()
+        CoreGpsProposalStore.import(storage,(0 until 700).map(::numbered),objects)
+        val before=storage.value
+        val writes=storage.writes
+        val result=CoreGpsProposalStore.import(storage,(0 until 100).map(::numbered),objects)
+        assertFalse(result.changed)
+        assertEquals(before,storage.value)
+        assertEquals(writes,storage.writes)
+    }
+
+    @Test fun newerEventAfterCompactionIsPersisted() {
+        val storage=MemoryStorage()
+        CoreGpsProposalStore.import(storage,(0 until 700).map(::numbered),objects)
+        val oldWrites=storage.writes
+        val result=CoreGpsProposalStore.import(storage,listOf(numbered(701)),objects)
+        assertTrue(result.changed)
+        assertEquals(oldWrites+1,storage.writes)
+        assertEquals("history-701",
+            (CoreGpsProposalStore.read(storage) as CoreGpsProposalStore.ReadResult.Success)
+                .events.last().eventId)
+    }
+
+    @Test fun latestUserDecisionSurvivesStaleReplay() {
+        val storage=MemoryStorage()
+        CoreGpsProposalStore.import(storage,(0 until 700).map(::numbered),objects)
+        CoreGpsProposalStore.decide(storage,"history-699",
+            CoreGpsProposalInbox.Decision.USER_CONFIRMED)
+        val writes=storage.writes
+        CoreGpsProposalStore.import(storage,listOf(numbered(0)),objects)
+        assertEquals(writes,storage.writes)
+        assertEquals(CoreGpsProposalInbox.Decision.USER_CONFIRMED,
+            (CoreGpsProposalStore.read(storage) as CoreGpsProposalStore.ReadResult.Success)
+                .events.last().decision)
+    }
+
+    @Test fun staleReplayAfterProcessRestartIsNoOp() {
+        val storage=MemoryStorage()
+        CoreGpsProposalStore.import(storage,(0 until 700).map(::numbered),objects)
+        val restarted=MemoryStorage(storage.value)
+        assertFalse(CoreGpsProposalStore.import(restarted,listOf(numbered(0)),objects).changed)
+        assertEquals(0,restarted.writes)
+    }
+
+    @Test fun duplicateRetainedEventIsNoOpAfterCompaction() {
+        val storage=MemoryStorage()
+        CoreGpsProposalStore.import(storage,(0 until 700).map(::numbered),objects)
+        val result=CoreGpsProposalStore.import(storage,listOf(numbered(699)),objects)
+        assertFalse(result.changed)
+        assertEquals(1,result.imported!!.ignoredDuplicates)
+    }
 }
