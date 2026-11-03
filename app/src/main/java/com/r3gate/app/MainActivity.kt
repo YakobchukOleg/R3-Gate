@@ -1749,7 +1749,10 @@ class MainActivity : Activity() {
         val panel=ObjectListPanel(
             this,
             onOpenObject={ id -> openScreen("object:"+id) },
-            onAddObject={ newForm("objects") }
+            onAddObject={ newForm("objects") },
+            onArchiveChanged={ archived ->
+                prefs.edit().putBoolean("archived_objects",archived).apply()
+            }
         )
         root.addView(panel,LinearLayout.LayoutParams(-1,-2))
         panel.submitObjects(items)
