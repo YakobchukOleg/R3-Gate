@@ -43,25 +43,18 @@ object CoreGpsStageBridge {
                 ?.optString("id")?.takeIf { it.isNotBlank() }
         }.toSet()
         val shift = CoreGpsStageRules.Shift(true, active.optString("kind", "Obiekt"), active.optString("objectId"))
-        val incoming = mutableListOf<CoreGpsProposalInbox.Event>()
-        val journal = try { JSONArray(prefs.getString("gps_events", "[]") ?: "[]") } catch (_: Exception) { JSONArray() }
-        for (i in 0 until journal.length()) {
-            val item = journal.optJSONObject(i) ?: continue
-            val kind = when (item.optString("event")) {
-                "ARRIVAL" -> CoreGpsProposalInbox.Kind.ARRIVAL
-                "DEPARTURE" -> CoreGpsProposalInbox.Kind.DEPARTURE
-                else -> continue
+        val journal = try { JSONArray(prefs.getString("gps_events", "[]") ?: "[]") }
+            catch (_: Exception) { JSONArray() }
+        val raw = (0 until journal.length()).mapNotNull { i ->
+            journal.optJSONObject(i)?.let { item ->
+                CoreGpsJournalAdapter.Raw(
+                    item.optString("event"), item.optLong("time"),
+                    item.optString("objectId").takeIf { it.isNotBlank() },
+                    item.optString("eventId").takeIf { it.isNotBlank() }
+                )
             }
-            val id = item.optString("objectId").takeIf { it.isNotBlank() } ?: continue
-            val whenMs = item.optLong("time")
-            if (whenMs < stageStart || whenMs <= 0) continue
-            val eventId = item.optString("eventId").ifBlank {
-                "gps-v1:${kind.name.length}:${kind.name}:$whenMs:${id.length}:$id"
-            }
-            val candidate = CoreGpsProposalInbox.Event(eventId, kind, whenMs, id,
-                confidence = CoreGpsProposalInbox.Confidence.HIGH)
-            if (CoreGpsStageRules.shouldNotify(candidate, shift, activeIds, stageStart, nowMs)) incoming.add(candidate)
         }
+        val incoming = CoreGpsJournalAdapter.convert(raw,shift,activeIds,stageStart,nowMs)
         val storage = AndroidCoreGpsProposalStorage(context)
         val updated = CoreGpsProposalStore.import(storage, incoming, activeIds)
         if (updated.state !is CoreGpsProposalStore.ReadResult.Success) return
