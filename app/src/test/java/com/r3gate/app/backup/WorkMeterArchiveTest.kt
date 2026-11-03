@@ -130,4 +130,19 @@ class WorkMeterArchiveTest {
         fails { WorkMeterArchive.inspect(ByteArrayInputStream(customManifest(manifest.toByteArray()))) }
     }
 
+    @Test fun rejectsManifestWithoutFinalNewline() {
+        val bytes = customManifest("WORKMETER-ARCHIVE/1".toByteArray())
+        fails { WorkMeterArchive.inspect(ByteArrayInputStream(bytes)) }
+    }
+
+    @Test fun rejectsExtraBlankManifestRows() {
+        val bytes = customManifest("WORKMETER-ARCHIVE/1\\n\\n".toByteArray())
+        fails { WorkMeterArchive.inspect(ByteArrayInputStream(bytes)) }
+    }
+
+    @Test fun canonicalEmptyManifestRemainsCompatible() {
+        val bytes = customManifest("WORKMETER-ARCHIVE/1\\n".toByteArray())
+        assertTrue(WorkMeterArchive.inspect(ByteArrayInputStream(bytes)).files.isEmpty())
+    }
+
 }
