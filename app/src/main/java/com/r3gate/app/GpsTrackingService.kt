@@ -234,8 +234,18 @@ class GpsTrackingService : Service(), LocationListener {
         }
         val chosen=providerChoice()
         if(chosen==null) {
-            trace("NO_PROVIDER")
-            prefs.edit().putString("gps_service_problem","no_provider").apply()
+            val issue=GpsProviderRules.availabilityProblem(
+                manager.isProviderEnabled(LocationManager.GPS_PROVIDER),
+                manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER),
+                checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED,
+                checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)==PackageManager.PERMISSION_GRANTED)
+            val problem=when(issue) {
+                GpsProviderRules.AvailabilityProblem.PERMISSION -> "permission"
+                GpsProviderRules.AvailabilityProblem.INCOMPATIBLE_PROVIDER -> "provider_unusable"
+                else -> "no_provider"
+            }
+            trace("NO_PROVIDER",details=JSONObject().put("reason",problem))
+            prefs.edit().putString("gps_service_problem",problem).apply()
             removeLocationUpdatesSafely()
             subscribed=false; currentProvider=null
             return
@@ -248,7 +258,8 @@ class GpsTrackingService : Service(), LocationListener {
         trace("PROVIDER_SUBSCRIBED",details=JSONObject()
             .put("provider",chosen).put("intervalMs",samplingIntervalMs))
         prefs.edit().putLong("gps_requested_interval_ms",samplingIntervalMs).apply()
-        prefs.edit().remove("gps_service_problem").apply()
+        // Registration only requests callbacks; an actual trusted fix is required
+        // before clearing an outage diagnostic or its notification.
     }
     override fun onProviderDisabled(provider:String) {
         try { updateSubscription() } catch(_:SecurityException) {
