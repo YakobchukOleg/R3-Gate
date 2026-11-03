@@ -93,7 +93,9 @@ class MainActivity : Activity() {
         quickPhotoUpload=savedInstanceState?.getBoolean("quickPhotoUpload") ?: false
         cameraPath = savedInstanceState?.getString("cameraPath")
         pendingUpload = savedInstanceState?.getString("pendingUpload") ?: ""
-        if (savedInstanceState != null && prefs.contains("pin") && intent?.getStringExtra("widget_action")==null) {
+        if (savedInstanceState != null && prefs.contains("pin") &&
+            intent?.getStringExtra("widget_action")==null &&
+            intent?.getStringExtra(CoreGpsStageBridge.INTENT_EVENT)==null) {
             smsParent = savedInstanceState.getString("smsParent") ?: "settings"
             smsFrom = savedInstanceState.getString("smsFrom")?.let { LocalDate.parse(it) }
             smsTo = savedInstanceState.getString("smsTo")?.let { LocalDate.parse(it) }
@@ -151,6 +153,21 @@ class MainActivity : Activity() {
             "shopping" -> toggleShopping()
         }
     }
+    /** Recovery entry point when a lock-screen notification was dismissed. */
+    private fun pendingGpsStageEventId(d: JSONObject, nowMs: Long): String? {
+        val running=active(d) ?: return null
+        val saved=(CoreGpsProposalStore.read(AndroidCoreGpsProposalStorage(this)) as?
+            CoreGpsProposalStore.ReadResult.Success)?.events ?: return null
+        val activeIds=rows(d,"objects").filter { !it.optBoolean("archived") }
+            .map { it.optString("id") }.toSet()
+        val shift=CoreGpsStageRules.Shift(true,running.optString("kind","Obiekt"),
+            running.optString("objectId"))
+        val stageStart=maxOf(running.optLong("start"),
+            running.optLong("stageStart",running.optLong("start")))
+        return CoreGpsStageReviewQueue.choose(saved,shift,activeIds,stageStart,nowMs)
+            .event?.eventId
+    }
+
     private fun reviewGpsStageProposal(eventId: String) {
         val storage=AndroidCoreGpsProposalStorage(this)
         val current=CoreGpsProposalStore.read(storage) as? CoreGpsProposalStore.ReadResult.Success ?: return
@@ -625,6 +642,11 @@ class MainActivity : Activity() {
             root.addView(action("■  ZAKOŃCZ PRACĘ",true) { confirmPin { stopShift() } }.apply {
                 background=rounded(coral,14)
             },LinearLayout.LayoutParams(-1,dp(52)).apply { bottomMargin=dp(10) })
+            pendingGpsStageEventId(d,System.currentTimeMillis())?.let { eventId ->
+                root.addView(action("📍  GPS · POTWIERDŹ ZMIANĘ ETAPU") {
+                    reviewGpsStageProposal(eventId)
+                },LinearLayout.LayoutParams(-1,dp(48)).apply { bottomMargin=dp(10) })
+            }
             if(privateMode) {
                 root.addView(text("Tryb prywatny — wróć do pracy z menu po zakończeniu przerwy.",13f,muted),
                     LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
