@@ -877,6 +877,25 @@ class MainActivity : Activity() {
         label("Opóźnione odstępy: "+cadence.delayedIntervals)
         label("Przerwy w pomiarach GPS ponad 4 minuty: "+cadence.coverageInterruptions)
         label("Odstępy pomiarów nie oznaczają zmierzonego zużycia baterii.")
+        label("Dziennik diagnostyczny GPS · zapis lokalny")
+        label("Rejestruje pomiary, dokładność, odległość do obiektu, odrzucenia i decyzje o wyjeździe.")
+        button("📤 Udostępnij dziennik GPS") {
+            val report=GpsTraceJournal.report(prefs)
+            val intent=Intent(Intent.ACTION_SEND).apply {
+                type="text/plain"
+                putExtra(Intent.EXTRA_SUBJECT,"WorkMeter SOLO · dziennik GPS")
+                putExtra(Intent.EXTRA_TEXT,report)
+            }
+            startActivity(Intent.createChooser(intent,"Wyślij diagnostykę GPS"))
+        }
+        label("Ostatnie zdarzenia GPS (czas Unix ms):")
+        for(entry in GpsTraceJournal.recent(prefs)) label(entry)
+        button("Usuń dziennik diagnostyczny GPS") {
+            confirmAction("Usunąć lokalne wpisy diagnostyczne GPS? Nie usuwa historii pracy ani zapisanych obiektów.") {
+                prefs.edit().remove("gps_diagnostic_trace").apply()
+                gpsDeviceDiagnostics()
+            }
+        }
         label("Jakość pomiarów w tle: "+when(quality.level) {
             GpsSamplingHealth.Level.NO_SESSION -> "brak aktywnej sesji"
             GpsSamplingHealth.Level.WAITING_FOR_FIRST_FIX -> "oczekiwanie na pierwszy pomiar"

@@ -31,6 +31,8 @@ class GpsTrackingService : Service(), LocationListener {
     private var currentProvider:String?=null
     private var subscribedIntervalMs=0L
     private var sessionStarted=false
+    private fun trace(kind:String,now:Long=System.currentTimeMillis(),details:JSONObject=JSONObject()) =
+        GpsTraceJournal.append(prefs,kind,now,details)
     private fun recordTripBoundary(now:Long=System.currentTimeMillis()) {
         val journal=try { JSONArray(prefs.getString("gps_trip_events","[]") ?: "[]") }
             catch(_:Exception) { JSONArray() }
@@ -45,6 +47,7 @@ class GpsTrackingService : Service(), LocationListener {
         val retained=JSONArray()
         for(i in maxOf(0,journal.length()-100) until journal.length()) retained.put(journal.opt(i))
         prefs.edit().putString("gps_trip_events",retained.toString()).apply()
+        trace("GPS_GAP",now)
     }
 
     private val sensors by lazy { getSystemService(SENSOR_SERVICE) as SensorManager }
@@ -121,6 +124,7 @@ class GpsTrackingService : Service(), LocationListener {
         }
         val chosen=providerChoice()
         if(chosen==null) {
+            trace("NO_PROVIDER")
             prefs.edit().putString("gps_service_problem","no_provider").apply()
             if(subscribed) manager.removeUpdates(this)
             subscribed=false; currentProvider=null
@@ -131,6 +135,8 @@ class GpsTrackingService : Service(), LocationListener {
         subscribed=false;currentProvider=null
         manager.requestLocationUpdates(chosen,samplingIntervalMs,0f,this,Looper.getMainLooper())
         currentProvider=chosen;subscribed=true;subscribedIntervalMs=samplingIntervalMs
+        trace("PROVIDER_SUBSCRIBED",details=JSONObject()
+            .put("provider",chosen).put("intervalMs",samplingIntervalMs))
         prefs.edit().putLong("gps_requested_interval_ms",samplingIntervalMs).apply()
         prefs.edit().remove("gps_service_problem").apply()
     }
@@ -171,6 +177,7 @@ class GpsTrackingService : Service(), LocationListener {
     }
     override fun onStartCommand(intent:Intent?,flags:Int,startId:Int):Int {
         if(intent?.action==ACTION_STOP) {
+            trace("MANUAL_STOP")
             prefs.edit().putBoolean("gps_enabled",false).apply()
             shutdown()
             return START_NOT_STICKY
@@ -184,6 +191,7 @@ class GpsTrackingService : Service(), LocationListener {
                 return START_NOT_STICKY
             }
             GpsStartPermissionRules.Decision.STOP_PERMISSION -> {
+                trace("PERMISSION_MISSING")
                 // Keep user intent, but never present a failed service as active.
                 prefs.edit().putString("gps_service_problem","permission").commit()
                 shutdown()
@@ -235,6 +243,8 @@ class GpsTrackingService : Service(), LocationListener {
                 samplingState=GpsAdaptiveSampling.State()
             }
             updateSubscription()
+            trace("SERVICE_START",details=JSONObject()
+                .put("provider",currentProvider ?: "").put("intervalMs",samplingIntervalMs))
         } catch(_:SecurityException) { prefs.edit().putString("gps_service_problem","permission").apply(); shutdown() }
         catch(_:IllegalArgumentException) { prefs.edit().putString("gps_service_problem","provider").apply(); shutdown() }
         catch(_:RuntimeException) {
@@ -252,16 +262,26 @@ class GpsTrackingService : Service(), LocationListener {
             GpsFixSourceRules.accept(currentProvider,location.provider,true))) {
             GpsLocationCallbackRules.Action.STOP_DISABLED -> { shutdown();return }
             GpsLocationCallbackRules.Action.STOP_PERMISSION -> {
+                trace("PERMISSION_REVOKED")
                 prefs.edit().putString("gps_service_problem","permission").commit()
                 shutdown()
                 return
             }
-            GpsLocationCallbackRules.Action.IGNORE_SOURCE -> return
+            GpsLocationCallbackRules.Action.IGNORE_SOURCE -> {
+                trace("REJECT_SOURCE",details=JSONObject()
+                    .put("provider",location.provider ?: "").put("expected",currentProvider ?: ""))
+                return
+            }
             GpsLocationCallbackRules.Action.PROCESS -> Unit
         }
         val now=System.currentTimeMillis()
+        val fixInfo=JSONObject().put("lat",location.latitude).put("lon",location.longitude)
+            .put("accuracyM",location.accuracy.toDouble()).put("provider",location.provider ?: "")
+            .put("sourceTime",location.time)
+        trace("FIX",now,fixInfo)
         if(!GpsLocationQuality.acceptable(now,location.time,location.accuracy.toDouble(),
                 location.latitude,location.longitude)) {
+            trace("REJECT_QUALITY",now,fixInfo)
             prefs.edit().putLong("gps_rejected_fix_at",now)
                 .putInt("gps_rejected_quality_count",
                     prefs.getInt("gps_rejected_quality_count",0)+1).apply()
@@ -271,8 +291,12 @@ class GpsTrackingService : Service(), LocationListener {
         val previousRecorded=previousFix.optLong("time")
         val rollback=GpsSessionBoundaryRules.shouldResetActiveCheckpoint(
             previousRecorded,now,location.time)
-        if(previousRecorded>=now && !rollback) return
+        if(previousRecorded>=now && !rollback) {
+            trace("REJECT_CLOCK",now,JSONObject().put("previous",previousRecorded))
+            return
+        }
         if(rollback) {
+            trace("CLOCK_ROLLBACK",now,JSONObject().put("previous",previousRecorded))
             // Discard only stale GPS evidence. Never edit historical events or work.
             val savedArrival=try {
                 JSONObject(prefs.getString("gps_arrival_state","{}") ?: "{}")
@@ -295,6 +319,8 @@ class GpsTrackingService : Service(), LocationListener {
         val sourceTime=location.time
         if(!GpsFixOrderRules.accept(sourceTime,
                 prefs.getLong("gps_last_source_fix_time",0L))) {
+            trace("REJECT_ORDER",now,fixInfo.put("previousSourceTime",
+                prefs.getLong("gps_last_source_fix_time",0L)))
             prefs.edit().putInt("gps_rejected_order_count",
                 prefs.getInt("gps_rejected_order_count",0)+1).apply()
             return
@@ -309,6 +335,7 @@ class GpsTrackingService : Service(), LocationListener {
             val trustedPoint=GpsWorkRules.Point(trustedMotion.optDouble("lat"),
                 trustedMotion.optDouble("lon"),trustedMotion.optDouble("accuracy"),trustedTime)
             if(GpsMotionOutlierRules.impossibleJump(trustedPoint,point)) {
+                trace("REJECT_JUMP",now,fixInfo.put("previousMotionTime",trustedTime))
                 prefs.edit().putInt("gps_rejected_jump_count",
                     prefs.getInt("gps_rejected_jump_count",0)+1).apply()
                 return
@@ -374,6 +401,15 @@ class GpsTrackingService : Service(), LocationListener {
         val saved=try { JSONObject(prefs.getString("gps_arrival_state","{}") ?: "{}") } catch(_:Exception) { JSONObject() }
         val confirmedId=saved.optString("confirmed").ifBlank { null }
         val zoneEvidence=GpsGeofenceEvidence.observe(point,places,confirmedId)
+        val confirmedPlace=places.firstOrNull { it.id==confirmedId }
+        val distanceToConfirmed=confirmedPlace?.let {
+            GpsWorkRules.distanceM(point.latitude,point.longitude,it.latitude,it.longitude)
+        }
+        trace("ZONE",now,JSONObject()
+            .put("status",zoneEvidence.status.name).put("observed",zoneEvidence.placeId ?: "")
+            .put("confirmed",confirmedId ?: "").put("candidate",saved.optString("candidate"))
+            .put("candidateSince",saved.optLong("since")).put("distanceToConfirmedM",distanceToConfirmed)
+            .put("accuracyM",point.accuracyM).put("configuredObjects",places.size))
         val observed=zoneEvidence.placeId
         val state=GpsArrivalRules.State(
             saved.optString("confirmed").ifBlank { null },
@@ -388,6 +424,8 @@ class GpsTrackingService : Service(), LocationListener {
                 .put("confirmed",next.confirmedId ?: "").put("candidate",next.candidateId ?: "")
                 .put("since",next.candidateSinceMs).put("last",next.lastFixMs).toString())
         if(decision.event!=null) {
+            trace(decision.event,now,JSONObject().put("objectId",decision.placeId ?: "")
+                .put("distanceToConfirmedM",distanceToConfirmed))
             val history=try { JSONArray(prefs.getString("gps_events","[]") ?: "[]") } catch(_:Exception) { JSONArray() }
             val eventId=GpsEventIdentity.id(decision.event,now,decision.placeId)
             if((0 until history.length()).none {
@@ -438,12 +476,19 @@ class GpsTrackingService : Service(), LocationListener {
             )
             val transition=GpsTripRules.advance(tripState,moving,now,
                 longStopMs=prefs.getInt("gps_stop_minutes",10).coerceIn(5,30)*60_000L)
+            trace("TRIP_EVIDENCE",now,JSONObject().put("moving",moving)
+                .put("before",tripState.mode.name).put("candidate",tripState.candidate.name)
+                .put("candidateSince",tripState.candidateSinceMs)
+                .put("distanceM",GpsWorkRules.distanceM(previousPoint.latitude,
+                    previousPoint.longitude,point.latitude,point.longitude))
+                .put("deltaMs",now-lastTime))
             val t=transition.state
             val motionEditor=prefs.edit().putString("gps_trip_state",JSONObject()
                 .put("mode",t.mode.name).put("candidate",t.candidate.name)
                 .put("candidateSince",t.candidateSinceMs).put("last",t.lastFixMs)
                 .put("stoppedSince",t.stoppedSinceMs).put("longStopReported",t.longStopReported).toString())
             if(transition.event!=null) {
+                trace(transition.event,now,JSONObject().put("mode",t.mode.name))
                 val journal=try { JSONArray(prefs.getString("gps_trip_events","[]") ?: "[]") } catch(_:Exception) { JSONArray() }
                 val eventId=GpsEventIdentity.id(transition.event,now)
                 if((0 until journal.length()).none {
@@ -490,7 +535,7 @@ class GpsTrackingService : Service(), LocationListener {
         }
     }
     private fun shutdown() {
-        if(sessionStarted) { recordTripBoundary(); sessionStarted=false }
+        if(sessionStarted) { trace("SERVICE_STOP"); recordTripBoundary(); sessionStarted=false }
         stopMotionSensor()
         if(subscribed) { manager.removeUpdates(this);subscribed=false;currentProvider=null }
         prefs.edit().putBoolean("gps_service_active",false).apply()
