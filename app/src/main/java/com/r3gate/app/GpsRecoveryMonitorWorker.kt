@@ -56,6 +56,19 @@ class GpsRecoveryMonitorWorker(context:Context,params:WorkerParameters):Worker(c
                 prefs.getLong("gps_session_start",0L),
                 prefs.getBoolean("gps_enabled",false),System.currentTimeMillis()))
             return Result.success()
+        // Re-evaluate persisted evidence: a trusted fix may have arrived while
+        // WorkManager checked Android permissions and provider availability.
+        val latestDecision=GpsRecoveryMonitorRules.decide(
+            System.currentTimeMillis(),prefs.getBoolean("gps_enabled",false),
+            prefs.getLong("gps_service_heartbeat_ms",0L),
+            prefs.getLong("gps_session_start",0L),
+            prefs.getLong("gps_recovery_alert_at",0L),
+            try { JSONObject(prefs.getString("gps_last_fix","{}") ?: "{}").optLong("time") }
+                catch(_:Exception) { 0L },
+            fine || coarse,
+            locationProviders.first || locationProviders.second,usable)
+        if(!GpsRecoveryAlertGuard.matchingDecision(decision,latestDecision))
+            return Result.success()
         val noFix=decision==GpsRecoveryMonitorRules.Decision.ALERT_NO_FIX
         val permission=decision==GpsRecoveryMonitorRules.Decision.ALERT_PERMISSION
         val providerOff=decision==GpsRecoveryMonitorRules.Decision.ALERT_PROVIDER_OFF
