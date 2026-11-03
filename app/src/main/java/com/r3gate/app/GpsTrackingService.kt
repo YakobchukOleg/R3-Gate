@@ -71,13 +71,20 @@ class GpsTrackingService : Service(), LocationListener {
             }
             val lastFix=try { JSONObject(prefs.getString("gps_last_fix","{}") ?: "{}").optLong("time") }
                 catch(_:Exception) { 0L }
+            val selected=try { providerChoice() }
+                catch(_:RuntimeException) { null }
+            val providerStatus=GpsWatchdogProviderRules.status(
+                selected!=null,subscribed,currentProvider,selected)
             val decision=GpsWatchdogRules.decide(now,
                 prefs.getLong("gps_session_start",0L),lastFix,lastWatchdogProbeMs,
-                true,currentProvider!=null)
-            if(decision==GpsWatchdogRules.Action.PROBE) {
+                true,selected!=null)
+            if(GpsWatchdogProviderRules.shouldReacquire(
+                    providerStatus,decision==GpsWatchdogRules.Action.PROBE,
+                    now,lastWatchdogProbeMs)) {
                 lastWatchdogProbeMs=now
-                trace("WATCHDOG_NO_FIX",now,JSONObject().put("lastFix",lastFix)
-                    .put("provider",currentProvider ?: ""))
+                trace(if(providerStatus==GpsWatchdogProviderRules.Status.NEEDS_SUBSCRIPTION)
+                    "WATCHDOG_SUBSCRIPTION_MISSING" else "WATCHDOG_NO_FIX",now,
+                    JSONObject().put("lastFix",lastFix).put("provider",selected ?: ""))
                 try {
                     // Force re-registration after a stalled stream. No synthetic fixes.
                     subscribedIntervalMs=-1L
