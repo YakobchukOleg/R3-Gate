@@ -1732,17 +1732,28 @@ class MainActivity : Activity() {
         }
     }
     private fun objects() {
-        base("Obiekty"); screen="objects"; nav()
-        val all=rows(data(),"objects")
-        val showArchived=prefs.getBoolean("archived_objects",false)
-        button(if(showArchived) "Pokaż aktywne" else "Archiwum obiektów") {
-            prefs.edit().putBoolean("archived_objects",!showArchived).apply(); objects()
+        screen="objects"
+        base("Obiekty")
+        nav()
+        val items=rows(data(),"objects").map { obj ->
+            ObjectListUiModel.Item(
+                id=obj.optString("id"),
+                tag=obj.optString("TAG"),
+                organization=obj.optString("organization",obj.optString("Opis")),
+                city=obj.optString("city"),
+                address=obj.optString("Adres"),
+                archived=obj.optBoolean("archived"),
+                name=obj.optString("name",obj.optString("Opis"))
+            )
         }
-        button("+ Dodaj obiekt") { newForm("objects") }
-        for(o in all.filter { it.optBoolean("archived")==showArchived }.sortedBy { objectName(it) }) {
-            button(objectName(o)) { openScreen("object:"+o.optString("id")) }
-        }
-        if(all.isEmpty()) label("Dodaj pierwszy obiekt, aby przypisywać pracę, materiały i zdjęcia.")
+        val panel=ObjectListPanel(
+            this,
+            onOpenObject={ id -> openScreen("object:"+id) },
+            onAddObject={ newForm("objects") }
+        )
+        root.addView(panel,LinearLayout.LayoutParams(-1,-2))
+        panel.submitObjects(items)
+        panel.showArchivedObjects(prefs.getBoolean("archived_objects",false))
     }
     private fun objectDetails(id:String) {
         val obj=objectById(id) ?: run { objects(); return }
