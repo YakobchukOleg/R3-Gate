@@ -450,8 +450,10 @@ class GpsTrackingService : Service(), LocationListener {
         val saved=try { JSONObject(prefs.getString("gps_arrival_state","{}") ?: "{}") } catch(_:Exception) { JSONObject() }
         val confirmedId=saved.optString("confirmed").ifBlank { null }
         val zoneEvidence=GpsGeofenceEvidence.observe(point,places,confirmedId)
-        if(GpsGeofenceProbeRules.shouldBegin(now,lastGeofenceProbeMs,
-            zoneEvidence.status==GpsGeofenceEvidence.Status.UNCERTAIN,!confirmedId.isNullOrBlank())) {
+        val needsEvidence=zoneEvidence.status==GpsGeofenceEvidence.Status.UNCERTAIN ||
+            zoneEvidence.placeId!=confirmedId
+        if(GpsGeofenceProbeRules.shouldBegin(now,lastGeofenceProbeMs,needsEvidence,
+            !confirmedId.isNullOrBlank() || zoneEvidence.placeId!=null)) {
             lastGeofenceProbeMs=now
             activeGeofenceProbeSinceMs=now
             trace("GEOFENCE_RECHECK",now,JSONObject().put("confirmed",confirmedId ?: "")
@@ -483,6 +485,13 @@ class GpsTrackingService : Service(), LocationListener {
             GpsArrivalRules.uncertain(state,now)
         else GpsArrivalRules.advance(state,observed,now)
         val next=decision.state
+        if(GpsGeofenceProbeRules.resolved(
+                zoneEvidence.status==GpsGeofenceEvidence.Status.UNCERTAIN,
+                next.candidateSinceMs)) {
+            // Only a definite, settled state can rearm a future visit/exit.
+            lastGeofenceProbeMs=0L
+            activeGeofenceProbeSinceMs=0L
+        }
         val editor=prefs.edit().putString("gps_arrival_state",JSONObject()
                 .put("confirmed",next.confirmedId ?: "").put("candidate",next.candidateId ?: "")
                 .put("since",next.candidateSinceMs).put("last",next.lastFixMs).toString())
