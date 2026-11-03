@@ -88,6 +88,10 @@ class MainActivity : Activity() {
         }
         migrate()
         migrateWallet()
+        if(!prefs.contains("gps_workday_allowed") &&
+            (prefs.getBoolean("gps_enabled",false) || prefs.getBoolean("gps_resume_pending",false))) {
+            prefs.edit().putBoolean("gps_workday_allowed",true).apply()
+        }
         if(active(data())==null && prefs.getBoolean("gps_enabled",false)) setGpsEnabled(false)
         DriveBackupWorker.schedule(this)
         expandedFilters.addAll(savedInstanceState?.getStringArrayList("expandedFilters") ?: emptyList())
@@ -293,7 +297,9 @@ class MainActivity : Activity() {
     }
     private fun startOnObject(obj: JSONObject) {
         val d=data(); if (active(d)!=null) { toast("Dzień pracy już rozpoczęty"); home(); return }
-        val t=System.currentTimeMillis(); d.put("active",JSONObject().put("id",UUID.randomUUID().toString()).put("start",t).put("object",objectName(obj)).put("objectId",obj.optString("id")).put("stageStart",t).put("stages",JSONArray()).put("rate",defaultRate().toPlainString())); save(d,"START",fmt.format(Date(t))); setGpsEnabled(true); home()
+        val t=System.currentTimeMillis(); d.put("active",JSONObject().put("id",UUID.randomUUID().toString()).put("start",t).put("object",objectName(obj)).put("objectId",obj.optString("id")).put("stageStart",t).put("stages",JSONArray()).put("rate",defaultRate().toPlainString())); save(d,"START",fmt.format(Date(t)))
+        if(gpsAllowed()) setGpsEnabled(true)
+        home()
     }
     private fun stopShift() {
         val d=data(); val a=active(d); if(a==null) { toast("Brak rozpoczętej pracy"); home(); return }
@@ -726,8 +732,13 @@ class MainActivity : Activity() {
         // This is an optional manual action, never an automatic shift transition.
         // Only a recent confirmed geofence matching the latest fix enables it.
         val arrivalReady=gpsHomeArrivalReady(a)
-        root.addView(action(if(arrivalReady) "📍  GPS · WYBIERZ OBIEKT" else
-            "📍  GPS · OCZEKIWANIE NA OBIEKT") {
+        val gpsAction=when {
+            a==null || !gpsAllowed() -> "📍  GPS · WYŁĄCZONY"
+            arrivalReady -> "📍  GPS · WYBIERZ OBIEKT"
+            !prefs.getBoolean("gps_enabled",false) -> "📍  GPS · NIEAKTYWNY"
+            else -> "📍  GPS · OCZEKIWANIE NA OBIEKT"
+        }
+        root.addView(action(gpsAction) {
             if(!gpsHomeArrivalReady(active(data()))) {
                 toast("Czekam na potwierdzoną lokalizację GPS przy obiekcie")
                 home()
@@ -945,11 +956,16 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun gpsAllowed() = prefs.getBoolean("gps_workday_allowed",false)
+
+    private fun toggleGpsPermission() {
+        val allow=!gpsAllowed()
+        prefs.edit().putBoolean("gps_workday_allowed",allow).apply()
+        setGpsEnabled(allow)
+    }
+
     private fun setGpsEnabled(value:Boolean) {
-        if(value && active(data())==null) {
-            toast("GPS działa tylko podczas otwartego dnia pracy")
-            return
-        }
+        if(value && (!gpsAllowed() || active(data())==null)) return
         if(!value) {
             prefs.edit().putBoolean("gps_enabled",false).putBoolean("gps_resume_pending",false).apply()
             CoreGpsStageBridge.dismiss(this)
@@ -1102,10 +1118,15 @@ class MainActivity : Activity() {
         label("Eksperymentalne: po 5 minutach bez wykrytego ruchu GPS co 90 sekund zamiast co 30 sekund. Nie wyłącza GPS; ruch telefonu nie potwierdza przejazdu.")
 
         val enabled = prefs.getBoolean("gps_enabled",false)
-        button(if(enabled) "GPS: włączony — wyłącz" else "GPS: wyłączony — włącz") {
-            setGpsEnabled(!enabled); gpsScreen()
+        button(if(gpsAllowed()) "GPS: dozwolony w pracy — wyłącz" else "GPS: wyłączony — włącz") {
+            toggleGpsPermission(); gpsScreen()
         }
-        if(!enabled) return
+        if(!enabled) {
+            if(gpsAllowed() && active(data())!=null && !prefs.getBoolean("gps_resume_pending",false)) {
+                button("Uruchom śledzenie GPS") { setGpsEnabled(true); gpsScreen() }
+            }
+            return
+        }
         val notificationsGranted=Build.VERSION.SDK_INT<33 ||
             checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)==PackageManager.PERMISSION_GRANTED
         if(CoreGpsNotificationPermissionRules.showPromptButton(
@@ -1343,9 +1364,8 @@ class MainActivity : Activity() {
         button("Język aplikacji") { language() }
         label("GPS i lokalizacja")
         if(prefs.getBoolean("gps_resume_pending",false)) button("GPS · wznowienie po restarcie") { gpsScreen() }
-        button(if(prefs.getBoolean("gps_enabled",false)) "GPS WorkMeter: WŁĄCZONY — wyłącz" else "GPS WorkMeter: WYŁĄCZONY — włącz") {
-            val next=!prefs.getBoolean("gps_enabled",false)
-            setGpsEnabled(next)
+        button(if(gpsAllowed()) "GPS WorkMeter: DOZWOLONY W PRACY — wyłącz" else "GPS WorkMeter: WYŁĄCZONY — włącz") {
+            toggleGpsPermission()
             settings()
         }
         button("Geostrefy i lokalizacja GPS") { gpsScreen() }
@@ -1370,8 +1390,8 @@ class MainActivity : Activity() {
             "Obiekty" -> {
                 label("Obiekty i lokalizacje GPS")
                 button("Lista obiektów") { openScreen("objects") }
-                button(if(prefs.getBoolean("gps_enabled",false)) "Wyłącz GPS WorkMeter" else "Włącz GPS WorkMeter") {
-                    setGpsEnabled(!prefs.getBoolean("gps_enabled",false))
+                button(if(gpsAllowed()) "Wyłącz GPS WorkMeter" else "Włącz GPS WorkMeter") {
+                    toggleGpsPermission()
                     sectionSettings("Obiekty")
                 }
                 button("GPS i geostrefy") { gpsScreen() }
