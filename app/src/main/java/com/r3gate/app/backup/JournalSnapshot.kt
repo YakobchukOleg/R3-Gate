@@ -10,8 +10,9 @@ object JournalSnapshot {
     const val ENTRY = "journal/data.json"
 
     fun write(json: String, target: OutputStream): WorkMeterArchive.Inspection {
-        require(json.trimStart().startsWith("{") && json.trimEnd().endsWith("}")) { "Expected JSON object snapshot" }
+        require(JournalValidator.inspect(json).canRestore) { "Invalid journal snapshot" }
         val bytes = json.toByteArray(Charsets.UTF_8)
+        require(bytes.size <= 32 * 1024 * 1024) { "Journal too large" }
         return WorkMeterArchive.write(target, listOf(
             WorkMeterArchive.Source(ENTRY) { ByteArrayInputStream(bytes) }
         ))
