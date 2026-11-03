@@ -121,4 +121,85 @@ class CoreGpsStageReviewQueueTest {
         assertNull(pick(events).event)
         assertTrue(pick(events).ambiguous)
     }
+
+    private fun current(
+        id: String, events: List<CoreGpsProposalInbox.Event>,
+        shift: CoreGpsStageRules.Shift = traveling,
+        start: Long = 500L, now: Long = 1_200L,
+        activeIds: Set<String> = ids
+    ) = CoreGpsStageReviewQueue.isCurrent(id,events,shift,activeIds,start,now)
+
+    @Test fun currentUniqueNotificationCanBeApproved() {
+        assertTrue(current("obj-a-1000",listOf(arrival("obj-a"))))
+    }
+
+    @Test fun emptyNotificationIdentityIsAlwaysRejected() {
+        assertFalse(current("",listOf(arrival("obj-a"))))
+    }
+
+    @Test fun oldNotificationCannotOverrideNewerArrival() {
+        assertFalse(current("obj-a-800",listOf(arrival("obj-a",800),arrival("obj-b",1000))))
+    }
+
+    @Test fun newestNotificationCanBeApprovedAfterOlderEvidence() {
+        assertTrue(current("obj-b-1000",listOf(arrival("obj-a",800),arrival("obj-b",1000))))
+    }
+
+    @Test fun simultaneousCompetingArrivalNotificationsAreBothRejected() {
+        val events=listOf(arrival("obj-a",1000),arrival("obj-b",1000))
+        assertFalse(current("obj-a-1000",events))
+        assertFalse(current("obj-b-1000",events))
+    }
+
+    @Test fun replayingIdenticalNotificationDoesNotDisableApproval() {
+        val e=arrival("obj-a")
+        assertTrue(current(e.eventId,listOf(e,e)))
+    }
+
+    @Test fun dismissedNotificationFromPreviousStageCannotReopen() {
+        assertFalse(current("obj-a-1000",listOf(arrival("obj-a")),start=1001))
+    }
+
+    @Test fun closedShiftRejectsNotificationTap() {
+        assertFalse(current("depart-1000",listOf(departure()),shift=working.copy(active=false)))
+    }
+
+    @Test fun manualStageChangeRejectsOldDepartureNotification() {
+        assertFalse(current("depart-1000",listOf(departure()),shift=traveling))
+    }
+
+    @Test fun manualArrivalRejectsOldArrivalNotification() {
+        assertFalse(current("obj-a-1000",listOf(arrival("obj-a")),shift=working))
+    }
+
+    @Test fun rejectedNotificationCannotBeApprovedByOldPendingIntent() {
+        val e=arrival("obj-a").copy(decision=CoreGpsProposalInbox.Decision.USER_REJECTED)
+        assertFalse(current(e.eventId,listOf(e)))
+    }
+
+    @Test fun confirmedNotificationCannotApplyTwiceAfterRestart() {
+        val e=departure().copy(decision=CoreGpsProposalInbox.Decision.USER_CONFIRMED)
+        assertFalse(current(e.eventId,listOf(e),shift=working))
+    }
+
+    @Test fun oldNotificationExpiresWhilePhoneIsLocked() {
+        val e=arrival("obj-a")
+        assertFalse(current(e.eventId,listOf(e),now=e.timestampMs+
+            CoreGpsStageRules.MAX_REVIEW_AGE_MS+1))
+    }
+
+    @Test fun notificationFromFutureClockIsNotActionable() {
+        val e=arrival("obj-a")
+        assertFalse(current(e.eventId,listOf(e),now=999))
+    }
+
+    @Test fun archivedDestinationInvalidatesPreviouslyShownNotification() {
+        val e=arrival("obj-a")
+        assertFalse(current(e.eventId,listOf(e),activeIds=setOf("obj-b","obj-c")))
+    }
+
+    @Test fun unresolvedGpsGapCannotBecomeActionableByReplayingEventId() {
+        val gap=arrival("obj-a").copy(kind=CoreGpsProposalInbox.Kind.GPS_GAP)
+        assertFalse(current(gap.eventId,listOf(gap)))
+    }
 }
