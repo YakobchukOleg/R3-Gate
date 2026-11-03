@@ -12,9 +12,11 @@ object GpsMotionWakeRules {
         if(nowMs<=0 || !delta.isFinite() || delta<0) return Result(state)
         // Reset only the provisional motion evidence after a backward clock change.
         // Never let stale timestamps permanently block future sensor wake-ups.
-        val current=if(nowMs<state.lastSampleMs || nowMs<state.lastWakeMs ||
-            nowMs<state.sinceMs) State() else state
-        if(nowMs==current.lastSampleMs) return Result(current)
+        val reset=listOf(state.lastSampleMs,state.lastWakeMs,state.sinceMs).any {
+            it>nowMs && it-nowMs>=GpsAdaptiveSampling.CLOCK_ROLLBACK_RESET_MS
+        }
+        val current=if(reset) State() else state
+        if(nowMs<=current.lastSampleMs) return Result(current)
         if(delta<MIN_ACCEL_DELTA) return Result(current.copy(sinceMs=0L,lastSampleMs=nowMs))
         val uninterrupted=current.sinceMs>0 && current.lastSampleMs>0 && nowMs-current.lastSampleMs<=CUE_GAP_MS
         val since=if(uninterrupted) current.sinceMs else nowMs
