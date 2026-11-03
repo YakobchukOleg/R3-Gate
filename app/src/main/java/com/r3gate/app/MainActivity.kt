@@ -165,7 +165,8 @@ class MainActivity : Activity() {
         val stageStart=maxOf(running.optLong("start"),
             running.optLong("stageStart",running.optLong("start")))
         return CoreGpsStageReviewQueue.choose(saved,shift,activeIds,stageStart,nowMs)
-            .event?.eventId
+            .event?.takeIf { CoreGpsStageBridge.hasContinuousCoverage(this,it.timestampMs,nowMs) }
+            ?.eventId
     }
 
     private fun reviewGpsStageProposal(eventId: String) {
@@ -179,7 +180,8 @@ class MainActivity : Activity() {
         val shift=CoreGpsStageRules.Shift(true,running.optString("kind","Obiekt"),running.optString("objectId"))
         val stageStart=maxOf(running.optLong("start"),running.optLong("stageStart",running.optLong("start")))
         if(!CoreGpsStageReviewQueue.isCurrent(eventId,current.events,shift,activeIds,
-                stageStart,System.currentTimeMillis())) return
+                stageStart,System.currentTimeMillis()) ||
+            !CoreGpsStageBridge.hasContinuousCoverage(this,event.timestampMs,System.currentTimeMillis())) return
         val obj=rows(d,"objects").find { it.optString("id")==event.objectId } ?: return
         val stage=CoreGpsStageRules.proposal(event.kind,event.objectId,shift,activeIds) ?: return
         val title=if(stage==CoreGpsStageRules.Proposal.START_TRAVEL)
@@ -202,7 +204,8 @@ class MainActivity : Activity() {
                 val stageStart=maxOf(nowActive.optLong("start"),
                     nowActive.optLong("stageStart",nowActive.optLong("start")))
                 if(!CoreGpsStageReviewQueue.isCurrent(eventId,latestEvents,currentShift,
-                        available,stageStart,System.currentTimeMillis())) {
+                        available,stageStart,System.currentTimeMillis()) ||
+                    !CoreGpsStageBridge.hasContinuousCoverage(this,event.timestampMs,System.currentTimeMillis())) {
                     toast("Propozycja jest już nieaktualna"); return@setPositiveButton
                 }
                 val selected=rows(latest,"objects").find { it.optString("id")==event.objectId &&
