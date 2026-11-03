@@ -40,6 +40,14 @@ object GpsTraceJournal {
         appendLine("Rejected low-quality fixes: "+prefs.getInt("gps_rejected_quality_count",0))
         appendLine("Rejected out-of-order fixes: "+prefs.getInt("gps_rejected_order_count",0))
         appendLine("Rejected jumps: "+prefs.getInt("gps_rejected_jump_count",0))
+        appendLine("--- object ID to TAG mapping ---")
+        val objects=try {
+            JSONObject(prefs.getString("data","{}") ?: "{}").optJSONArray("objects")
+        } catch(_:Exception) { null }
+        if(objects!=null) for(i in 0 until objects.length()) {
+            val obj=objects.optJSONObject(i) ?: continue
+            appendLine(obj.optString("id")+" = "+obj.optString("TAG"))
+        }
         for(key in listOf("gps_last_fix","gps_arrival_state","gps_trip_state",
             "gps_events","gps_trip_events","gps_coverage_gaps","gps_fix_times",KEY)) {
             appendLine("--- "+key+" ---")
