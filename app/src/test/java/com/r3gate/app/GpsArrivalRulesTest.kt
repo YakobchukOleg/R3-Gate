@@ -160,4 +160,18 @@ class GpsArrivalRulesTest {
         assertEquals("A",result.state.confirmedId)
         assertEquals(10_000L,result.state.candidateSinceMs)
     }
+
+    @Test fun persistedCandidateWithoutEarlierFixCannotConfirmArrival() {
+        val invalid=GpsArrivalRules.State(candidateId="A",candidateSinceMs=1_000L,lastFixMs=0L)
+        val decision=GpsArrivalRules.advance(invalid,"A",100_000L)
+        assertNull(decision.event)
+        assertEquals(100_000L,decision.state.candidateSinceMs)
+    }
+    @Test fun persistedCandidateNewerThanLastFixCannotConfirmDeparture() {
+        val invalid=GpsArrivalRules.State(confirmedId="A",candidateSinceMs=50_000L,lastFixMs=10_000L)
+        val decision=GpsArrivalRules.advance(invalid,null,100_000L)
+        assertNull(decision.event)
+        assertEquals("A",decision.state.confirmedId)
+        assertEquals(100_000L,decision.state.candidateSinceMs)
+    }
 }
