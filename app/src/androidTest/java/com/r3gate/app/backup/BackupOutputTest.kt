@@ -43,4 +43,27 @@ class BackupOutputTest {
         assertEquals(Intent.ACTION_OPEN_DOCUMENT, intent.action)
         assertTrue(intent.hasCategory(Intent.CATEGORY_OPENABLE))
     }
+    @Test fun pdfExportUsesSamePolishJournalDataAsCsv() {
+        val journal = """{"objects":[{"id":"x","name":"Łódź"}],"shifts":[{"start":1793689200000,"end":1793692800000,"objectId":"x"}]}"""
+        val report = JournalCsvExport.table(journal, JournalCsvExport.Report.WORK_TIME,
+            JournalCsvExport.Period())
+        assertEquals(1, report.rows.size)
+        assertEquals("Łódź", report.rows[0].last())
+        val output = ByteArrayOutputStream()
+        JournalPdfExport.write(journal, JournalCsvExport.Report.WORK_TIME,
+            JournalCsvExport.Period(), output)
+        assertTrue(output.size() > 500)
+        assertEquals("%PDF-", String(output.toByteArray().copyOfRange(0, 5), Charsets.US_ASCII))
+    }
+
+    @Test fun reportsRejectMalformedJournalWithoutWritingPdf() {
+        val destination = ByteArrayOutputStream()
+        try {
+            JournalPdfExport.write("""{"shifts":[{"start":2000,"end":1000}]}""",
+                JournalCsvExport.Report.WORK_TIME, JournalCsvExport.Period(), destination)
+            fail("Invalid shift accepted")
+        } catch (_: IllegalArgumentException) { }
+        assertEquals(0, destination.size())
+    }
+
 }
