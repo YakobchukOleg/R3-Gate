@@ -1,6 +1,8 @@
 package com.r3gate.app.backup
 
 import java.io.InputStream
+import java.io.FilterInputStream
+import java.io.IOException
 import java.io.OutputStream
 import java.security.MessageDigest
 import java.util.Base64
@@ -71,11 +73,52 @@ object WorkMeterArchive {
     }
 
     /** Fully reads and hashes entries before returning a successful inspection. No writes to app storage. */
-    fun inspect(source: InputStream): Inspection {
+    /** Stream trailer verification without buffering archive contents. */
+    private class TrailerStream(input: InputStream) : FilterInputStream(input) {
+        private val last = ByteArray(22)
+        private var position = 0L
+        override fun read(): Int {
+            val value = super.read()
+            if (value >= 0) { last[(position % 22).toInt()] = value.toByte(); position++ }
+            return value
+        }
+        override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+            val count = super.`in`.read(buffer, offset, length)
+            if (count > 0) for (i in 0 until count) {
+                last[(position % 22).toInt()] = buffer[offset + i]
+                position++
+            }
+            return count
+        }
+        fun finish() {
+            val buffer = ByteArray(65536)
+            while (read(buffer, 0, buffer.size) >= 0) { }
+            require(position >= 22) { "ZIP end record missing" }
+            fun byte(index: Int) = last[((position - 22 + index) % 22).toInt()].toInt() and 255
+            require(byte(0) == 0x50 && byte(1) == 0x4b && byte(2) == 0x05 && byte(3) == 0x06) {
+                "ZIP central directory missing or truncated"
+            }
+            require(byte(20) == 0 && byte(21) == 0) { "ZIP archive comments unsupported" }
+            require(byte(4) == 0 && byte(5) == 0 && byte(6) == 0 && byte(7) == 0) {
+                "Multi-disk ZIP unsupported"
+            }
+            fun ushort(index: Int) = byte(index) or (byte(index + 1) shl 8)
+            fun uint(index: Int): Long = ushort(index).toLong() or (ushort(index + 2).toLong() shl 16)
+            val entries = ushort(10)
+            val centralEnd = uint(16) + uint(12)
+            require(entries != 65535 && centralEnd == position - 22) { "ZIP central directory inconsistent" }
+        }
+    }
+
+    fun inspect(source: InputStream): Inspection = try { inspectUnchecked(source) }
+    catch (e: IOException) { throw IllegalArgumentException("Invalid or truncated ZIP", e) }
+
+    private fun inspectUnchecked(source: InputStream): Inspection {
+        val tracked = TrailerStream(source)
         val found = LinkedHashMap<String, Item>()
         var manifest: String? = null
         var total = 0L
-        ZipInputStream(source).use { zip ->
+        ZipInputStream(tracked).use { zip ->
             val buffer = ByteArray(65536)
             while (true) {
                 val entry = zip.nextEntry ?: break
@@ -109,6 +152,7 @@ object WorkMeterArchive {
                 }
                 zip.closeEntry()
             }
+            tracked.finish()
         }
         val lines = requireNotNull(manifest) { "Missing manifest" }.trimEnd('\n').split('\n')
         require(lines.firstOrNull() == HEADER) { "Unsupported archive version" }
