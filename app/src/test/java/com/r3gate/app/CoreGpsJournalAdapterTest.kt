@@ -131,4 +131,53 @@ class CoreGpsJournalAdapterTest {
         assertTrue(scan(listOf(row("OBJECT_VISIT"),row("GPS_PROVIDER_OFF_ALERT"),
             row("UNCONFIRMED_ARRIVAL"))).isEmpty())
     }
+
+    @Test fun conflictingArchivedObjectRowInvalidatesSameEventId() {
+        val rows=listOf(row("ARRIVAL",1000,"site-a","shared"),
+            row("ARRIVAL",1000,"archived","shared"))
+        assertTrue(scan(rows,traveling).isEmpty())
+    }
+
+    @Test fun conflictingNonActionableKindInvalidatesSameEventId() {
+        val rows=listOf(row("DEPARTURE",1000,"site-a","shared"),
+            row("TRIP_STOP",1000,"site-a","shared"))
+        assertTrue(scan(rows).isEmpty())
+    }
+
+    @Test fun conflictingOldTimestampInvalidatesRecentSameId() {
+        val rows=listOf(row("DEPARTURE",1000,"site-a","shared"),
+            row("DEPARTURE",100,"site-a","shared"))
+        assertTrue(scan(rows).isEmpty())
+    }
+
+    @Test fun conflictingFutureTimestampInvalidatesRecentSameId() {
+        val rows=listOf(row("DEPARTURE",1000,"site-a","shared"),
+            row("DEPARTURE",1300,"site-a","shared"))
+        assertTrue(scan(rows).isEmpty())
+    }
+
+    @Test fun conflictingBlankObjectInvalidatesSameId() {
+        val rows=listOf(row("DEPARTURE",1000,"site-a","shared"),
+            row("DEPARTURE",1000,"","shared"))
+        assertTrue(scan(rows).isEmpty())
+    }
+
+    @Test fun conflictingRowDoesNotSuppressIndependentTrustedEvent() {
+        val rows=listOf(row("DEPARTURE",1000,"site-a","shared"),
+            row("TRIP_STOP",1000,"site-a","shared"),
+            row("DEPARTURE",1100,"site-a","independent"))
+        assertEquals(listOf("independent"),scan(rows).map { it.eventId })
+    }
+
+    @Test fun identicalNonActionableReplayDoesNotAffectLegitimateEvent() {
+        val invalid=row("TRIP_STOP",1000,"site-a","noise")
+        val valid=row("DEPARTURE",1000,"site-a","trusted")
+        assertEquals(listOf("trusted"),scan(listOf(invalid,invalid,valid)).map { it.eventId })
+    }
+
+    @Test fun conflictingArchivedObjectRowsAreOrderIndependent() {
+        val rows=listOf(row("ARRIVAL",1000,"site-a","shared"),
+            row("ARRIVAL",1000,"archived","shared"))
+        assertTrue(scan(rows.reversed(),traveling).isEmpty())
+    }
 }
