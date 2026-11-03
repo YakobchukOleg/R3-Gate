@@ -89,4 +89,41 @@ class ObjectListUiModelTest {
         assertEquals("Brak zarchiwizowanych obiektów", result.emptyMessage)
     }
 
+    @Test fun groupsActiveObjectsByCityInAlphabeticalOrder() {
+        val items = listOf(
+            ObjectListUiModel.Item("t", "TCZ-01", "", "Tczew", "1", false),
+            ObjectListUiModel.Item("g2", "GDA-10", "", "Gdańsk", "2", false),
+            ObjectListUiModel.Item("g1", "GDA-02", "", "Gdańsk", "1", false)
+        )
+        val display = ObjectListUiModel.display(items, false)
+        val groups = ObjectListUiModel.groups(display, groupByCity = true, showArchived = false)
+        assertEquals(listOf("Gdańsk", "Tczew"), groups.map { it.heading })
+        assertEquals(listOf("g1", "g2"), groups.first().rows.map { it.id })
+        assertEquals(3, display.rows.size)
+    }
+
+    @Test fun archiveAndUngroupedModesUseSingleSection() {
+        val items = listOf(
+            ObjectListUiModel.Item("a", "TCZ-01", "", "Tczew", "1", true),
+            ObjectListUiModel.Item("b", "GDA-01", "", "Gdańsk", "1", true)
+        )
+        val display = ObjectListUiModel.display(items, true)
+        val grouped = ObjectListUiModel.groups(display, groupByCity = true, showArchived = true)
+        assertEquals(listOf("Obiekty"), grouped.map { it.heading })
+        assertEquals(2, grouped.single().rows.size)
+        assertEquals(listOf("Obiekty"),
+            ObjectListUiModel.groups(display, groupByCity = false, showArchived = true).map { it.heading })
+    }
+
+    @Test fun emptyFilteredResultsContainNoGroups() {
+        val display = ObjectListUiModel.display(emptyList(), false, "Gdańsk")
+        assertTrue(ObjectListUiModel.groups(display, true, false).isEmpty())
+    }
+
+    @Test fun missingCityHasPolishFallbackGroup() {
+        val display = ObjectListUiModel.display(
+            listOf(ObjectListUiModel.Item("x", "OBJ-01", "", "", "1", false)), false)
+        assertEquals("Bez miasta", ObjectListUiModel.groups(display, true, false).single().heading)
+    }
+
 }
