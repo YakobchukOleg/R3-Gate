@@ -159,7 +159,7 @@ class ObjectListUiModelTest {
 
     @Test fun emptyAndUnknownCityFiltersAreSafe() {
         assertTrue(ObjectListUiModel.activeCities(emptyList()).isEmpty())
-        assertEquals("Brak zarchiwizowanych obiektów",
+        assertEquals("Brak obiektów dla wybranych filtrów.",
             ObjectListUiModel.display(emptyList(), true, city = "Tczew").emptyMessage)
         assertEquals(0, ObjectListUiModel.resultCount(emptyList(), false))
     }
