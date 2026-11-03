@@ -18,9 +18,10 @@ object ObjectListUiModel {
     data class Display(val rows: List<Row>, val emptyMessage: String?)
     data class Group(val heading: String, val rows: List<Row>)
 
-    fun display(items: List<Item>, showArchived: Boolean, query: String = ""): Display {
+    fun display(items: List<Item>, showArchived: Boolean, query: String = "", city: String? = null): Display {
         val rows = items.asSequence()
             .filter { it.archived == showArchived }
+            .filter { city == null || it.city.equals(city, ignoreCase = true) }
             .filter { item ->
                 query.isBlank() || listOf(
                     item.tag, item.name, item.organization, item.city, item.address
@@ -48,5 +49,14 @@ object ObjectListUiModel {
             .toSortedMap(String.CASE_INSENSITIVE_ORDER)
             .map { (city, rows) -> Group(city, rows) }
     }
+
+    /** Cities available as prototype filter chips, excluding archived records. */
+    fun activeCities(items: List<Item>): List<String> =
+        items.asSequence().filterNot { it.archived }.map { it.city.trim() }
+            .filter { it.isNotBlank() }.distinct().sortedWith(String.CASE_INSENSITIVE_ORDER).toList()
+
+    /** Count of visible records for the current archive/search/city combination. */
+    fun resultCount(items: List<Item>, showArchived: Boolean, query: String = "", city: String? = null): Int =
+        display(items, showArchived, query, city).rows.size
 
 }
