@@ -97,10 +97,13 @@ class GpsRecoveryMonitorWorker(context:Context,params:WorkerParameters):Worker(c
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(
                 NAME,ExistingPeriodicWorkPolicy.KEEP,request)
         }
-        fun cancel(context:Context) {
-            WorkManager.getInstance(context).cancelUniqueWork(NAME)
+        fun dismissAlert(context:Context) {
             (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
                 .cancel(NOTIFICATION_ID)
+        }
+        fun cancel(context:Context) {
+            WorkManager.getInstance(context).cancelUniqueWork(NAME)
+            dismissAlert(context)
         }
     }
 }
