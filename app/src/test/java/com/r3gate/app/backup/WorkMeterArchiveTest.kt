@@ -71,4 +71,16 @@ class WorkMeterArchiveTest {
         }
         fails { WorkMeterArchive.inspect(ByteArrayInputStream(out.toByteArray())) }
     }
+    @Test fun rejectsTruncatedCentralDirectoryAndEndRecord() {
+        val archive = make("journal/data.json" to """{"objects":[]}""")
+        fails { WorkMeterArchive.inspect(ByteArrayInputStream(archive.copyOf(archive.size - 10))) }
+        fails { WorkMeterArchive.inspect(ByteArrayInputStream(archive.copyOf(archive.size - 22))) }
+    }
+    @Test fun fullArchiveStillReadsAfterTrailerVerification() {
+        val archive = make("journal/data.json" to """{"name":"Zażółć gęślą jaźń"}""")
+        val report = WorkMeterArchive.inspect(ByteArrayInputStream(archive))
+        assertEquals(1, report.files.size)
+        assertEquals("journal/data.json", report.files.single().path)
+    }
+
 }
