@@ -140,4 +140,24 @@ class GpsArrivalRulesTest {
         val recovered=GpsArrivalRules.advance(state,"A",400_000L)
         assertNull(GpsArrivalRules.advance(recovered.state,"A",461_000L).event)
     }
+
+    @Test fun zeroOrNegativeFixCannotStartNewCandidate() {
+        val initial=GpsArrivalRules.State()
+        assertEquals(initial,GpsArrivalRules.advance(initial,"A",0L).state)
+        assertEquals(initial,GpsArrivalRules.advance(initial,"A",-1L).state)
+    }
+    @Test fun futureArrivalCandidateMustStartFreshDwell() {
+        val stale=GpsArrivalRules.State(candidateId="A",candidateSinceMs=200_000L,lastFixMs=1_000L)
+        val result=GpsArrivalRules.advance(stale,"A",10_000L)
+        assertNull(result.event)
+        assertEquals(10_000L,result.state.candidateSinceMs)
+        assertEquals("ARRIVAL",GpsArrivalRules.advance(result.state,"A",71_000L).event)
+    }
+    @Test fun futureDepartureCandidateCannotEndWorkingSiteEarly() {
+        val stale=GpsArrivalRules.State(confirmedId="A",candidateSinceMs=200_000L,lastFixMs=1_000L)
+        val result=GpsArrivalRules.advance(stale,null,10_000L)
+        assertNull(result.event)
+        assertEquals("A",result.state.confirmedId)
+        assertEquals(10_000L,result.state.candidateSinceMs)
+    }
 }
