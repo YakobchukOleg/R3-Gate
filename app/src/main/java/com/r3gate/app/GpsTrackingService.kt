@@ -332,6 +332,7 @@ class GpsTrackingService : Service(), LocationListener {
                     .putString("gps_arrival_state",safeArrival.toString())
                     .putLong("gps_requested_interval_ms",GpsAdaptiveSampling.ACTIVE_INTERVAL_MS)
                     .putBoolean("gps_service_active",true)
+                    .remove("gps_recovery_alert_at")
                     .putLong("gps_session_start",System.currentTimeMillis())
                     .putLong("gps_service_heartbeat_ms",System.currentTimeMillis()).commit()
                 samplingState=GpsAdaptiveSampling.State()
@@ -342,6 +343,8 @@ class GpsTrackingService : Service(), LocationListener {
                 activeGeofenceProbeSinceMs=0L
                 lastGeofenceProbeMs=0L
                 sessionStarted=true
+                // A warning from the previous session must not hide a new outage.
+                GpsRecoveryMonitorWorker.dismissAlert(this)
             }
             // With no provider keep the visible foreground service listening for location changes.
             if(prefs.getBoolean("gps_adaptive_sampling",false)) startMotionSensor()
