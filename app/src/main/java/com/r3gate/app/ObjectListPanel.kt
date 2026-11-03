@@ -20,7 +20,8 @@ import android.widget.TextView
 class ObjectListPanel(
     context: Context,
     private val onOpenObject: (String) -> Unit,
-    private val onAddObject: () -> Unit
+    private val onAddObject: () -> Unit,
+    private val onArchiveChanged: (Boolean) -> Unit = {}
 ) : LinearLayout(context) {
     private val ink = Color.rgb(35, 57, 67)
     private val muted = Color.rgb(114, 130, 139)
@@ -70,7 +71,7 @@ class ObjectListPanel(
             setTextColor(ink)
             setPadding(dp(10), dp(10), dp(10), dp(10))
             background = rounded(Color.WHITE, 20)
-            setOnClickListener { archived = !archived; render() }
+            setOnClickListener { archived = !archived; onArchiveChanged(archived); render() }
         }
         groupToggle.apply {
             textSize = 13f
