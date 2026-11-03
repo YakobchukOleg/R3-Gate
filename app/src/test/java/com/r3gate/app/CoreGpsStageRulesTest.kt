@@ -106,4 +106,28 @@ class CoreGpsStageRulesTest {
         val arrival=event(CoreGpsProposalInbox.Kind.ARRIVAL,at=1_000L)
         assertTrue(CoreGpsStageRules.shouldNotify(arrival,shift("Przejazd",""),ids,500L,1_000L))
     }
+
+    @Test fun lowConfidenceNeverReachesFinalStageApproval() {
+        val sample=event(CoreGpsProposalInbox.Kind.DEPARTURE)
+        assertFalse(CoreGpsStageRules.canApply(sample.copy(
+            confidence=CoreGpsProposalInbox.Confidence.LOW),shift("Obiekt"),ids))
+    }
+
+    @Test fun mediumConfidenceNeverReachesFinalStageApproval() {
+        val sample=event(CoreGpsProposalInbox.Kind.DEPARTURE)
+        assertFalse(CoreGpsStageRules.canApply(sample.copy(
+            confidence=CoreGpsProposalInbox.Confidence.MEDIUM),shift("Obiekt"),ids))
+    }
+
+    @Test fun unknownSourceNeverReachesFinalStageApproval() {
+        val sample=event(CoreGpsProposalInbox.Kind.DEPARTURE)
+        assertFalse(CoreGpsStageRules.canApply(sample.copy(source="untrusted"),
+            shift("Obiekt"),ids))
+    }
+
+    @Test fun missingIdentityAndInvalidTimestampCannotBeApproved() {
+        val sample=event(CoreGpsProposalInbox.Kind.DEPARTURE)
+        assertFalse(CoreGpsStageRules.canApply(sample.copy(eventId=""),shift("Obiekt"),ids))
+        assertFalse(CoreGpsStageRules.canApply(sample.copy(timestampMs=0L),shift("Obiekt"),ids))
+    }
 }
