@@ -348,7 +348,7 @@ class AppFlowTest {
                 assertFalse(all(a).filterIsInstance<Button>().any { it.text=="GOOGLE DRIVE" || it.text=="ZAROBEK (pokaż)" })
                 settings(a); assertTrue(has(a,"Ustawienia"))
                 assertTrue(has(a,"GENERUJ RAPORT SMS")); assertTrue(has(a,"Logi / eksport / import")); assertTrue(has(a,"Google Disk"))
-                click(a,"O aplikacji"); assertTrue(has(a,"Wersja: 2.3")); a.onBackPressed()
+                click(a,"O aplikacji"); assertTrue(has(a,"Wersja: "+a.packageManager.getPackageInfo(a.packageName,0).versionName)); a.onBackPressed()
                 click(a,"Portfel / rozliczenia (PIN)")
                 assertFalse(has(a,"Portfel"))
             }
