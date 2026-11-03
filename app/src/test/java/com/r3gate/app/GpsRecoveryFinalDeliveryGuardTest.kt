@@ -42,3 +42,4 @@ class GpsRecoveryFinalDeliveryGuardTest {
         assertTrue(allowed(original=GpsRecoveryMonitorRules.Decision.ALERT_PERMISSION,
             latest=GpsRecoveryMonitorRules.Decision.ALERT_PERMISSION))
     }
+}
