@@ -16,7 +16,26 @@ class GpsGeofenceProbeRulesTest {
     @Test fun noConfirmedZoneDoesNotProbe() { assertFalse(r.shouldBegin(100_000,0,true,false)) }
     @Test fun clearEvidenceDoesNotProbe() { assertFalse(r.shouldBegin(100_000,0,false,true)) }
     @Test fun repeatedProbeIsRateLimited() { assertFalse(r.shouldBegin(110_000,100_000,true,true)) }
-    @Test fun probeAllowedAtRearmBoundary() { assertTrue(r.shouldBegin(130_000,100_000,true,true)) }
+    @Test fun unresolvedBorderNeverRearmsForever() { assertFalse(r.shouldBegin(130_000,100_000,true,true)) }
     @Test fun futureProbeTimestampCannotRearm() { assertFalse(r.shouldBegin(90_000,100_000,true,true)) }
     @Test fun zeroNowCannotProbe() { assertFalse(r.shouldBegin(0,0,true,true)) }
+
+    @Test fun firstEvidenceOfEnteringAnObjectTriggersProbe() {
+        assertTrue(r.shouldBegin(100_000,0,true,true))
+    }
+    @Test fun firstEvidenceOfLeavingAnObjectTriggersProbe() {
+        assertTrue(r.shouldBegin(100_000,0,true,true))
+    }
+    @Test fun unresolvedCandidateIsNotResolved() {
+        assertFalse(r.resolved(false,100_000))
+    }
+    @Test fun uncertainFixCannotRearm() {
+        assertFalse(r.resolved(true,0))
+    }
+    @Test fun confirmedInsideFixRearmsFutureVisits() {
+        assertTrue(r.resolved(false,0))
+    }
+    @Test fun resolvedTransitionCanBeginNewProbe() {
+        assertTrue(r.shouldBegin(200_000,0,true,true))
+    }
 }
