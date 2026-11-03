@@ -8,7 +8,8 @@ object GpsWatchdogRules {
     enum class Action { NONE, PROBE }
     fun decide(nowMs:Long,startedMs:Long,lastFixMs:Long,lastProbeMs:Long,tracking:Boolean,providerAvailable:Boolean):Action {
         if(!tracking || !providerAvailable || nowMs<=0 || startedMs<=0 || startedMs>nowMs) return Action.NONE
-        val checkpoint=if(lastFixMs in 1..nowMs) lastFixMs else startedMs
+        // A location from a previous service session is not evidence for the new session.
+        val checkpoint=maxOf(startedMs,if(lastFixMs in 1..nowMs) lastFixMs else 0L)
         if(nowMs-checkpoint<STALL_AFTER_MS) return Action.NONE
         if(lastProbeMs>nowMs) return Action.NONE
         if(lastProbeMs>0 && nowMs-lastProbeMs<RETRY_COOLDOWN_MS) return Action.NONE
