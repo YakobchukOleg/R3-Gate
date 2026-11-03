@@ -153,7 +153,10 @@ class MainActivity : Activity() {
     private fun handleLaunch() {
         val action=intent?.getStringExtra("widget_action")
         intent?.removeExtra("widget_action")
+        val gpsResumeAlert=intent?.getBooleanExtra("gps_resume_alert",false)==true
+        intent?.removeExtra("gps_resume_alert")
         home()
+        if(gpsResumeAlert) { gpsScreen(); return }
         val uploadReference=intent?.getStringExtra("upload_retry")
         intent?.removeExtra("upload_retry")
         if(!uploadReference.isNullOrBlank()) { pendingUpload=uploadReference; authorizeDrive(); return }
@@ -817,6 +820,7 @@ class MainActivity : Activity() {
         if(!value) {
             prefs.edit().putBoolean("gps_enabled",false).putBoolean("gps_resume_pending",false).apply()
             stopService(Intent(this,GpsTrackingService::class.java))
+            GpsRecoveryMonitorWorker.cancel(this)
             return
         }
         val fine=checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED
