@@ -64,6 +64,22 @@ object CoreGpsStageBridge {
         return CoreGpsCoverageJournal.trustworthy(eventMs, nowMs, boundaries, intervals)
     }
 
+    /** Never approve a restored proposal without matching current producer evidence. */
+    fun hasJournalEvidence(context: Context, event: CoreGpsProposalInbox.Event): Boolean {
+        val prefs = context.getSharedPreferences("r3_gate", Context.MODE_PRIVATE)
+        val journal = try { JSONArray(prefs.getString("gps_events", "[]") ?: "[]") }
+            catch (_: Exception) { return false }
+        val rows = (0 until journal.length()).map { i ->
+            val row = journal.optJSONObject(i) ?: return false
+            CoreGpsJournalAdapter.Raw(
+                row.optString("event"), row.optLong("time"),
+                row.optString("objectId").takeIf { it.isNotBlank() },
+                row.optString("eventId").takeIf { it.isNotBlank() }
+            )
+        }
+        return CoreGpsProposalEvidenceGuard.matches(event, rows)
+    }
+
     fun refresh(context: Context) {
         val prefs = context.getSharedPreferences("r3_gate", Context.MODE_PRIVATE)
         val data = try { JSONObject(prefs.getString("data", "{}") ?: "{}") } catch (_: Exception) { return }
@@ -107,7 +123,8 @@ object CoreGpsStageBridge {
             updated.state.events, shift, activeIds, stageStart, nowMs
         )
         val event = choice.event ?: run { dismiss(context); return }
-        if (!hasContinuousCoverage(context,event.timestampMs,nowMs)) {
+        if (!hasContinuousCoverage(context,event.timestampMs,nowMs) ||
+            !CoreGpsProposalEvidenceGuard.matches(event, raw)) {
             dismiss(context)
             return
         }
