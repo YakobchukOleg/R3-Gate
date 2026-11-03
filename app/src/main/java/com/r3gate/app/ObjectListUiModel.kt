@@ -14,7 +14,12 @@ object ObjectListUiModel {
         val archived: Boolean,
         val name: String = ""
     )
-    data class Row(val id: String, val title: String, val status: String, val accessibilityLabel: String, val city: String = "")
+    data class Row(
+        val id: String, val title: String, val status: String,
+        val accessibilityLabel: String, val city: String = "",
+        val tag: String = "", val name: String = "",
+        val addressLine: String = "", val organization: String = ""
+    )
     data class Display(val rows: List<Row>, val emptyMessage: String?)
     data class Group(val heading: String, val rows: List<Row>)
 
@@ -31,10 +36,14 @@ object ObjectListUiModel {
             .map {
                 val title = ObjectUiPresentation.title(it.tag, it.organization, it.city, it.address)
                 Row(it.id, title, ObjectUiPresentation.status(it.archived),
-                    ObjectUiPresentation.accessibilityLabel(title, it.archived), it.city.trim())
+                    ObjectUiPresentation.accessibilityLabel(title, it.archived), it.city.trim(),
+                    it.tag.trim(), it.name.trim().ifEmpty { it.organization.trim() }
+                        .ifEmpty { it.tag.trim() }.ifEmpty { "Obiekt" },
+                    listOf(it.city.trim(), it.address.trim()).filter(String::isNotBlank)
+                        .joinToString(", "), it.organization.trim())
             }.toList()
         val message = if (rows.isNotEmpty()) null
-            else if (query.isNotBlank()) "Brak obiektów dla wybranych filtrów."
+            else if (query.isNotBlank() || city != null) "Brak obiektów dla wybranych filtrów."
             else ObjectUiPresentation.emptyList(showArchived)
         return Display(rows, message)
     }
