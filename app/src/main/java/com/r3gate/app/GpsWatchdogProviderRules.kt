@@ -14,7 +14,17 @@ object GpsWatchdogProviderRules {
         else -> Status.ACTIVE
     }
 
-    fun shouldReacquire(status:Status,noFixProbe:Boolean):Boolean =
-        status==Status.NEEDS_SUBSCRIPTION ||
+    fun shouldReacquire(
+        status:Status,
+        noFixProbe:Boolean,
+        nowMs:Long,
+        lastAttemptMs:Long
+    ):Boolean {
+        if(status==Status.NO_PROVIDER || nowMs<=0L ||
+            lastAttemptMs>nowMs ||
+            lastAttemptMs>0L && nowMs-lastAttemptMs<GpsWatchdogRules.RETRY_COOLDOWN_MS)
+            return false
+        return status==Status.NEEDS_SUBSCRIPTION ||
             status==Status.ACTIVE && noFixProbe
+    }
 }
