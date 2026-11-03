@@ -41,6 +41,34 @@ class GpsTrackingService : Service(), LocationListener {
             if(!sessionStarted || !prefs.getBoolean("gps_enabled",false)) return
             val now=System.currentTimeMillis()
             prefs.edit().putLong("gps_service_heartbeat_ms",now).apply()
+            // Temporary 15-second geofence probes must end even with zero new GPS fixes.
+            val cadence=GpsProbeCadenceRules.evaluate(now,activeGeofenceProbeSinceMs,
+                GpsSamplingSafety.interval(GpsAdaptiveSampling.interval(samplingState,now,true),
+                    now,
+                    try { JSONObject(prefs.getString("gps_last_fix","{}") ?: "{}").optLong("time") }
+                        catch(_:Exception) { 0L },
+                    try { JSONObject(prefs.getString("gps_last_fix","{}") ?: "{}").optDouble("accuracy",Double.NaN) }
+                        catch(_:Exception) { Double.NaN },
+                    try {
+                        val trip=JSONObject(prefs.getString("gps_trip_state","{}") ?: "{}")
+                        trip.optString("mode")=="MOVING" &&
+                            now-trip.optLong("last") in 0..GpsSamplingSafety.MAX_FIX_AGE_MS
+                    } catch(_:Exception) { false }),
+                samplingIntervalMs,true)
+            if(cadence.update) {
+                samplingIntervalMs=cadence.intervalMs
+                try {
+                    updateSubscription()
+                    trace("PROBE_CADENCE_RESTORED",now,
+                        JSONObject().put("intervalMs",samplingIntervalMs))
+                } catch(_:SecurityException) {
+                    prefs.edit().putString("gps_service_problem","permission").apply()
+                    shutdown()
+                    return
+                } catch(_:RuntimeException) {
+                    trace("PROBE_CADENCE_FAILED",now)
+                }
+            }
             val lastFix=try { JSONObject(prefs.getString("gps_last_fix","{}") ?: "{}").optLong("time") }
                 catch(_:Exception) { 0L }
             val decision=GpsWatchdogRules.decide(now,
