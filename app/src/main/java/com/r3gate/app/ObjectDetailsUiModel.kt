@@ -39,7 +39,7 @@ object ObjectDetailsUiModel {
         val name = content.name.trim().ifEmpty { content.organization.trim() }
             .ifEmpty { content.tag.trim() }.ifEmpty { "Obiekt" }
         val location = listOf(content.city.trim(), content.address.trim())
-            .filter { it.isNotEmpty() }.joinToString(", ").ifBlank { null }
+            .filter { it.isNotEmpty() }.joinToString(", ").takeIf { it.isNotBlank() }
         return ViewState(
             heading = ObjectDetailsUiText.heading(content.tag),
             title = name,
