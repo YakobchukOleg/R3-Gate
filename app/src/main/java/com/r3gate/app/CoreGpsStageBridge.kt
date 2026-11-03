@@ -42,16 +42,26 @@ object CoreGpsStageBridge {
             catch (_: Exception) { return false }
         val gaps = try { JSONArray(prefs.getString("gps_coverage_gaps", "[]") ?: "[]") }
             catch (_: Exception) { return false }
-        val outages = (0 until events.length()).mapNotNull { i ->
-            events.optJSONObject(i)?.takeIf { it.optString("event") == "GPS_GAP" }
-                ?.optLong("time")
-        }
-        val intervals = (0 until gaps.length()).mapNotNull { i ->
-            gaps.optJSONObject(i)?.let {
-                CoreGpsCoverageRules.Gap(it.optLong("start"), it.optLong("end"))
+        val boundaries = (0 until events.length()).map { i ->
+            events.optJSONObject(i)?.let {
+                CoreGpsCoverageJournal.Boundary(
+                    it.optString("event"),
+                    if (it.has("time") && !it.isNull("time") && it.opt("time") is Number)
+                        it.optLong("time") else null
+                )
             }
         }
-        return CoreGpsCoverageRules.trustworthy(eventMs, nowMs, outages, intervals)
+        val intervals = (0 until gaps.length()).map { i ->
+            gaps.optJSONObject(i)?.let {
+                CoreGpsCoverageJournal.Interval(
+                    if (it.has("start") && !it.isNull("start") && it.opt("start") is Number)
+                        it.optLong("start") else null,
+                    if (it.has("end") && !it.isNull("end") && it.opt("end") is Number)
+                        it.optLong("end") else null
+                )
+            }
+        }
+        return CoreGpsCoverageJournal.trustworthy(eventMs, nowMs, boundaries, intervals)
     }
 
     fun refresh(context: Context) {
