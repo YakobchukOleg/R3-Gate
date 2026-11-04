@@ -44,6 +44,13 @@ class ObjectListPanel(
         val pad = dp(16)
         setPadding(pad, pad, pad, pad)
 
+        val add = workMeterButton(context, "＋ Dodaj obiekt", WorkMeterButtonRole.PRIMARY, onAddObject).apply {
+            gravity = Gravity.CENTER
+            setTypeface(null, Typeface.BOLD)
+            contentDescription = "Dodaj obiekt"
+        }
+        addView(add, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(8) })
+
         val search = EditText(context).apply {
             hint = "Szukaj nazwy, miasta, firmy…"
             setSingleLine(true)
@@ -106,12 +113,6 @@ class ObjectListPanel(
         // The parent screen already scrolls; avoid a nested weighted ScrollView.
         addView(results, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
 
-        val add = workMeterButton(context, "＋ Dodaj obiekt", WorkMeterButtonRole.PRIMARY, onAddObject).apply {
-            gravity = Gravity.CENTER
-            setTypeface(null, Typeface.BOLD)
-            contentDescription = "Dodaj obiekt"
-        }
-        addView(add, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
         render()
     }
 

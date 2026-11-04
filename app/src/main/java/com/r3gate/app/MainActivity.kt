@@ -55,6 +55,8 @@ class MainActivity : Activity() {
     private val expandedFilters = mutableSetOf<String>()
     private var formKind = ""
     private var formReturn = "home"
+    private var startAfterObjectSave = false
+    private var cancelStartLocation: (() -> Unit)? = null
     private var draft = JSONObject()
     private var quickPhotoUpload=false
     private var cameraPath: String? = null
@@ -118,6 +120,7 @@ class MainActivity : Activity() {
             detailParent = savedInstanceState.getString("detailParent") ?: "home"
             formKind = savedInstanceState.getString("formKind") ?: ""
             formReturn = savedInstanceState.getString("formReturn") ?: "home"
+            startAfterObjectSave = savedInstanceState.getBoolean("startAfterObjectSave")
             draft = JSONObject(savedInstanceState.getString("draft") ?: "{}")
             openScreen(savedInstanceState.getString("screen") ?: "home")
             val previousScroll=savedInstanceState.getInt("screenScrollY",0)
@@ -138,7 +141,7 @@ class MainActivity : Activity() {
         if(::root.isInitialized && screen=="home") home()
     }
     override fun onPause() { prefs.unregisterOnSharedPreferenceChangeListener(uploadChanges); ticker.removeCallbacks(refreshUploads); ticker.removeCallbacks(tick); super.onPause() }
-    override fun onStop() { walletUnlocked=false; super.onStop() }
+    override fun onStop() { cancelStartLocation?.invoke(); walletUnlocked=false; super.onStop() }
     override fun onRestart() {
         super.onRestart()
         // Keep the existing view (including its scroll position) when returning
@@ -426,18 +429,92 @@ class MainActivity : Activity() {
 
     private fun startShift() {
         if (active(data()) != null) { toast("Dzień pracy już rozpoczęty"); return }
-        chooseObject(false) { obj ->
-            startOnObject(obj ?: return@chooseObject)
+        findStartLocation { suggested ->
+            if (suggested == null) {
+                searchStartObject()
+            } else {
+                AlertDialog.Builder(this, dialogStyle).setTitle("Czy jesteś na tym obiekcie?")
+                    .setMessage(objectName(suggested))
+                    .setPositiveButton("Tak, rozpocznij dzień") { _, _ -> startOnObject(suggested) }
+                    .setNegativeButton("Nie, wyszukaj obiekt") { _, _ -> searchStartObject() }
+                    .show()
+            }
         }
     }
+
+    private fun searchStartObject() {
+        objectPicker(optional = false, arrival = false, startDay = true) { obj ->
+            if (obj != null) startOnObject(obj)
+        }
+    }
+
+    private fun findStartLocation(onResult: (JSONObject?) -> Unit) {
+        val places = selectableObjects().mapNotNull { obj ->
+            val id = obj.optString("id")
+            val stored = prefs.getString("gps_object_" + id, null) ?: return@mapNotNull null
+            try {
+                val geo = JSONObject(stored)
+                GpsWorkRules.Place(id, GpsWorkRules.Kind.OBJECT,
+                    geo.getDouble("lat"), geo.getDouble("lon"), geo.optDouble("radius", 100.0))
+            } catch (_: org.json.JSONException) {
+                null
+            }
+        }
+        if (places.isEmpty() || !GpsWorkdaySession.hasConsent(prefs) ||
+            checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            onResult(null)
+            return
+        }
+        val manager = getSystemService(LocationManager::class.java)
+        if (manager == null) { onResult(null); return }
+        val provider = try {
+            listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+                .firstOrNull { manager.isProviderEnabled(it) }
+        } catch (_: RuntimeException) {
+            null
+        }
+        if (provider == null) { onResult(null); return }
+
+        val signal = android.os.CancellationSignal()
+        val dialog = AlertDialog.Builder(this, dialogStyle).setMessage("Sprawdzanie lokalizacji…")
+            .setNegativeButton("Wyszukaj ręcznie", null).create()
+        fun cancel() {
+            cancelStartLocation = null
+            signal.cancel()
+            dialog.dismiss()
+        }
+        fun finish(fix: Location?) {
+            if (signal.isCanceled) return
+            cancel()
+            val point = fix?.let { GpsWorkRules.Point(it.latitude, it.longitude, it.accuracy.toDouble(), it.time) }
+            val id = WorkdayObjectSearch.suggestedId(point, places, System.currentTimeMillis())
+            onResult(selectableObjects().firstOrNull { it.optString("id") == id })
+        }
+        cancelStartLocation?.invoke()
+        cancelStartLocation = ::cancel
+        dialog.setOnCancelListener { cancel() }
+        dialog.show()
+        dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener { finish(null) }
+        ticker.postDelayed({ finish(null) }, 4_000)
+        try {
+            androidx.core.location.LocationManagerCompat.getCurrentLocation(manager, provider, signal, androidx.core.content.ContextCompat.getMainExecutor(this)) { fix ->
+                finish(fix)
+            }
+        } catch (_: RuntimeException) {
+            finish(null)
+        }
+    }
+
     private fun startOnObject(obj: JSONObject) {
         val d=data(); if (active(d)!=null) { toast("Dzień pracy już rozpoczęty"); home(); return }
+        val current = selectableObjects(d).singleOrNull { it.optString("id") == obj.optString("id") }
+        if (current == null) { toast("Obiekt nie jest już dostępny"); searchStartObject(); return }
         val t=System.currentTimeMillis()
         if(!WorkShiftIntegrity.canSave(WorkShiftIntegrity.Interval(t,Long.MAX_VALUE),validClosedShiftIntervals(d))) {
             toast("Nowa zmiana koliduje z zapisaną historią")
             return
         }
-        d.put("active",JSONObject().put("id",UUID.randomUUID().toString()).put("start",t).put("object",objectName(obj)).put("objectId",obj.optString("id")).put("kind",workStageFor(obj)).put("stageStart",t).put("stages",JSONArray()).put("rate",defaultRate().toPlainString())); save(d,"START",fmt.format(Date(t)))
+        d.put("active",JSONObject().put("id",UUID.randomUUID().toString()).put("start",t).put("object",objectName(current)).put("objectId",current.optString("id")).put("kind",workStageFor(current)).put("stageStart",t).put("stages",JSONArray()).put("rate",defaultRate().toPlainString())); save(d,"START",fmt.format(Date(t)))
         if (GpsWorkdaySession.hasConsent(prefs)) setGpsEnabled(true)
         home()
     }
@@ -788,6 +865,7 @@ class MainActivity : Activity() {
                 putString("query", objectSearch)
             })
         }
+        out.putBoolean("startAfterObjectSave", startAfterObjectSave)
         out.putString("draft",draft.toString()); out.putString("cameraPath",cameraPath); out.putString("pendingUpload",pendingUpload)
         super.onSaveInstanceState(out)
     }
@@ -2519,13 +2597,16 @@ class MainActivity : Activity() {
         prefs.edit().putString("data",d.toString()).apply()
     }
     private fun chooseObject(optional:Boolean, selected:(JSONObject?)->Unit) {
-        objectPicker(optional,false,selected)
+        objectPicker(optional, false, selected = selected)
     }
-    private fun objectPicker(optional:Boolean, arrival:Boolean, selected:(JSONObject?)->Unit) {
-        val savedObjects=rows(data(),"objects")
-        val catalog=ObjectUiGateway(savedObjects.map(::objectSummary))
-        val selectableIds=catalog.selectableObjects().map { it.id }.toSet()
-        val options=savedObjects.filter { it.optString("id") in selectableIds }
+    private fun selectableObjects(d: JSONObject = data()): List<JSONObject> {
+        val saved = rows(d, "objects")
+        val ids = ObjectUiGateway(saved.map(::objectSummary)).selectableObjects().map { it.id }.toSet()
+        return saved.filter { it.optString("id") in ids }
+    }
+
+    private fun objectPicker(optional: Boolean, arrival: Boolean, startDay: Boolean = false, selected: (JSONObject?) -> Unit) {
+        val options = selectableObjects()
         val layout=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(dp(20),dp(8),dp(20),dp(8)) }
         val searchRow=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; gravity=Gravity.CENTER_VERTICAL }
         val query=EditText(ContextThemeWrapper(this,dialogStyle)).apply { hint="Szukaj miasta"; setSingleLine(); inputType=InputType.TYPE_CLASS_TEXT; imeOptions=android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH }
@@ -2535,17 +2616,33 @@ class MainActivity : Activity() {
             .setView(layout).setNegativeButton(if(arrival) "Anuluj — przejazd trwa" else "Anuluj",null).create()
         fun renderResults() {
             results.removeAllViews()
-            val matches=options.filter { ObjectSearch.matches(it.optString("city"),query.text.toString()) }.sortedWith { x,y -> ObjectSearch.compareTags(x.optString("TAG"),y.optString("TAG")) }
+            val matches=options.filter { WorkdayObjectSearch.matchesCity(it.optString("city"), query.text.toString(), startDay) }.sortedWith { x,y -> ObjectSearch.compareTags(x.optString("TAG"),y.optString("TAG")) }
             for(obj in matches) results.addView(makeButton(objectName(obj)) {
                 val current=objectById(obj.optString("id"))?.takeUnless { it.optBoolean("archived") }
                 if(current==null) { toast("Obiekt nie jest już dostępny"); dialog.dismiss() }
                 else { dialog.dismiss(); selected(current) }
             },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(6) })
-            if(matches.isEmpty()) results.addView(TextView(this).apply { text="Brak obiektów dla tego miasta"; setTextColor(palette.textPrimary); setPadding(0,dp(12),0,dp(12)) })
+            if(matches.isEmpty()) results.addView(TextView(this).apply { text=if (startDay && query.text.isBlank()) "Wpisz nazwę miasta, aby zobaczyć obiekty" else "Brak obiektów dla tego miasta"; setTextColor(palette.textPrimary); setPadding(0,dp(12),0,dp(12)) })
         }
-        searchRow.addView(makeButton("⌕") { renderResults(); (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(query.windowToken,0) }.apply { contentDescription="Szukaj"; textSize=24f; background=background(palette.primary); setTextColor(palette.onPrimary) },LinearLayout.LayoutParams(dp(48),dp(48)))
+        if (startDay) {
+            val cities = options.map { it.optString("city").trim() }.filter { it.isNotEmpty() }
+                .distinct().sortedWith(String.CASE_INSENSITIVE_ORDER)
+            if (cities.isNotEmpty()) searchRow.addView(makeButton("Miasta ▾") {
+                AlertDialog.Builder(this, dialogStyle).setTitle("Wybierz miasto")
+                    .setItems(cities.toTypedArray()) { _, index -> query.setText(cities[index]) }.show()
+            }, LinearLayout.LayoutParams(-2, -2))
+        } else {
+            searchRow.addView(makeButton("⌕") { renderResults(); (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(query.windowToken,0) }.apply { contentDescription="Szukaj"; textSize=24f; background=background(palette.primary); setTextColor(palette.onPrimary) },LinearLayout.LayoutParams(dp(48),dp(48)))
+        }
         query.setOnEditorActionListener { _,action,_ -> if(action==android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) { renderResults(); true } else false }
         query.addTextChangedListener(object:TextWatcher { override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int) {} ; override fun onTextChanged(s:CharSequence?,start:Int,before:Int,count:Int) { renderResults() }; override fun afterTextChanged(s:Editable?) {} })
+        if (startDay) {
+            layout.addView(workMeterButton(this, "＋ Dodaj obiekt", WorkMeterButtonRole.PRIMARY) {
+                dialog.dismiss()
+                newForm("objects")
+                startAfterObjectSave = true
+            })
+        }
         layout.addView(searchRow)
         if(optional) layout.addView(makeButton("Bez obiektu") { dialog.dismiss(); selected(null) })
         if(arrival) {
@@ -2557,8 +2654,11 @@ class MainActivity : Activity() {
                 super.onMeasure(widthMeasureSpec,View.MeasureSpec.makeMeasureSpec(dp(240),View.MeasureSpec.AT_MOST))
             }
         }.apply { addView(results) },LinearLayout.LayoutParams(-1,-2))
-        renderResults(); dialog.show()
-        dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
+        renderResults()
+        if (startDay) query.requestFocus()
+        dialog.show()
+        dialog.window?.setSoftInputMode(if (startDay) WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE
+            else WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
     }
     private fun openScreen(target:String) {
         screen=target
@@ -2928,6 +3028,7 @@ class MainActivity : Activity() {
 
     private fun newForm(key:String,id:String="",objectId:String="",sendAfterSave:Boolean=false) {
         quickPhotoUpload=sendAfterSave
+        startAfterObjectSave = false
         formReturn=screen; formKind=key
         draft=if(id.isNotBlank()) JSONObject(rows(data(),key).find { it.optString("id")==id }?.toString() ?: "{}")
             else if(key=="objects") {
@@ -3191,7 +3292,14 @@ class MainActivity : Activity() {
         val send=quickPhotoUpload && formKind=="links" && arr(draft,"photos").length()>0
         val reference=formKind+":"+draft.optString("id")
         quickPhotoUpload=false
-        prefs.edit().remove("draft_"+formKind).apply(); openScreen(formReturn)
+        prefs.edit().remove("draft_"+formKind).apply()
+        if (formKind == "objects" && startAfterObjectSave) {
+            startAfterObjectSave = false
+            home()
+            startOnObject(draft)
+            return
+        }
+        openScreen(formReturn)
         if(send) { pendingUpload=reference; authorizeDrive() }
     }
     private fun pickPhotos() {

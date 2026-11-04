@@ -6,6 +6,7 @@ on:
       - feature/workmeter-ui
       - integration/workmeter-ui
       - fix/phone-feedback
+      - fix/workday-object-search
   workflow_dispatch:
 
 permissions:
