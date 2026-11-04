@@ -57,4 +57,37 @@ class GpsStatusContractTest {
         assertEquals(0,x.pendingProposalCount)
         assertNull(x.lastTrustedFixMs)
     }
+    @Test fun aPreviousSessionFixCannotMarkNewSessionActive() {
+        val x = contract.sessionSnapshot(true, true, true, true,
+            960_000L, 950_000L, 1_000_000L, null, "site", 2)
+        assertEquals(GpsStatusContract.Status.WAITING_FOR_FIX, x.status)
+        assertNull(x.lastTrustedFixMs)
+        assertNull(x.confirmedObjectId)
+        assertEquals(2, x.pendingProposalCount)
+    }
+
+    @Test fun currentSessionCanExposeFixTimeAndObjectWithoutCoordinates() {
+        val x = contract.sessionSnapshot(true, true, true, true,
+            940_000L, 950_000L, 1_000_000L, null, "site", 0)
+        assertEquals(GpsStatusContract.Status.ACTIVE, x.status)
+        assertEquals(950_000L, x.lastTrustedFixMs)
+        assertEquals("site", x.confirmedObjectId)
+    }
+
+    @Test fun closedDayHidesRuntimeErrorAndOldLocation() {
+        val x = contract.sessionSnapshot(true, false, true, true,
+            940_000L, 950_000L, 1_000_000L, "runtime", "site", 1)
+        assertEquals(GpsStatusContract.Status.OFF, x.status)
+        assertNull(x.diagnostics)
+        assertNull(x.lastTrustedFixMs)
+        assertNull(x.confirmedObjectId)
+        assertEquals(1, x.pendingProposalCount)
+    }
+
+    @Test fun futureSessionCannotReuseCheckpointAfterClockRollback() {
+        val x = contract.sessionSnapshot(true, true, true, true,
+            1_100_000L, 950_000L, 1_000_000L, null, "site", 0)
+        assertEquals(GpsStatusContract.Status.WAITING_FOR_FIX, x.status)
+        assertNull(x.lastTrustedFixMs)
+    }
 }

@@ -15,6 +15,25 @@ object GpsStatusContract {
         val pendingProposalCount:Int
     )
 
+    fun sessionSnapshot(
+        sessionActive: Boolean,
+        trackingAllowed: Boolean,
+        locationPermission: Boolean,
+        providerUsable: Boolean,
+        sessionStartMs: Long,
+        lastFixMs: Long,
+        nowMs: Long,
+        problem: String?,
+        confirmedObjectId: String?,
+        pendingProposalCount: Int
+    ): Snapshot {
+        val sessionCurrent = trackingAllowed && sessionActive && sessionStartMs in 1..nowMs
+        val sessionFix = lastFixMs.takeIf { sessionCurrent && it in sessionStartMs..nowMs } ?: 0L
+        return snapshot(sessionCurrent, trackingAllowed, locationPermission, providerUsable,
+            sessionFix, nowMs, problem.takeIf { trackingAllowed },
+            confirmedObjectId.takeIf { sessionFix > 0L }, pendingProposalCount)
+    }
+
     fun status(
         sessionActive:Boolean,
         trackingAllowed:Boolean,

@@ -41,7 +41,7 @@ class GpsTrackingService : Service(), LocationListener {
     private val watchdogTick=object:Runnable {
         override fun run() {
             when(GpsWatchdogLifecycleRules.onTick(
-                sessionStarted,prefs.getBoolean("gps_enabled",false))) {
+                sessionStarted,GpsWorkdaySession.shouldTrack(prefs))) {
                 GpsWatchdogLifecycleRules.Action.IGNORE -> return
                 GpsWatchdogLifecycleRules.Action.STOP -> {
                     trace("TRACKING_DISABLED_WATCHDOG")
@@ -144,6 +144,12 @@ class GpsTrackingService : Service(), LocationListener {
     }
     private fun trace(kind:String,now:Long=System.currentTimeMillis(),details:JSONObject=JSONObject()) =
         GpsTraceJournal.append(prefs,kind,now,details)
+    private fun provisionalRow(
+        kind: String, time: Long, eventId: String,
+        evidenceStart: Long? = null, tripId: String? = null
+    ): JSONObject = JSONObject(GpsEventContract.metadata(kind,time,evidenceStart,tripId))
+        .put("event",kind).put("time",time).put("eventId",eventId)
+
     private fun recordTripBoundary(now:Long=System.currentTimeMillis()) {
         val journal=try { JSONArray(prefs.getString("gps_trip_events","[]") ?: "[]") }
             catch(_:Exception) { JSONArray() }
@@ -154,7 +160,7 @@ class GpsTrackingService : Service(), LocationListener {
                     existing?.optString("event"),existing?.optLong("time") ?: 0L,
                     null,"GPS_GAP",now)
             }) return
-        journal.put(JSONObject().put("event","GPS_GAP").put("time",now).put("eventId",eventId))
+        journal.put(provisionalRow("GPS_GAP",now,eventId))
         val retained=JSONArray()
         for(i in maxOf(0,journal.length()-100) until journal.length()) retained.put(journal.opt(i))
         prefs.edit().putString("gps_trip_events",retained.toString()).apply()
@@ -179,7 +185,8 @@ class GpsTrackingService : Service(), LocationListener {
     private val sensorListener=object:SensorEventListener {
         override fun onAccuracyChanged(sensor:Sensor?,accuracy:Int) {}
         override fun onSensorChanged(event:SensorEvent) {
-            if(event.sensor.type!=Sensor.TYPE_ACCELEROMETER || !prefs.getBoolean("gps_enabled",false) ||
+            if(event.sensor.type!=Sensor.TYPE_ACCELEROMETER || !sessionStarted ||
+                !prefs.getBoolean("gps_enabled",false) ||
                 !prefs.getBoolean("gps_adaptive_sampling",false)) return
             val x=event.values[0].toDouble()
             val y=event.values[1].toDouble()
@@ -230,7 +237,7 @@ class GpsTrackingService : Service(), LocationListener {
     private val providerReceiver=object:BroadcastReceiver() {
         override fun onReceive(context:Context?,intent:Intent?) {
             if(intent?.action!=LocationManager.PROVIDERS_CHANGED_ACTION ||
-                !prefs.getBoolean("gps_enabled",false) ||
+                !GpsWorkdaySession.shouldTrack(prefs) ||
                 !prefs.getBoolean("gps_service_active",false)) return
             try { updateSubscription() }
             catch(_:SecurityException) {
@@ -266,6 +273,7 @@ class GpsTrackingService : Service(), LocationListener {
         }
     }
     private fun updateSubscription() {
+        if (!sessionStarted || !GpsWorkdaySession.shouldTrack(prefs)) return
         if(checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)!=PackageManager.PERMISSION_GRANTED &&
             checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)!=PackageManager.PERMISSION_GRANTED) {
             prefs.edit().putString("gps_service_problem","permission").apply()
@@ -339,7 +347,8 @@ class GpsTrackingService : Service(), LocationListener {
         if(intent?.action==ACTION_STOP) {
             GpsRecoveryMonitorWorker.cancel(this)
             trace("MANUAL_STOP")
-            prefs.edit().putBoolean("gps_enabled",false).apply()
+            prefs.edit().putBoolean(GpsWorkdaySession.CONSENT,false)
+                .putBoolean("gps_enabled",false).putBoolean("gps_resume_pending",false).apply()
             shutdown()
             return START_NOT_STICKY
         }
@@ -354,7 +363,7 @@ class GpsTrackingService : Service(), LocationListener {
             return START_NOT_STICKY
         }
         when(GpsStartPermissionRules.decide(
-            prefs.getBoolean("gps_enabled",false),
+            GpsWorkdaySession.shouldTrack(prefs),
             checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED,
             checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)==PackageManager.PERMISSION_GRANTED)) {
             GpsStartPermissionRules.Decision.STOP_DISABLED -> {
@@ -451,7 +460,7 @@ class GpsTrackingService : Service(), LocationListener {
         }.getOrDefault(false)
         if(!GpsWorkdayPolicy.shouldTrack(workdayOpen,prefs.getBoolean("gps_enabled",false))) { shutdown();return }
         when(GpsLocationCallbackRules.decide(
-            prefs.getBoolean("gps_enabled",false),
+            GpsWorkdaySession.shouldTrack(prefs),
             checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED,
             checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)==PackageManager.PERMISSION_GRANTED,
             GpsFixSourceRules.accept(currentProvider,location.provider,true))) {
@@ -465,6 +474,20 @@ class GpsTrackingService : Service(), LocationListener {
             GpsLocationCallbackRules.Action.IGNORE_SOURCE -> {
                 trace("REJECT_SOURCE",details=JSONObject()
                     .put("provider",location.provider ?: "").put("expected",currentProvider ?: ""))
+                return
+            }
+            GpsLocationCallbackRules.Action.OBSERVE_APPROXIMATE -> {
+                // Approximate fixes must not bridge precise motion or geofence dwell.
+                if (prefs.contains("gps_motion_point") || prefs.contains("gps_trip_state")) {
+                    recordTripBoundary()
+                    val arrival=try { JSONObject(prefs.getString("gps_arrival_state","{}") ?: "{}") }
+                        catch (_: org.json.JSONException) { JSONObject() }
+                    prefs.edit().remove("gps_motion_point").remove("gps_trip_state")
+                        .remove("gps_last_fix").remove("gps_last_source_fix_time")
+                        .putString("gps_arrival_state",JSONObject()
+                            .put("confirmed",arrival.optString("confirmed")).toString()).commit()
+                }
+                trace("APPROXIMATE_LOCATION")
                 return
             }
             GpsLocationCallbackRules.Action.PROCESS -> Unit
@@ -606,7 +629,11 @@ class GpsTrackingService : Service(), LocationListener {
             } catch(_:Exception) { }
         }
         val saved=try { JSONObject(prefs.getString("gps_arrival_state","{}") ?: "{}") } catch(_:Exception) { JSONObject() }
-        val confirmedId=saved.optString("confirmed").ifBlank { null }
+        val state=GpsArrivalRecoveryRules.afterPlacesChanged(GpsArrivalRules.State(
+            saved.optString("confirmed").ifBlank { null },
+            saved.optString("candidate").ifBlank { null },
+            saved.optLong("since"), saved.optLong("last")),places)
+        val confirmedId=state.confirmedId
         val zoneEvidence=GpsGeofenceEvidence.observe(point,places,confirmedId)
         val needsEvidence=zoneEvidence.status==GpsGeofenceEvidence.Status.UNCERTAIN ||
             zoneEvidence.placeId!=confirmedId
@@ -636,14 +663,10 @@ class GpsTrackingService : Service(), LocationListener {
         }
         trace("ZONE",now,JSONObject()
             .put("status",zoneEvidence.status.name).put("observed",zoneEvidence.placeId ?: "")
-            .put("confirmed",confirmedId ?: "").put("candidate",saved.optString("candidate"))
-            .put("candidateSince",saved.optLong("since")).put("distanceToConfirmedM",distanceToConfirmed)
+            .put("confirmed",confirmedId ?: "").put("candidate",state.candidateId ?: "")
+            .put("candidateSince",state.candidateSinceMs).put("distanceToConfirmedM",distanceToConfirmed)
             .put("accuracyM",point.accuracyM).put("configuredObjects",places.size))
         val observed=zoneEvidence.placeId
-        val state=GpsArrivalRules.State(
-            saved.optString("confirmed").ifBlank { null },
-            saved.optString("candidate").ifBlank { null },
-            saved.optLong("since"), saved.optLong("last"))
         // Inaccurate border fixes cannot count as a confirmed departure.
         val decision=if(zoneEvidence.status==GpsGeofenceEvidence.Status.UNCERTAIN)
             GpsArrivalRules.uncertain(state,now)
@@ -669,8 +692,8 @@ class GpsTrackingService : Service(), LocationListener {
                     GpsEventIdentity.sameEvent(existing?.optString("eventId"),
                         existing?.optString("event"),existing?.optLong("time") ?: 0L,
                         existing?.optString("objectId"),decision.event,now,decision.placeId)
-                }) history.put(JSONObject().put("event",decision.event)
-                .put("objectId",decision.placeId ?: "").put("time",now).put("eventId",eventId))
+                }) history.put(provisionalRow(decision.event,now,eventId,state.candidateSinceMs)
+                .put("objectId",decision.placeId ?: ""))
             val limited=JSONArray()
             for(i in maxOf(0,history.length()-100) until history.length()) limited.put(history.opt(i))
             editor.putString("gps_events",limited.toString())
@@ -719,7 +742,14 @@ class GpsTrackingService : Service(), LocationListener {
                     previousPoint.longitude,point.latitude,point.longitude))
                 .put("deltaMs",now-lastTime))
             val t=transition.state
+            val previousTripId=previousState.optString("tripId").takeIf { it.isNotBlank() }
+            val currentTripId=when {
+                transition.event=="TRIP_START" -> GpsEventIdentity.id("TRIP_START",now)
+                t.mode==GpsTripRules.Mode.MOVING -> previousTripId
+                else -> null
+            }
             val motionEditor=prefs.edit().putString("gps_trip_state",JSONObject()
+                .put("tripId",currentTripId)
                 .put("mode",t.mode.name).put("candidate",t.candidate.name)
                 .put("candidateSince",t.candidateSinceMs).put("last",t.lastFixMs)
                 .put("stoppedSince",t.stoppedSinceMs).put("longStopReported",t.longStopReported).toString())
@@ -732,8 +762,9 @@ class GpsTrackingService : Service(), LocationListener {
                         GpsEventIdentity.sameEvent(existing?.optString("eventId"),
                             existing?.optString("event"),existing?.optLong("time") ?: 0L,
                             null,transition.event,now)
-                    }) journal.put(JSONObject().put("event",transition.event)
-                    .put("time",now).put("eventId",eventId))
+                    }) journal.put(provisionalRow(transition.event,now,eventId,
+                    tripState.candidateSinceMs.takeIf { transition.event!="LONG_STOP" },
+                    if (transition.event=="TRIP_STOP") previousTripId else currentTripId))
                 val recent=JSONArray()
                 for(i in maxOf(0,journal.length()-100) until journal.length()) recent.put(journal.opt(i))
                 motionEditor.putString("gps_trip_events",recent.toString())
@@ -781,6 +812,7 @@ class GpsTrackingService : Service(), LocationListener {
         }
     }
     private fun shutdown() {
+        if (!GpsWorkdaySession.shouldTrack(prefs)) GpsRecoveryMonitorWorker.cancel(this)
         watchdogHandler.removeCallbacks(watchdogTick)
         if(sessionStarted) { trace("SERVICE_STOP"); recordTripBoundary(); sessionStarted=false }
         stopMotionSensor()
