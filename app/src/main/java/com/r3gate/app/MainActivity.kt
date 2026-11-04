@@ -310,7 +310,7 @@ class MainActivity : Activity() {
         val frame=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setBackgroundColor(palette.header) }
         val top=View(this); frame.addView(top,LinearLayout.LayoutParams(-1,0))
         val header=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; gravity=Gravity.CENTER_VERTICAL; setPadding(dp(16),0,dp(8),0); setBackgroundColor(palette.header) }
-        header.addView(TextView(this).apply { text=title; textSize=27f; gravity=Gravity.CENTER_VERTICAL; setTextColor(palette.onHeader); setTypeface(resources.getFont(R.font.clash_grotesk),android.graphics.Typeface.BOLD) },LinearLayout.LayoutParams(0,dp(56),1f).apply { gravity=Gravity.CENTER_VERTICAL })
+        header.addView(TextView(this).apply { text=title; textSize=27f; minimumHeight=dp(56); gravity=Gravity.CENTER_VERTICAL; setTextColor(palette.onHeader); setTypeface(resources.getFont(R.font.clash_grotesk),android.graphics.Typeface.BOLD) },LinearLayout.LayoutParams(0,-2,1f).apply { gravity=Gravity.CENTER_VERTICAL })
         if(title=="WorkMeter") header.addView(TextView(this).apply {
             text="SOLO"
             textSize=11f
@@ -323,7 +323,7 @@ class MainActivity : Activity() {
             background=android.graphics.drawable.ColorDrawable(Color.TRANSPARENT); backgroundTintList=null; setPadding(0,0,0,0)
             setOnClickListener { settings() }
         },LinearLayout.LayoutParams(dp(48),dp(48)))
-        frame.addView(header,LinearLayout.LayoutParams(-1,dp(56)))
+        frame.addView(header,LinearLayout.LayoutParams(-1,-2))
         val scroll=ScrollView(this).apply { setBackgroundColor(palette.background); isFillViewport=true }
         root=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(dp(16),dp(12),dp(16),dp(24)); isFocusableInTouchMode=true; descendantFocusability=ViewGroup.FOCUS_BEFORE_DESCENDANTS }
         scroll.addView(root,FrameLayout.LayoutParams(-1,-2))
@@ -532,14 +532,13 @@ class MainActivity : Activity() {
             elevation=dp(2).toFloat()
         }
         val header=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL }
-        header.addView(text("TWÓJ DZIEŃ",12f,0xFFD4E0E4.toInt(),true),LinearLayout.LayoutParams(0,-2,1f))
+        header.addView(text("TWÓJ DZIEŃ",12f,palette.onHeader,true),LinearLayout.LayoutParams(0,-2,1f))
         val status=when { privateMode -> "PRYWATNIE";a!=null -> "DZIEŃ OTWARTY";else -> "DZIEŃ ZAMKNIĘTY" }
-        val statusColor=when { privateMode -> 0xFFFFC88F.toInt();a!=null -> 0xFF6EE0AD.toInt();else -> 0xFFD3DBDF.toInt() }
-        header.addView(text(status,12f,statusColor,true))
+        header.addView(text(status,12f,palette.onHeader,true))
         hero.addView(header)
         hero.addView(text(shown?.let {
             duration((if(a!=null) now else it.optLong("end"))-it.optLong("start"))
-        } ?: "00:00",44f,Color.WHITE,true),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(14) })
+        } ?: "00:00",44f,palette.onHeader,true),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(14) })
         hero.addView(text(
             when {
                 privateMode -> "Czas prywatny"
@@ -547,13 +546,13 @@ class MainActivity : Activity() {
                 a.optString("kind")=="Przejazd" -> "W drodze"
                 a.optString("kind")=="Zakupy" -> "Zakupy"
                 else -> a.optString("object").takeIf { state == WorkMeterHomeState.ON_SITE && it.isNotBlank() } ?: "Nie przypisano obiektu"
-            },16f,Color.WHITE,true),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(5) })
+            },16f,palette.onHeader,true),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(5) })
         hero.addView(text(
             "Rozpoczęcie: "+(shown?.let { fmt.format(Date(it.optLong("start"))) } ?: "—"),
-            12f,0xFFD5E1E5.toInt()),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(7) })
+            12f,palette.onHeader),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(7) })
         if(a==null && recent!=null) hero.addView(text(
             "Zakończenie: "+fmt.format(Date(recent.optLong("end"))),
-            12f,0xFFD5E1E5.toInt()),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(2) })
+            12f,palette.onHeader),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(2) })
         if (a != null) hero.addView(text(
             "Czas etapu: " + duration(WorkMeterHomeState.stageElapsed(now, a.optLong("start"), a.optLong("stageStart"))),
             13f,palette.onHeader,true),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(9) })
@@ -656,11 +655,11 @@ class MainActivity : Activity() {
         val banner=TextView(this).apply {
             text="WORKMETER · SOLO\nWSZYSTKIE FUNKCJE · P1–P4"
             textSize=13f
-            setTextColor(0xFF2E725D.toInt())
+            setTextColor(palette.onHeader)
             setTypeface(null,android.graphics.Typeface.BOLD)
             setPadding(dp(14),dp(12),dp(14),dp(12))
             background=GradientDrawable().apply {
-                setColor(0xFFE1F2EB.toInt())
+                setColor(palette.header)
                 cornerRadius=dp(13).toFloat()
             }
         }
@@ -687,12 +686,12 @@ class MainActivity : Activity() {
                     textSize=13f
                     gravity=Gravity.CENTER_VERTICAL or Gravity.START
                     minHeight=dp(62); minimumHeight=dp(62)
-                    setTextColor(0xFF344953.toInt())
+                    setTextColor(palette.textPrimary)
                     setPadding(dp(14),dp(10),dp(12),dp(10))
                     background=GradientDrawable().apply {
-                        setColor(Color.WHITE)
+                        setColor(palette.surface)
                         cornerRadius=dp(13).toFloat()
-                        setStroke(dp(1),0xFFE2E9EC.toInt())
+                        setStroke(dp(1),palette.border)
                     }
                 },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(7) })
             }
@@ -1799,7 +1798,7 @@ class MainActivity : Activity() {
             for(obj in matches) results.addView(makeButton(objectName(obj)) { dialog.dismiss(); selected(obj) },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(6) })
             if(matches.isEmpty()) results.addView(TextView(this).apply { text="Brak obiektów dla tego miasta"; setTextColor(palette.textPrimary); setPadding(0,dp(12),0,dp(12)) })
         }
-        searchRow.addView(makeButton("⌕") { renderResults(); (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(query.windowToken,0) }.apply { contentDescription="Szukaj"; textSize=24f; background=background(0xFF37474F.toInt()); setTextColor(Color.WHITE) },LinearLayout.LayoutParams(dp(48),dp(48)))
+        searchRow.addView(makeButton("⌕") { renderResults(); (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(query.windowToken,0) }.apply { contentDescription="Szukaj"; textSize=24f; background=background(palette.primary); setTextColor(palette.onPrimary) },LinearLayout.LayoutParams(dp(48),dp(48)))
         query.setOnEditorActionListener { _,action,_ -> if(action==android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) { renderResults(); true } else false }
         query.addTextChangedListener(object:TextWatcher { override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int) {} ; override fun onTextChanged(s:CharSequence?,start:Int,before:Int,count:Int) { renderResults() }; override fun afterTextChanged(s:Editable?) {} })
         layout.addView(searchRow)
@@ -2246,12 +2245,12 @@ class MainActivity : Activity() {
                     field("Treść (opcjonalnie, gdy dodajesz zdjęcie)","text",true)
                     root.addView(CheckBox(this).apply {
                         text="Zakupy / paragon"; setTextColor(palette.textPrimary)
-                        buttonTintList=android.content.res.ColorStateList.valueOf(0xFFFF5C5C.toInt())
+                        buttonTintList=android.content.res.ColorStateList.valueOf(palette.accentText)
                         isChecked=draft.optBoolean("shopping")
                         setOnCheckedChangeListener { _,checked -> draft.put("shopping",checked) }
                     })
                     root.addView(CheckBox(this).apply {
-                        setTextColor(palette.textPrimary); buttonTintList=android.content.res.ColorStateList.valueOf(0xFFFF5C5C.toInt())
+                        setTextColor(palette.textPrimary); buttonTintList=android.content.res.ColorStateList.valueOf(palette.accentText)
                         text="Aktualna"; isChecked=draft.optBoolean("aktualne")
                         setOnCheckedChangeListener { _,checked -> draft.put("aktualne",checked); if(checked) draft.put("done",false) }
                     })
