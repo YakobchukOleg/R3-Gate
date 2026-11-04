@@ -28,4 +28,8 @@ class GpsWorkdaySessionTest {
         assertFalse(GpsWorkdaySession.shouldTrack(true, true, false))
         assertTrue(GpsWorkdaySession.shouldTrack(true, true, true))
     }
+
+    @Test fun privateTimeRejectsTrackingEvenWithStaleEnabledFlags() {
+        assertFalse(GpsWorkdaySession.shouldTrack(true,true,true,privateTime = true))
+    }
 }

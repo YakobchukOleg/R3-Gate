@@ -10,14 +10,17 @@ object GpsWorkdaySession {
     fun hasConsent(savedConsent: Boolean?, legacyEnabled: Boolean, resumePending: Boolean): Boolean =
         savedConsent ?: (legacyEnabled || resumePending)
 
-    fun shouldTrack(workdayOpen: Boolean, consent: Boolean, sessionEnabled: Boolean): Boolean =
-        workdayOpen && consent && sessionEnabled
+    fun shouldTrack(
+        workdayOpen: Boolean, consent: Boolean, sessionEnabled: Boolean, privateTime: Boolean = false
+    ): Boolean = workdayOpen && consent && sessionEnabled && !privateTime
 
-    fun workdayOpen(prefs: SharedPreferences): Boolean = try {
-        JSONObject(prefs.getString("data", "{}") ?: "{}").optJSONObject("active") != null
+    private fun activeShift(prefs: SharedPreferences): JSONObject? = try {
+        JSONObject(prefs.getString("data", "{}") ?: "{}").optJSONObject("active")
     } catch (_: org.json.JSONException) {
-        false
+        null
     }
+
+    fun workdayOpen(prefs: SharedPreferences): Boolean = activeShift(prefs) != null
 
     fun hasConsent(prefs: SharedPreferences): Boolean = hasConsent(
         if (prefs.contains(CONSENT)) prefs.getBoolean(CONSENT, false) else null,
@@ -25,7 +28,9 @@ object GpsWorkdaySession {
         prefs.getBoolean("gps_resume_pending", false)
     )
 
-    fun shouldTrack(prefs: SharedPreferences): Boolean = shouldTrack(
-        workdayOpen(prefs), hasConsent(prefs), prefs.getBoolean("gps_enabled", false)
-    )
+    fun shouldTrack(prefs: SharedPreferences): Boolean {
+        val active = activeShift(prefs) ?: return false
+        return shouldTrack(true, hasConsent(prefs), prefs.getBoolean("gps_enabled", false),
+            active.optString("kind") == PrivateTimeRules.KIND)
+    }
 }

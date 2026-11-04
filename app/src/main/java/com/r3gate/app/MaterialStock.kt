@@ -4,6 +4,15 @@ import java.math.BigDecimal
 
 object MaterialStock {
     data class Entry(val id:String,val name:String,val unit:String,val quantity:BigDecimal,val car:Boolean,val sourceId:String="")
+    data class Draft(val name: String, val quantity: String, val unit: String)
+
+    fun validateDraft(name: String, quantity: String, unit: String): Draft? {
+        val cleanName = name.trim()
+        if (cleanName.isEmpty()) return null
+        val amount = DomainRules.quantity(quantity, unit) ?: return null
+        return Draft(cleanName, amount.toPlainString(), unit)
+    }
+
     fun remaining(source:Entry,entries:List<Entry>):BigDecimal = source.quantity-entries.filter { it.sourceId==source.id }.fold(BigDecimal.ZERO) { total,row -> total+row.quantity }
     fun valid(entries:List<Entry>):Boolean {
         if(entries.map { it.id }.distinct().size!=entries.size) return false

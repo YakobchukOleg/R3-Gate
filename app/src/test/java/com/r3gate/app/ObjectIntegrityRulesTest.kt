@@ -1,0 +1,97 @@
+package com.r3gate.app
+
+import org.junit.Assert.*
+import org.junit.Test
+
+class ObjectIntegrityRulesTest {
+    private val active = ObjectIntegrityRules.ObjectRef("obj-1")
+    private val archived = ObjectIntegrityRules.ObjectRef("obj-2", archived = true)
+    private val objects = listOf(active, archived)
+
+    @Test fun newObjectIdsMustBeNonEmptyAndUnique() {
+        assertFalse(ObjectIntegrityRules.validateNewId("", objects))
+        assertFalse(ObjectIntegrityRules.validateNewId("obj-1", objects))
+        assertFalse(ObjectIntegrityRules.validateNewId("obj-2", objects))
+        assertTrue(ObjectIntegrityRules.validateNewId("obj-3", objects))
+    }
+
+    @Test fun archivedObjectCannotReceiveNewAssignments() {
+        assertTrue(ObjectIntegrityRules.canAssign("obj-1", objects))
+        assertFalse(ObjectIntegrityRules.canAssign("obj-2", objects))
+        assertFalse(ObjectIntegrityRules.canAssign("unknown", objects))
+    }
+
+    @Test fun archivedObjectRemainsAvailableForHistoricalRecords() {
+        assertTrue(ObjectIntegrityRules.canResolveHistory("obj-2", objects))
+        assertFalse(ObjectIntegrityRules.canResolveHistory("", objects))
+        assertFalse(ObjectIntegrityRules.canResolveHistory("missing", objects))
+    }
+
+    @Test fun referencesPreventDestructiveDeletionAcrossAllRecordTypes() {
+        val linked = ObjectIntegrityRules.RecordRef("obj-1")
+        val examples = listOf(
+            ObjectIntegrityRules.References(shifts = listOf(linked)),
+            ObjectIntegrityRules.References(stages = listOf(linked)),
+            ObjectIntegrityRules.References(materials = listOf(linked)),
+            ObjectIntegrityRules.References(photos = listOf(linked)),
+            ObjectIntegrityRules.References(notes = listOf(linked))
+        )
+        examples.forEach { assertFalse(ObjectIntegrityRules.canHardDelete("obj-1", objects, it)) }
+        assertTrue(ObjectIntegrityRules.canHardDelete("obj-1", objects, ObjectIntegrityRules.References()))
+        assertFalse(ObjectIntegrityRules.canHardDelete("missing", objects, ObjectIntegrityRules.References()))
+    }
+
+    @Test fun referencesToOtherObjectsDoNotBlockDeletion() {
+        val references = ObjectIntegrityRules.References(
+            shifts = listOf(ObjectIntegrityRules.RecordRef("obj-2")),
+            materials = listOf(ObjectIntegrityRules.RecordRef("obj-2"))
+        )
+        assertEquals(0, references.countFor("obj-1"))
+        assertTrue(ObjectIntegrityRules.canHardDelete("obj-1", objects, references))
+    }
+    @Test fun legacyArchivedAndMissingAssignmentsAreRetainedWithoutReassignment() {
+        assertTrue(ObjectIntegrityRules.canSaveAssignment("obj-2", "obj-2", objects))
+        assertTrue(ObjectIntegrityRules.canSaveAssignment("deleted-legacy", "deleted-legacy", objects))
+        assertFalse(ObjectIntegrityRules.canSaveAssignment("obj-2", "obj-1", objects))
+        assertFalse(ObjectIntegrityRules.canSaveAssignment("deleted-legacy", "obj-1", objects))
+    }
+
+    @Test fun newAssignmentsRequireActiveObjectsAndOptionalRecordsCanBeUnlinked() {
+        assertTrue(ObjectIntegrityRules.canSaveAssignment("obj-1", null, objects))
+        assertFalse(ObjectIntegrityRules.canSaveAssignment("obj-2", null, objects))
+        assertFalse(ObjectIntegrityRules.canSaveAssignment("unknown", null, objects))
+        assertTrue(ObjectIntegrityRules.canSaveAssignment("", "obj-2", objects))
+    }
+
+    @Test fun changingAnArchivedAssociationToAnActiveObjectIsAllowed() {
+        assertTrue(ObjectIntegrityRules.canSaveAssignment("obj-1", "obj-2", objects))
+        assertTrue(ObjectIntegrityRules.canSaveAssignment("obj-1", "missing-legacy", objects))
+    }
+    @Test fun carStockMustNotPointToAnObject() {
+        assertTrue(ObjectIntegrityRules.canSaveMaterialAssignment("car", "", null, objects))
+        assertFalse(ObjectIntegrityRules.canSaveMaterialAssignment("car", "obj-1", null, objects))
+    }
+
+    @Test fun objectMaterialRequiresAnActiveDestinationExceptLegacyUnchanged() {
+        assertFalse(ObjectIntegrityRules.canSaveMaterialAssignment("object", "", null, objects))
+        assertTrue(ObjectIntegrityRules.canSaveMaterialAssignment("object", "obj-1", null, objects))
+        assertFalse(ObjectIntegrityRules.canSaveMaterialAssignment("object", "obj-2", null, objects))
+        assertTrue(ObjectIntegrityRules.canSaveMaterialAssignment("object", "obj-2", "obj-2", objects))
+        assertTrue(ObjectIntegrityRules.canSaveMaterialAssignment("object", "missing", "missing", objects))
+        assertFalse(ObjectIntegrityRules.canSaveMaterialAssignment("object", "missing", "obj-1", objects))
+    }
+    @Test fun photoRecordsRequireMediaAndAnObject() {
+        assertFalse(ObjectIntegrityRules.canSavePhotoEntry(0, "", "obj-1", null, objects))
+        assertTrue(ObjectIntegrityRules.canSavePhotoEntry(1, "", "obj-1", null, objects))
+        assertTrue(ObjectIntegrityRules.canSavePhotoEntry(0, "https://drive.google.com/file/d/example", "obj-1", null, objects))
+        assertFalse(ObjectIntegrityRules.canSavePhotoEntry(1, "", "", null, objects))
+    }
+
+    @Test fun photoHistorySurvivesArchivingAndLegacyMissingObjects() {
+        assertTrue(ObjectIntegrityRules.canSavePhotoEntry(1, "", "obj-2", "obj-2", objects))
+        assertTrue(ObjectIntegrityRules.canSavePhotoEntry(1, "", "legacy-missing", "legacy-missing", objects))
+        assertFalse(ObjectIntegrityRules.canSavePhotoEntry(1, "", "obj-2", null, objects))
+        assertFalse(ObjectIntegrityRules.canSavePhotoEntry(1, "", "legacy-missing", "obj-1", objects))
+        assertTrue(ObjectIntegrityRules.canSavePhotoEntry(1, "", "obj-1", "obj-2", objects))
+    }
+}

@@ -8,10 +8,11 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: android-main
+  group: ${{ github.head_ref == 'feature/workmeter-core' && 'android-core-pr' || 'android-main' }}
   cancel-in-progress: true
 jobs:
   build:
+    if: github.head_ref != 'feature/workmeter-core'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:

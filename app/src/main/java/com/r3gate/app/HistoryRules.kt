@@ -1,9 +1,26 @@
 package com.r3gate.app
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 
 object HistoryRules {
     data class Slice(val day:String,val start:Long,val end:Long)
+    fun uniqueRecordIndex(ids: List<String?>, id: String): Int? {
+        if (id.isBlank()) return null
+        return ids.indices.singleOrNull { ids[it] == id }
+    }
+
+    fun slicesInRange(
+        start: Long, end: Long, from: LocalDate, to: LocalDate, zone: ZoneId
+    ): List<Slice> {
+        if (to < from || !WorkShiftIntegrity.isValid(start, end)) return emptyList()
+        val lower = from.atStartOfDay(zone).toInstant().toEpochMilli()
+        val upper = to.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        val clippedStart = maxOf(start, lower)
+        val clippedEnd = minOf(end, upper)
+        return if (clippedEnd > clippedStart) slices(clippedStart, clippedEnd, zone) else emptyList()
+    }
+
     fun slices(start:Long,end:Long,zone:ZoneId):List<Slice> {
         if(end<=start) return listOf(Slice(Instant.ofEpochMilli(start).atZone(zone).toLocalDate().toString(),start,start))
         val result=mutableListOf<Slice>(); var cursor=start

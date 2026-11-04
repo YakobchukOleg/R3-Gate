@@ -102,6 +102,7 @@ class MainActivity : Activity() {
         pendingUpload = savedInstanceState?.getString("pendingUpload") ?: ""
         if (savedInstanceState != null && prefs.contains("pin") &&
             intent?.getStringExtra("widget_action")==null &&
+            intent?.getStringExtra(CoreGpsStageBridge.INTENT_EVENT)==null &&
             intent?.getBooleanExtra("gps_resume_alert",false)!=true) {
             smsParent = savedInstanceState.getString("smsParent") ?: "settings"
             smsFrom = savedInstanceState.getString("smsFrom")?.let { LocalDate.parse(it) }
@@ -124,6 +125,7 @@ class MainActivity : Activity() {
         prefs.registerOnSharedPreferenceChangeListener(uploadChanges)
         ticker.removeCallbacks(tick)
         ticker.postDelayed(tick,60000)
+        CoreGpsStageBridge.refresh(this)
         // Refresh the GPS arrival affordance after returning from another app.
         if(::root.isInitialized && screen=="home") home()
     }
@@ -163,6 +165,9 @@ class MainActivity : Activity() {
         val gpsResumeAlert=intent?.getBooleanExtra("gps_resume_alert",false)==true
         intent?.removeExtra("gps_resume_alert")
         home()
+        val gpsProposal=intent?.getStringExtra(CoreGpsStageBridge.INTENT_EVENT)
+        intent?.removeExtra(CoreGpsStageBridge.INTENT_EVENT)
+        if(!gpsProposal.isNullOrBlank()) { reviewGpsStageProposal(gpsProposal); return }
         if(gpsResumeAlert) { gpsScreen(); return }
         val uploadReference=intent?.getStringExtra("upload_retry")
         intent?.removeExtra("upload_retry")
@@ -176,13 +181,237 @@ class MainActivity : Activity() {
             "shopping" -> toggleShopping()
         }
     }
+    private fun activeObjectIds(d: JSONObject): Set<String> =
+        ObjectIntegrityRules.assignableIds(rows(d,"objects").map {
+            ObjectIntegrityRules.ObjectRef(it.optString("id"),it.optBoolean("archived"))
+        })
+
+    /** Recovery entry point when a lock-screen notification was dismissed. */
+    private fun pendingGpsStageEventId(d: JSONObject, nowMs: Long): String? {
+        val running=active(d) ?: return null
+        val saved=(CoreGpsProposalStore.read(AndroidCoreGpsProposalStorage(this)) as?
+            CoreGpsProposalStore.ReadResult.Success)?.events ?: return null
+        val activeIds=activeObjectIds(d)
+        val shift=CoreGpsStageRules.Shift(true,running.optString("kind","Obiekt"),
+            running.optString("objectId"))
+        val stageStart=maxOf(running.optLong("start"),
+            running.optLong("stageStart",running.optLong("start")))
+        return CoreGpsStageReviewQueue.choose(saved,shift,activeIds,stageStart,nowMs)
+            .event?.takeIf {
+                CoreGpsStageBridge.hasContinuousCoverage(this,it.timestampMs,nowMs) &&
+                    CoreGpsStageBridge.hasJournalEvidence(this,it)
+            }
+            ?.eventId
+    }
+
+    private fun reviewGpsStageProposal(eventId: String) {
+        val storage=AndroidCoreGpsProposalStorage(this)
+        val current=CoreGpsProposalStore.read(storage) as? CoreGpsProposalStore.ReadResult.Success ?: return
+        val event=current.events.find { it.eventId==eventId &&
+            it.decision==CoreGpsProposalInbox.Decision.PROVISIONAL } ?: return
+        val d=data(); val running=active(d) ?: return
+        val activeIds=activeObjectIds(d)
+        val shift=CoreGpsStageRules.Shift(true,running.optString("kind","Obiekt"),running.optString("objectId"))
+        val stageStart=maxOf(running.optLong("start"),running.optLong("stageStart",running.optLong("start")))
+        if(!CoreGpsStageReviewQueue.isCurrent(eventId,current.events,shift,activeIds,
+                stageStart,System.currentTimeMillis()) ||
+            (!CoreGpsStageBridge.hasContinuousCoverage(this,event.timestampMs,System.currentTimeMillis()) ||
+                !CoreGpsStageBridge.hasJournalEvidence(this,event))) return
+        val obj=rows(d,"objects").find { it.optString("id")==event.objectId } ?: return
+        val stage=CoreGpsStageRules.proposal(event.kind,event.objectId,shift,activeIds) ?: return
+        val arriving = stage == CoreGpsStageRules.Proposal.ARRIVE_OBJECT
+        val shiftId = running.optString("id")
+        var destinationId = if (arriving) event.objectId else null
+        var destinationName = objectName(obj)
+        var correctedTime: Long? = null
+        val zone = ZoneId.systemDefault()
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(8), dp(16), dp(8))
+        }
+        val time = Button(this)
+        fun updateTime() {
+            time.text = correctedTime?.let { "Godzina zmiany: " + fmt.format(Date(it)) }
+                ?: "Godzina zmiany: chwila potwierdzenia"
+        }
+        updateTime()
+        time.setOnClickListener {
+            val selected = Instant.ofEpochMilli(correctedTime ?: event.timestampMs).atZone(zone)
+            AlertDialog.Builder(this, R.style.WorkMeterDialogTheme).setTitle("Godzina zmiany")
+                .setItems(arrayOf("Chwila potwierdzenia", "Godzina GPS", "Wybierz datę i godzinę")) { _, index ->
+                    when (index) {
+                        0 -> { correctedTime = null; updateTime() }
+                        1 -> { correctedTime = event.timestampMs; updateTime() }
+                        else -> pickReportDate(selected.toLocalDate()) { date ->
+                            TimePickerDialog(this, { _, hour, minute ->
+                                val local = date.atTime(hour, minute)
+                                val resolved = WorkShiftIntegrity.resolveEditTime(local, zone, selected.toInstant().toEpochMilli())
+                                if (resolved == null) toast("Wybrana godzina nie istnieje w tej strefie czasowej")
+                                else { correctedTime = resolved; updateTime() }
+                            }, selected.hour, selected.minute, true).show()
+                        }
+                    }
+                }.show()
+        }
+        layout.addView(time)
+        if (arriving) layout.addView(Button(this).apply {
+            text = "Miejsce: $destinationName"
+            setOnClickListener {
+                chooseObject(false) { place ->
+                    if (place != null) {
+                        destinationId = place.optString("id")
+                        destinationName = objectName(place)
+                        text = "Miejsce: $destinationName"
+                    }
+                }
+            }
+        })
+        val dialog = AlertDialog.Builder(this,R.style.WorkMeterDialogTheme)
+            .setTitle(if(arriving) "Potwierdzić przyjazd?" else "Rozpocząć przejazd?")
+            .setMessage((if(arriving) "GPS wykrył przyjazd: " else "GPS wykrył wyjazd z: ") + objectName(obj))
+            .setView(layout)
+            .setNegativeButton("Odrzuć") { _,_ ->
+                CoreGpsProposalStore.decide(storage,eventId,CoreGpsProposalInbox.Decision.USER_REJECTED)
+                CoreGpsStageBridge.dismiss(this)
+            }.setNeutralButton("Później", null).setPositiveButton("Potwierdź", null).create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val latest=data()
+                val nowActive=active(latest) ?: return@setOnClickListener
+                val available=activeObjectIds(latest)
+                val currentShift=CoreGpsStageRules.Shift(true,nowActive.optString("kind","Obiekt"),
+                    nowActive.optString("objectId"))
+                val latestEvents=(CoreGpsProposalStore.read(storage) as?
+                    CoreGpsProposalStore.ReadResult.Success)?.events ?: return@setOnClickListener
+                val latestStageStart=maxOf(nowActive.optLong("start"),
+                    nowActive.optLong("stageStart",nowActive.optLong("start")))
+                val now=System.currentTimeMillis()
+                if(nowActive.optString("id")!=shiftId || currentShift!=shift || latestStageStart!=stageStart ||
+                    latestEvents.none { it == event } ||
+                    !CoreGpsStageReviewQueue.isCurrent(eventId,latestEvents,currentShift,available,latestStageStart,now) ||
+                    !CoreGpsStageBridge.hasContinuousCoverage(this,event.timestampMs,now) ||
+                    !CoreGpsStageBridge.hasJournalEvidence(this,event)) {
+                    toast("Propozycja jest już nieaktualna"); return@setOnClickListener
+                }
+                val transitionTime=correctedTime ?: now
+                val recorded=(rows(nowActive,"stages") + rows(latest,"shifts")).map(::stageInterval)
+                if(!CoreGpsStageRules.canConfirmCorrection(stage,destinationId,available,
+                        latestStageStart,transitionTime,now,recorded)) {
+                    toast("Sprawdź godzinę i miejsce. Etap nie może nakładać się na zapisany czas.")
+                    return@setOnClickListener
+                }
+                if(!arriving) {
+                    closeStage(nowActive,transitionTime)
+                    val origin=nowActive.optString("object")
+                    nowActive.put("stageStart",transitionTime).put("kind","Przejazd")
+                        .put("object","").put("objectId","")
+                        .put("stageMeta",JSONObject().put("fromObject",origin).put("fromObjectId",event.objectId))
+                } else {
+                    val selected=rows(latest,"objects").singleOrNull { it.optString("id")==destinationId }
+                        ?: return@setOnClickListener
+                    val name=objectName(selected)
+                    nowActive.optJSONObject("stageMeta")?.put("toObject",name)?.put("toObjectId",destinationId)
+                    closeStage(nowActive,transitionTime)
+                    nowActive.remove("stageMeta")
+                    nowActive.put("stageStart",transitionTime).put("kind",workStageFor(selected))
+                        .put("object",name).put("objectId",destinationId)
+                }
+                // Commit the confirmed stage and reviewed proposal in the same durable write.
+                // A process death cannot leave the work stage applied but the event pending.
+                val marked=CoreGpsProposalInbox.decide(latestEvents,eventId,
+                    CoreGpsProposalInbox.Decision.USER_CONFIRMED)
+                arr(latest,"logs").put(JSONObject().put("at",fmt.format(Date()))
+                    .put("type","GPS_STAGE_CONFIRMED").put("detail",eventId)
+                    .put("transitionTimeMs",transitionTime).put("destinationId",destinationId))
+                if(!prefs.edit().putString("data",latest.toString())
+                    .putString(CoreGpsProposalStore.KEY,CoreGpsProposalStore.encode(marked))
+                    .commit()) {
+                    toast("Nie zapisano zmiany etapu, spróbuj ponownie")
+                    return@setOnClickListener
+                }
+                GateWidget.refresh(this)
+                CoreGpsStageBridge.dismiss(this)
+                dialog.dismiss()
+                home()
+            }
+        }
+        dialog.show()
+    }
     private fun data(): JSONObject = try { JSONObject(prefs.getString("data","{}")!!) } catch (_: Exception) { JSONObject() }
     private fun arr(d:JSONObject,key:String):JSONArray = d.optJSONArray(key) ?: JSONArray().also { d.put(key,it) }
     private fun save(d:JSONObject, kind:String, detail:String) {
         val log=arr(d,"logs"); log.put(JSONObject().put("at",fmt.format(Date())).put("type",kind).put("detail",detail)); d.put("logs",log)
         prefs.edit().putString("data",d.toString()).apply(); GateWidget.refresh(this)
+        if(kind=="START" || kind=="STOP" || kind=="STAGE" || kind=="ARRIVAL")
+            CoreGpsStageBridge.dismiss(this)
     }
     private fun active(d:JSONObject):JSONObject? = d.optJSONObject("active")
+    private fun privateIntervals(
+        shift: JSONObject,
+        until: Long = shift.optLong("end", System.currentTimeMillis())
+    ): List<PrivateTimeRules.Interval> {
+        val finished = rows(shift, "stages").filter { it.optString("kind") == PrivateTimeRules.KIND }
+            .map { PrivateTimeRules.Interval(it.optLong("start", -1L), it.optLong("end")) }
+        if (shift.has("end") || shift.optString("kind") != PrivateTimeRules.KIND) return finished
+        return finished + PrivateTimeRules.Interval(shift.optLong("stageStart", until), until)
+    }
+
+    private fun workedMillis(
+        shift: JSONObject,
+        start: Long = shift.optLong("start"),
+        end: Long = shift.optLong("end", System.currentTimeMillis())
+    ): Long = PrivateTimeRules.worked(start, end, privateIntervals(shift, end))
+
+    private fun reportWorkedMillis(entries: List<Pair<JSONObject, HistoryRules.Slice>>): Long =
+        PrivateTimeRules.workedTotal(
+            entries.map { (_, slice) -> PrivateTimeRules.Interval(slice.start,slice.end) },
+            entries.flatMap { (shift, slice) ->
+                privateIntervals(shift,slice.end).mapNotNull { pause ->
+                    if(pause.start<0L || pause.end<=pause.start) return@mapNotNull null
+                    val start=maxOf(pause.start,slice.start)
+                    val end=minOf(pause.end,slice.end)
+                    PrivateTimeRules.Interval(start,end).takeIf { end>start }
+                }
+            }
+        )
+
+    private fun togglePrivateTime() {
+        val d = data()
+        val shift = active(d) ?: return
+        val now = System.currentTimeMillis()
+        if (!canCloseCurrentStage(shift,now)) return
+        val resuming = shift.optString("kind") == PrivateTimeRules.KIND
+        closeStage(shift, now)
+        shift.put("stageStart", now)
+        if (resuming) {
+            val pausedKind = shift.optString("pausedKind", "Nieprzypisane")
+            val pausedId = shift.optString("pausedObjectId")
+            val activeObject = rows(d, "objects").singleOrNull { it.optString("id") == pausedId }
+                ?.takeUnless { it.optBoolean("archived") }
+            val canResume = !WorkPlaceRules.isOnSiteStage(pausedKind) || activeObject != null
+            shift.put("kind", if (canResume) pausedKind else "Nieprzypisane")
+                .put("object", if (canResume) shift.optString("pausedObject") else "")
+                .put("objectId", if (canResume) pausedId else "")
+            if (canResume) shift.optJSONObject("pausedStageMeta")?.let { shift.put("stageMeta", it) }
+            listOf("pausedKind", "pausedObject", "pausedObjectId", "pausedStageMeta").forEach { shift.remove(it) }
+        } else {
+            shift.put("pausedKind", shift.optString("kind", "Obiekt"))
+                .put("pausedObject", shift.optString("object"))
+                .put("pausedObjectId", shift.optString("objectId"))
+                .put("pausedStageMeta", shift.remove("stageMeta"))
+                .put("kind", PrivateTimeRules.KIND).put("object", "").put("objectId", "")
+        }
+        save(d, if (resuming) "PRIVATE_END" else "PRIVATE_START", fmt.format(Date(now)))
+        if (resuming) {
+            if (GpsWorkdaySession.hasConsent(prefs)) setGpsEnabled(true)
+        } else {
+            if (GpsWorkdaySession.hasConsent(prefs))
+                prefs.edit().putBoolean(GpsWorkdaySession.CONSENT, true).apply()
+            setGpsEnabled(false)
+        }
+        home()
+    }
+
     private fun startShift() {
         if (active(data()) != null) { toast("Dzień pracy już rozpoczęty"); return }
         chooseObject(false) { obj ->
@@ -191,17 +420,44 @@ class MainActivity : Activity() {
     }
     private fun startOnObject(obj: JSONObject) {
         val d=data(); if (active(d)!=null) { toast("Dzień pracy już rozpoczęty"); home(); return }
-        val t=System.currentTimeMillis(); d.put("active",JSONObject().put("id",UUID.randomUUID().toString()).put("start",t).put("object",objectName(obj)).put("objectId",obj.optString("id")).put("stageStart",t).put("stages",JSONArray()).put("rate",defaultRate().toPlainString())); save(d,"START",fmt.format(Date(t)))
+        val t=System.currentTimeMillis()
+        if(!WorkShiftIntegrity.canSave(WorkShiftIntegrity.Interval(t,Long.MAX_VALUE),validClosedShiftIntervals(d))) {
+            toast("Nowa zmiana koliduje z zapisaną historią")
+            return
+        }
+        d.put("active",JSONObject().put("id",UUID.randomUUID().toString()).put("start",t).put("object",objectName(obj)).put("objectId",obj.optString("id")).put("kind",workStageFor(obj)).put("stageStart",t).put("stages",JSONArray()).put("rate",defaultRate().toPlainString())); save(d,"START",fmt.format(Date(t)))
         if (GpsWorkdaySession.hasConsent(prefs)) setGpsEnabled(true)
         home()
     }
+    private fun validClosedShiftIntervals(d: JSONObject): List<WorkShiftIntegrity.Interval> =
+        rows(d,"shifts").map(::stageInterval).filter { WorkShiftIntegrity.isValid(it.start,it.end) }
+
     private fun stopShift() {
         val d=data(); val a=active(d); if(a==null) { toast("Brak rozpoczętej pracy"); home(); return }
-        val end=System.currentTimeMillis(); closeStage(a,end); a.put("end",end); arr(d,"shifts").put(a); d.remove("active"); save(d,"STOP",fmt.format(Date(end)))
+        val end=System.currentTimeMillis()
         if (GpsWorkdaySession.hasConsent(prefs)) prefs.edit().putBoolean(GpsWorkdaySession.CONSENT,true).apply()
+        if(!canCloseCurrentStage(a,end)) {
+            setGpsEnabled(false)
+            return
+        }
+        if(!WorkShiftIntegrity.canSave(WorkShiftIntegrity.Interval(a.optLong("start",-1L),end),
+                validClosedShiftIntervals(d))) {
+            setGpsEnabled(false)
+            toast("Zmiana koliduje z zapisaną historią")
+            return
+        }
+        closeStage(a,end); a.put("end",end); arr(d,"shifts").put(a); d.remove("active"); save(d,"STOP",fmt.format(Date(end)))
         setGpsEnabled(false)
         PhotoQueue.enqueueAll(this); home()
     }
+    private fun canCloseCurrentStage(shift: JSONObject, end: Long): Boolean {
+        val start=shift.optLong("start",-1L)
+        if(WorkShiftIntegrity.canCloseCurrentStage(start,shift.optLong("stageStart",start),end,
+                rows(shift,"stages").map(::stageInterval))) return true
+        toast("Sprawdź zegar urządzenia lub wcześniejsze etapy zmiany.")
+        return false
+    }
+
     private fun closeStage(a:JSONObject, end:Long) {
         val st=a.optLong("stageStart",a.optLong("start"))
         if(end>st) {
@@ -213,9 +469,11 @@ class MainActivity : Activity() {
         }
     }
     private fun beginStage(kind:String, target:String="") {
+        if(active(data())?.optString("kind")==PrivateTimeRules.KIND) { toast("Najpierw wznów pracę"); return }
         val d=data(); val a=active(d)
         if(a==null) { toast("Najpierw rozpocznij pracę"); return }
         val now=System.currentTimeMillis()
+        if(!canCloseCurrentStage(a,now)) return
         closeStage(a,now)
         val origin=if(a.optString("kind")=="Zakupy") "Zakupy" else a.optString("object"); val originId=a.optString("objectId")
         a.remove("stageMeta")
@@ -226,21 +484,25 @@ class MainActivity : Activity() {
         save(d,"STAGE","$kind: "+a.optString("object")); home()
     }
     private fun switchObject() {
+        if(active(data())?.optString("kind")==PrivateTimeRules.KIND) { toast("Najpierw wznów pracę"); return }
         if (active(data()) == null) { toast("Najpierw rozpocznij pracę"); return }
         chooseObject(false) { obj ->
             if (obj != null) {
                 val d = data(); val a = active(d) ?: return@chooseObject
+                if(a.optString("kind")==PrivateTimeRules.KIND) return@chooseObject
                 val now = System.currentTimeMillis()
+                if(!canCloseCurrentStage(a,now)) return@chooseObject
                 if(a.optString("kind")=="Przejazd") a.optJSONObject("stageMeta")?.put("toObject",objectName(obj))?.put("toObjectId",obj.optString("id"))
                 closeStage(a,now)
                 a.remove("stageMeta")
-                a.put("stageStart",now).put("kind","Obiekt")
+                a.put("stageStart",now).put("kind",workStageFor(obj))
                     .put("object",objectName(obj)).put("objectId",obj.optString("id"))
                 save(d,"STAGE",objectName(obj)); home()
             }
         }
     }
     private fun toggleTravel() {
+        if(active(data())?.optString("kind")==PrivateTimeRules.KIND) { toast("Najpierw wznów pracę"); return }
         val a=active(data()) ?: run { toast("Najpierw rozpocznij pracę"); return }
         if(a.optString("kind")!="Przejazd") { beginStage("Przejazd"); return }
         confirmAction("Zakończyć przejazd i wybrać miejsce przyjazdu?") { chooseArrival() }
@@ -252,9 +514,10 @@ class MainActivity : Activity() {
                 val d=data(); val current=active(d) ?: return@objectPicker
                 if(current.optString("kind")!="Przejazd") return@objectPicker
                 val now=System.currentTimeMillis()
+                if(!canCloseCurrentStage(current,now)) return@objectPicker
                 current.optJSONObject("stageMeta")?.put("toObject",objectName(obj))?.put("toObjectId",obj.optString("id"))
                 closeStage(current,now); current.remove("stageMeta")
-                current.put("stageStart",now).put("kind","Obiekt").put("object",objectName(obj)).put("objectId",obj.optString("id"))
+                current.put("stageStart",now).put("kind",workStageFor(obj)).put("object",objectName(obj)).put("objectId",obj.optString("id"))
                 save(d,"ARRIVAL",objectName(obj)); home()
             }
         }
@@ -291,27 +554,29 @@ class MainActivity : Activity() {
         button("GENERUJ RAPORT SMS") { smsReport() }
         label("Okres: ${from.format(df)} – ${to.format(df)} (włącznie)")
         active(data())?.let { if(!localDate(it.optLong("start")).isAfter(to)) label("Uwaga: otwarta zmiana nie jest uwzględniona w raporcie ani w sumie.") }
-        val list = arr(data(), "shifts")
+        val zone=ZoneId.systemDefault()
         val pl = listOf("Poniedziałek", "Wtorek", "Środa", "Czwartek", "Piątek", "Sobota", "Niedziela")
-        val shifts = (0 until list.length()).mapNotNull { list.optJSONObject(it) }
-            .filter {
-                val date = Instant.ofEpochMilli(it.optLong("start")).atZone(ZoneId.systemDefault()).toLocalDate()
-                !date.isBefore(from) && !date.isAfter(to) && it.optLong("end") > it.optLong("start")
-            }.sortedBy { it.optLong("start") }
-        if (shifts.isEmpty()) {
+        val slices=rows(data(),"shifts").flatMap { shift ->
+            HistoryRules.slicesInRange(shift.optLong("start",-1L),shift.optLong("end"),from,to,zone)
+                .map { slice -> shift to slice }
+        }.sortedBy { it.second.start }
+        if (slices.isEmpty()) {
             label("Brak zakończonych zmian w wybranym okresie.")
             return
         }
         var sum = 0L
-        val lines = shifts.map {
-            val start = it.optLong("start")
-            val end = it.optLong("end")
-            val date = Instant.ofEpochMilli(start).atZone(ZoneId.systemDefault()).toLocalDate()
-            sum += end - start
-            "${date.format(df)} ${pl[date.dayOfWeek.value - 1]} ${clock.format(Date(start))}–${clock.format(Date(end))}"
+        val lines = slices.map { (shift,slice) ->
+            val date=LocalDate.parse(slice.day)
+            val work=workedMillis(shift,slice.start,slice.end)
+            sum += work
+            "${date.format(df)} ${pl[date.dayOfWeek.value - 1]} " +
+                "${clock.format(Date(slice.start))}–${clock.format(Date(slice.end))}" +
+                if(work != slice.end-slice.start) " · czas pracy: "+duration(work) else ""
         }
-        val minutes = sum / 60000
-        val sms = lines.joinToString("\n\n") + "\n\nRazem\n${minutes / 60} godz. ${minutes % 60} min"
+        val worked = reportWorkedMillis(slices)
+        val minutes = worked / 60000
+        val overlapNote = if(worked != sum) "\nNakładający się czas uwzględniono tylko raz." else ""
+        val sms = lines.joinToString("\n\n") + "\n\nRazem\n${minutes / 60} godz. ${minutes % 60} min" + overlapNote
         label(sms)
         button("KOPIUJ RAPORT") {
             (getSystemService(CLIPBOARD_SERVICE) as ClipboardManager)
@@ -577,7 +842,7 @@ class MainActivity : Activity() {
         header.addView(text(status,12f,statusColor,true))
         hero.addView(header)
         hero.addView(text(shown?.let {
-            duration((if(a!=null) System.currentTimeMillis() else it.optLong("end"))-it.optLong("start"))
+            duration(workedMillis(it))
         } ?: "00:00",44f,Color.WHITE,true),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(14) })
         hero.addView(text(
             when {
@@ -585,6 +850,7 @@ class MainActivity : Activity() {
                 a==null -> "Gotowy do rozpoczęcia pracy"
                 a.optString("kind")=="Przejazd" -> "W drodze"
                 a.optString("kind")=="Zakupy" -> "Zakupy"
+                a.optString("kind")=="Biuro" -> "Biuro · "+a.optString("object")
                 else -> a.optString("object").ifBlank { "Bez przypisanego obiektu" }
             },16f,Color.WHITE,true),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(5) })
         hero.addView(text(
@@ -605,20 +871,26 @@ class MainActivity : Activity() {
             root.addView(action("■  ZAKOŃCZ PRACĘ",true) { confirmPin { stopShift() } }.apply {
                 background=rounded(coral,14)
             },LinearLayout.LayoutParams(-1,dp(52)).apply { bottomMargin=dp(10) })
-            if(privateMode) {
-                root.addView(text("Tryb prywatny — wróć do pracy z menu po zakończeniu przerwy.",13f,muted),
-                    LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
+            pendingGpsStageEventId(d,System.currentTimeMillis())?.let { eventId ->
+                root.addView(action("📍  GPS · POTWIERDŹ ZMIANĘ ETAPU") {
+                    reviewGpsStageProposal(eventId)
+                },LinearLayout.LayoutParams(-1,dp(48)).apply { bottomMargin=dp(10) })
             }
-            actionRow("↔  ZMIEŃ OBIEKT" to { confirmAction("Zmienić obiekt?") { switchObject() } },
-                (if(a.optString("kind")=="Przejazd") "✓  DOTARŁEM" else "🚗  PRZEJAZD") to { toggleTravel() })
-            actionRow((if(a.optString("kind")=="Zakupy") "✓  ZAKOŃCZ ZAKUPY" else "🛍  ZAKUPY") to { toggleShopping() },
-                "↗  TRASA DO OBIEKTU" to { chooseObject(false) { obj ->
-                    if(obj!=null) openLink("https://www.google.com/maps/dir/?api=1&destination="+
-                        URLEncoder.encode(obj.optString("city")+" "+obj.optString("Adres"),"UTF-8"))
-                } })
-            if(a.optString("kind")=="Zakupy") {
-                root.addView(action("Dane zakupów / paragony") { shoppingRecord(a.optString("shoppingRecordId")) },
-                    LinearLayout.LayoutParams(-1,dp(48)))
+            root.addView(action(if(privateMode) "▶  WZNÓW PRACĘ" else "⏸  PRYWATNIE") {
+                togglePrivateTime()
+            },LinearLayout.LayoutParams(-1,dp(48)).apply { bottomMargin=dp(10) })
+            if(!privateMode) {
+                actionRow("↔  ZMIEŃ OBIEKT" to { confirmAction("Zmienić obiekt?") { switchObject() } },
+                    (if(a.optString("kind")=="Przejazd") "✓  DOTARŁEM" else "🚗  PRZEJAZD") to { toggleTravel() })
+                actionRow((if(a.optString("kind")=="Zakupy") "✓  ZAKOŃCZ ZAKUPY" else "🛍  ZAKUPY") to { toggleShopping() },
+                    "↗  TRASA DO OBIEKTU" to { chooseObject(false) { obj ->
+                        if(obj!=null) openLink("https://www.google.com/maps/dir/?api=1&destination="+
+                            URLEncoder.encode(obj.optString("city")+" "+obj.optString("Adres"),"UTF-8"))
+                    } })
+                if(a.optString("kind")=="Zakupy") {
+                    root.addView(action("Dane zakupów / paragony") { shoppingRecord(a.optString("shoppingRecordId")) },
+                        LinearLayout.LayoutParams(-1,dp(48)))
+                }
             }
         }
         // This is an optional manual action, never an automatic shift transition.
@@ -828,6 +1100,21 @@ class MainActivity : Activity() {
             gpsScreen()
         }
     }
+    /**
+     * Request Android 13+ notification access once when GPS is opted in.
+     * A declined request never turns tracking on/off or edits work stages.
+     */
+    private fun requestGpsStageNotificationsIfNeeded() {
+        val granted=Build.VERSION.SDK_INT<33 ||
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)==PackageManager.PERMISSION_GRANTED
+        if(CoreGpsNotificationPermissionRules.needsRequest(
+                Build.VERSION.SDK_INT,prefs.getBoolean("gps_enabled",false),granted,
+                prefs.getBoolean("core_gps_notification_permission_asked",false))) {
+            prefs.edit().putBoolean("core_gps_notification_permission_asked",true).apply()
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),308)
+        }
+    }
+
     private fun toggleGpsConsent() {
         val allow = !GpsWorkdaySession.hasConsent(prefs)
         prefs.edit().putBoolean(GpsWorkdaySession.CONSENT,allow).apply()
@@ -835,9 +1122,11 @@ class MainActivity : Activity() {
     }
 
     private fun setGpsEnabled(value:Boolean) {
-        if (value && (!GpsWorkdaySession.workdayOpen(prefs) || !GpsWorkdaySession.hasConsent(prefs))) return
+        if (value && (!GpsWorkdaySession.workdayOpen(prefs) || !GpsWorkdaySession.hasConsent(prefs) ||
+            active(data())?.optString("kind") == PrivateTimeRules.KIND)) return
         if(!value) {
             prefs.edit().putBoolean("gps_enabled",false).putBoolean("gps_resume_pending",false).apply()
+            CoreGpsStageBridge.dismiss(this)
             stopService(Intent(this,GpsTrackingService::class.java))
             GpsRecoveryMonitorWorker.cancel(this)
             return
@@ -855,7 +1144,14 @@ class MainActivity : Activity() {
                 this,Intent(this,GpsTrackingService::class.java).setAction(GpsTrackingService.ACTION_START))
         } catch(e:Exception) {
             prefs.edit().putBoolean("gps_enabled",false).apply()
+            CoreGpsStageBridge.dismiss(this)
             Toast.makeText(this,"Nie można uruchomić GPS: "+e.javaClass.simpleName,Toast.LENGTH_LONG).show()
+            return
+        }
+        // Notification permission is separate from location tracking: never
+        // disable GPS if Android cannot show the optional prompt.
+        try { requestGpsStageNotificationsIfNeeded() } catch (_: RuntimeException) {
+            toast("Powiadomienia GPS możesz włączyć później w ustawieniach.")
         }
     }
     private fun gpsDeviceDiagnostics() {
@@ -944,20 +1240,38 @@ class MainActivity : Activity() {
         button("Odśwież diagnostykę") { gpsDeviceDiagnostics() }
     }
 
+    private fun placeType(row: JSONObject): WorkPlaceRules.Type = WorkPlaceRules.type(
+        row.optString("placeType"), prefs.getString("gps_place_kind_"+row.optString("id"),null)=="SHOPPING"
+    )
+
+    private fun workStageFor(row: JSONObject): String = WorkPlaceRules.workStage(placeType(row))
+
+    private fun pickPlaceType(selected: (WorkPlaceRules.Type) -> Unit) {
+        val types=WorkPlaceRules.Type.entries
+        AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Typ miejsca")
+            .setItems(types.map { it.label }.toTypedArray()) { _,i -> selected(types[i]) }
+            .setNegativeButton("Anuluj",null).show()
+    }
+
     private fun gpsPlaceKinds() {
         base("GPS · typy geostref"); screen="gpsPlaceKinds"; nav()
-        label("Oznacz zapisany obiekt jako sklep z materiałami tylko wtedy, gdy faktycznie nim jest. Sam GPS nie rozpoznaje celu wizyty.")
-        label("Zmiana typu nie wpływa na czas pracy, wynagrodzenie ani historię przejazdów.")
+        label("Typ miejsca pomaga opisać obserwację GPS. Potwierdzona historia pozostaje bez zmian.")
         val objects=rows(data(),"objects").filter { !it.optBoolean("archived") }
         if(objects.isEmpty()) label("Brak obiektów. Dodaj lokalizację w sekcji Obiekty.")
         for(o in objects) {
             val id=o.optString("id")
             if(id.isBlank()) continue
-            val key="gps_place_kind_"+id
-            val isShop=prefs.getString(key,"WORKSITE")=="SHOPPING"
-            button(objectName(o)+" · "+if(isShop) "SKLEP Z MATERIAŁAMI" else "OBIEKT PRACY") {
-                prefs.edit().putString(key,if(isShop) "WORKSITE" else "SHOPPING").apply()
-                gpsPlaceKinds()
+            button(objectName(o)+" · "+placeType(o).label) {
+                pickPlaceType { type ->
+                    val d=data()
+                    val row=rows(d,"objects").singleOrNull { it.optString("id")==id }
+                        ?.takeUnless { it.optBoolean("archived") }
+                    if(row!=null && placeType(row)!=type) {
+                        row.put("placeType",type.name)
+                        save(d,"OBJECT_PLACE_TYPE",id)
+                    }
+                    gpsPlaceKinds()
+                }
             }
         }
         button("GPS · wróć") { gpsScreen() }
@@ -968,7 +1282,32 @@ class MainActivity : Activity() {
         label("GPS aktywny działa w tle z widocznym powiadomieniem. Wyłącz GPS, aby zakończyć rejestrację.")
         gpsResumePrompt()
         button("Diagnostyka GPS i baterii Android") { gpsDeviceDiagnostics() }
-        button("Typy geostref: obiekt / sklep z materiałami") { gpsPlaceKinds() }
+        button("Historia obserwacji GPS") {
+            val events=(CoreGpsProposalStore.read(AndroidCoreGpsProposalStorage(this)) as?
+                CoreGpsProposalStore.ReadResult.Success)?.events
+            val entries=events.orEmpty().asReversed().take(50).map { event ->
+                val kind=when(event.kind) {
+                    CoreGpsProposalInbox.Kind.TRIP_START -> "Początek przejazdu"
+                    CoreGpsProposalInbox.Kind.TRIP_STOP -> "Koniec przejazdu"
+                    CoreGpsProposalInbox.Kind.OBJECT_VISIT -> "Wizyta w miejscu"
+                    CoreGpsProposalInbox.Kind.GPS_GAP -> "Przerwa w pomiarach"
+                    CoreGpsProposalInbox.Kind.ARRIVAL -> "Przyjazd"
+                    CoreGpsProposalInbox.Kind.DEPARTURE -> "Wyjazd"
+                }
+                val status=when(event.decision) {
+                    CoreGpsProposalInbox.Decision.PROVISIONAL -> "obserwacja"
+                    CoreGpsProposalInbox.Decision.USER_CONFIRMED -> "potwierdzone"
+                    CoreGpsProposalInbox.Decision.USER_REJECTED -> "odrzucone"
+                }
+                val place=event.objectId?.let(::objectById)?.let(::objectName)
+                listOf(fmt.format(Date(event.timestampMs)),kind,place,status).filterNotNull().joinToString(" · ")
+            }
+            AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Historia obserwacji GPS")
+                .setItems(entries.ifEmpty { listOf(if(events==null) "Nie można odczytać historii" else "Brak obserwacji") }
+                    .toTypedArray()) { _,_ -> }
+                .setPositiveButton("Zamknij",null).show()
+        }
+        button("Typy geostref: obiekt / sklep / biuro") { gpsPlaceKinds() }
         val adaptive=prefs.getBoolean("gps_adaptive_sampling",false)
         button("Oszczędzanie GPS z akcelerometrem: "+if(adaptive) "WŁĄCZONE" else "WYŁĄCZONE") {
             prefs.edit().putBoolean("gps_adaptive_sampling",!adaptive).apply()
@@ -990,6 +1329,16 @@ class MainActivity : Activity() {
                 button("Uruchom śledzenie GPS") { setGpsEnabled(true); gpsScreen() }
             }
             return
+        }
+        val notificationsGranted=Build.VERSION.SDK_INT<33 ||
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)==PackageManager.PERMISSION_GRANTED
+        if(CoreGpsNotificationPermissionRules.showPromptButton(
+                Build.VERSION.SDK_INT,enabled,notificationsGranted)) {
+            label("Powiadomienia GPS o zmianie etapu są wyłączone. Sam GPS nadal działa.")
+            button("Zezwól na powiadomienia o zmianie etapu GPS") {
+                prefs.edit().putBoolean("core_gps_notification_permission_asked",true).apply()
+                requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),308)
+            }
         }
         val permission=checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED ||
             checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION)==PackageManager.PERMISSION_GRANTED
@@ -1065,7 +1414,7 @@ class MainActivity : Activity() {
         for((id,matching) in objectsById) {
             val o=matching.singleOrNull() ?: continue
             if(id.isNotBlank() && !o.optBoolean("archived"))
-                worksiteKinds[id]=if(prefs.getString("gps_place_kind_"+id,"WORKSITE")=="SHOPPING")
+                worksiteKinds[id]=if(placeType(o)==WorkPlaceRules.Type.SHOP)
                     GpsActivitySuggestionRules.Kind.SHOPPING
                 else GpsActivitySuggestionRules.Kind.WORKSITE
         }
@@ -1075,9 +1424,12 @@ class MainActivity : Activity() {
             activityEvents,worksiteKinds,System.currentTimeMillis(),workSuggestionsAllowed)
         if(hint!=null) {
             when(hint.kind) {
-                GpsActivitySuggestionRules.Kind.WORKSITE ->
-                    label("GPS · możliwy przyjazd na obiekt: "+
-                        (hint.placeId?.let { objectById(it)?.let { obj -> objectName(obj) } } ?: hint.placeId ?: ""))
+                GpsActivitySuggestionRules.Kind.WORKSITE -> {
+                    val place=hint.placeId?.let(::objectById)
+                    val caption=if(place!=null && placeType(place)==WorkPlaceRules.Type.OFFICE)
+                        "GPS · możliwy przyjazd do biura: " else "GPS · możliwy przyjazd na obiekt: "
+                    label(caption+(place?.let(::objectName) ?: hint.placeId.orEmpty()))
+                }
                 GpsActivitySuggestionRules.Kind.SHOPPING -> {
                     label("GPS · możliwy postój na zakupy materiałów")
                     val shopId=hint.placeId
@@ -1121,7 +1473,7 @@ class MainActivity : Activity() {
                                                 GpsActivitySuggestionRules.workSuggestionsAllowed(
                                                     active(latest)?.optString("kind","Obiekt")) &&
                                                 shop?.optBoolean("archived")==false &&
-                                                prefs.getString("gps_place_kind_"+shopId,"WORKSITE")=="SHOPPING"
+                                                shop?.let(::placeType)==WorkPlaceRules.Type.SHOP
                                             if(GpsShopConfirmationRules.canConfirm(
                                                 freshEvents,matched.startMs,matched.endMs,stillEligible,
                                                 prefs.getString(categoryKey,"UNKNOWN") ?: "UNKNOWN",
@@ -1317,7 +1669,7 @@ class MainActivity : Activity() {
     }
     private fun walletShifts(d:JSONObject) = rows(d,"shifts").mapNotNull {
         val rate=WalletRules.rate(it.optString("rate","30.00")) ?: return@mapNotNull null
-        WalletRules.Shift(it.optLong("start"),it.optLong("end"),rate)
+        WalletRules.Shift(it.optLong("start"),it.optLong("end"),rate,privateIntervals(it))
     }
     private fun walletPayments(d:JSONObject) = rows(d,"payments").map { WalletRules.Payment(it.optString("periodFrom"),it.optString("periodTo"),it.optLong("cents"),it.optString("method")) }
     private fun money(cents:Long):String = BigDecimal.valueOf(cents,2).toPlainString().replace('.',',')+" zł"
@@ -1339,18 +1691,22 @@ class MainActivity : Activity() {
         if(to.isBefore(from)) { label("Data do nie może być wcześniejsza niż Data od."); return }
         val d=data(); val config=walletConfig(d); val shifts=walletShifts(d); val payments=walletPayments(d)
         val summary=WalletRules.summary(shifts,payments,from,to)
-        label("Naliczone: "+money(summary.earned))
+        label((if(summary.conflictingRateMillis==0L) "Naliczone: " else "Naliczone bez spornego czasu: ")+money(summary.earned))
+        if(summary.conflictingRateMillis>0L) label("Różne stawki w tym samym czasie: "+duration(summary.conflictingRateMillis)+". Sprawdź zmiany w Mój czas.")
         label("Otrzymano — gotówka: "+money(summary.cash))
         label("Otrzymano — karta: "+money(summary.card))
-        if(summary.overlapping==0) label((if(summary.due>=0) "Do wypłaty: " else "Nadpłata: ")+money(kotlin.math.abs(summary.due)))
-        else label("Saldo okresu niepełne: "+summary.overlapping+" wypłat obejmuje szerszy okres. Poszerz daty lub popraw przypisanie wypłaty.")
-        val global=WalletRules.earned(shifts)+config.optLong("openingCents")-payments.sumOf { it.cents }
-        label((if(global>=0) "Łącznie do wypłaty (cała historia): " else "Łączna nadpłata (cała historia): ")+money(kotlin.math.abs(global)))
+        if(summary.overlapping==0 && summary.conflictingRateMillis==0L) label((if(summary.due>=0) "Do wypłaty: " else "Nadpłata: ")+money(kotlin.math.abs(summary.due)))
+        else if(summary.overlapping>0) label("Saldo okresu niepełne: "+summary.overlapping+" wypłat obejmuje szerszy okres. Poszerz daty lub popraw przypisanie wypłaty.")
+        val historyEarnings=WalletRules.calculateEarnings(shifts)
+        val global=historyEarnings.cents+config.optLong("openingCents")-payments.sumOf { it.cents }
+        if(historyEarnings.conflictingRateMillis==0L)
+            label((if(global>=0) "Łącznie do wypłaty (cała historia): " else "Łączna nadpłata (cała historia): ")+money(kotlin.math.abs(global)))
+        else label("Saldo całej historii niedostępne do czasu wyjaśnienia nakładających się stawek.")
         label("Naliczanie obejmuje zakończone zmiany, także przejazdy i zakupy. Otwarty dzień zostanie rozliczony po zakończeniu.")
         val expenses=rows(d,"expenses")
         val expensesDue=expenses.sumOf { (it.optLong("cents")-it.optLong("reimbursedCents")).coerceAtLeast(0) }
         label("Zakupy firmowe do zwrotu (cała historia): "+money(expensesDue))
-        label((if(global+expensesDue>=0) "Razem do rozliczenia (wynagrodzenie i zakupy): " else "Łączna nadpłata (wynagrodzenie i zakupy): ")+money(kotlin.math.abs(global+expensesDue)))
+        if(historyEarnings.conflictingRateMillis==0L) label((if(global+expensesDue>=0) "Razem do rozliczenia (wynagrodzenie i zakupy): " else "Łączna nadpłata (wynagrodzenie i zakupy): ")+money(kotlin.math.abs(global+expensesDue)))
         button("Zakupy za własne pieniądze / paragony") { expenseList() }
         button("+ Dodaj wypłatę") { walletDraft=JSONObject().put("id",UUID.randomUUID().toString()).put("date",LocalDate.now().toString()).put("periodFrom",from.toString()).put("periodTo",to.toString()).put("method","cash"); paymentForm() }
         filters("walletRates",caption="Stawka i saldo początkowe") {
@@ -1565,10 +1921,17 @@ class MainActivity : Activity() {
             }
             button("Wyczyść filtry") { prefs.edit().remove("reportFrom").remove("reportTo").apply(); report() }
         }
-        val shifts=rows(data(),"shifts")
+        val journal=data()
+        if(journal.optJSONObject("deletedShiftUndo")!=null) button("Przywróć usuniętą zmianę") {
+            confirmAction("Przywrócić ostatnio usuniętą zmianę?") { undoDeleteShift() }
+        }
+        val shifts=rows(journal,"shifts")
         val entries=shifts.flatMap { shift -> HistoryRules.slices(shift.optLong("start"),shift.optLong("end"),ZoneId.systemDefault()).map { shift to it } }
             .filter { DomainRules.inRange(it.second.day,from,to) }
-        label("Łączny czas: "+duration(entries.sumOf { it.second.end-it.second.start }))
+        val total=reportWorkedMillis(entries)
+        label("Łączny czas: "+duration(total))
+        if(total!=entries.sumOf { workedMillis(it.first,it.second.start,it.second.end) })
+            label("Nakładający się czas uwzględniono tylko raz.")
         if(entries.isEmpty()) label("Brak zmian w wybranym okresie")
         for((day,items) in entries.groupBy { it.second.day }.toSortedMap(reverseOrder())) {
             val parent=root
@@ -1580,9 +1943,9 @@ class MainActivity : Activity() {
             root=card
             try {
                 label(dateText(day)+" · "+LocalDate.parse(day).dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL,Locale.forLanguageTag("pl")))
-                label("Czas dnia: "+duration(items.sumOf { it.second.end-it.second.start }))
+                label("Czas dnia: "+duration(reportWorkedMillis(items)))
                 for((shift,slice) in items.sortedByDescending { it.second.start }) {
-                    button(fmt.format(Date(slice.start))+" → "+fmt.format(Date(slice.end))+"  ("+duration(slice.end-slice.start)+")") { shiftDetails(shift.optString("id")) }
+                    button(fmt.format(Date(slice.start))+" → "+fmt.format(Date(slice.end))+"  ("+duration(workedMillis(shift,slice.start,slice.end))+")") { shiftDetails(shift.optString("id")) }
                     button("Edytuj czas") { confirmAction("Edytować godziny tej zmiany?") { editShift(shift.optString("id")) } }
                     button("Usuń zmianę") { deleteShift(shift.optString("id")) }
                 }
@@ -1590,7 +1953,9 @@ class MainActivity : Activity() {
         }
     }
     private fun shiftDetails(id:String) {
-        val shift=rows(data(),"shifts").find { it.optString("id")==id } ?: run { report(); return }
+        val shift=rows(data(),"shifts").singleOrNull { id.isNotBlank() && it.optString("id")==id } ?: run {
+            toast("Nie można jednoznacznie znaleźć zmiany"); report(); return
+        }
         base("Szczegóły dnia"); screen="shift:"+id; nav()
         val start=shift.optLong("start"); val end=shift.optLong("end")
         label("Rozpoczęcie pracy: "+fmt.format(Date(start)))
@@ -1602,30 +1967,232 @@ class MainActivity : Activity() {
             if(to<=from) continue
             if(from>cursor) label("Brak przypisanego etapu: "+fmt.format(Date(cursor))+" → "+fmt.format(Date(from))+" · "+duration(from-cursor))
             val kind=stage.optString("kind","Obiekt")
-            val name=if(kind=="Obiekt") stage.optString("object").ifBlank { objectById(stage.optString("objectId"))?.let { objectName(it) } ?: "Obiekt bez nazwy" } else kind
+            val placeName=stage.optString("object").ifBlank {
+                objectById(stage.optString("objectId"))?.let(::objectName) ?: "Miejsce bez nazwy"
+            }
+            val name=when(kind) { "Obiekt" -> placeName; "Biuro" -> "Biuro · "+placeName; else -> kind }
             if(kind=="Przejazd") label("Z: "+stage.optString("fromObject","—")+"\nDo: "+stage.optString("toObject","—"))
             if(kind=="Zakupy" && stage.optString("shoppingRecordId").isNotBlank()) button("Zakupy / paragony") { recordDetails("notes",stage.optString("shoppingRecordId"),screen) }
             label(name+"\n"+fmt.format(Date(from))+" → "+fmt.format(Date(to))+"\nCzas: "+duration(to-from))
             cursor=maxOf(cursor,to)
         }
         if(stages.isNotEmpty() && cursor<end) label("Brak przypisanego etapu: "+fmt.format(Date(cursor))+" → "+fmt.format(Date(end))+" · "+duration(end-cursor))
+        val diagnostics=WorkStageHistory.diagnose(start,end,stages.map {
+            WorkStageHistory.Stage(it.optLong("start"),it.optLong("end"),it.optString("kind"),it.optString("objectId"))
+        })
+        if(diagnostics.overlapMillis>0) label("Nakładające się etapy: "+duration(diagnostics.overlapMillis))
+        if(diagnostics.invalidStages>0) label("Nieprawidłowe etapy: "+diagnostics.invalidStages)
         label("Zakończenie pracy: "+fmt.format(Date(end)))
-        label("Łączny czas: "+duration(end-start))
+        label("Łączny czas: "+duration(workedMillis(shift,start,end)))
+        button("Edytuj etapy") { selectStageEdit(id) }
+        if(rows(shift,"stageEdits").isNotEmpty()) button("Cofnij zmianę etapów") {
+            confirmAction("Przywrócić poprzednią historię etapów?") { undoStageEdit(id) }
+        }
         button("Edytuj czas") { confirmAction { editShift(id) } }
         button("Usuń zmianę") { deleteShift(id) }
     }
-    private fun deleteShift(id:String) {
-        confirmAction("Usunąć zmianę z raportu i zestawienia godzin? Materiały, zdjęcia i notatki pozostaną.") {
-            val d=data(); val remaining=JSONArray()
-            rows(d,"shifts").filter { it.optString("id")!=id }.forEach { remaining.put(it) }
-            d.put("shifts",remaining); save(d,"DELETE_SHIFT",id); report()
+    private fun stageInterval(row: JSONObject) =
+        WorkShiftIntegrity.Interval(row.optLong("start", -1L), row.optLong("end", -1L))
+
+    private fun selectStageEdit(id: String) {
+        val shift = rows(data(), "shifts").singleOrNull { it.optString("id") == id } ?: return
+        val stages = shift.optJSONArray("stages") ?: JSONArray()
+        val indices = (0 until stages.length()).filter { stages.optJSONObject(it) != null }
+        val choices = listOf("Dodaj etap") + indices.map {
+            val stage = stages.getJSONObject(it)
+            stage.optString("kind", "Obiekt") + " · " + fmt.format(Date(stage.optLong("start")))
         }
+        AlertDialog.Builder(this, R.style.WorkMeterDialogTheme).setTitle("Etapy pracy")
+            .setItems(choices.toTypedArray()) { _, which ->
+                editRecordedStage(id, stageInterval(shift), stages.toString(), indices.getOrNull(which - 1))
+            }.setNegativeButton("Anuluj", null).show()
+    }
+
+    private fun editRecordedStage(
+        shiftId: String, bounds: WorkShiftIntegrity.Interval, snapshot: String, index: Int?
+    ) {
+        if(!WorkShiftIntegrity.isValid(bounds.start,bounds.end)) { toast("Najpierw popraw godziny zmiany"); return }
+        val stages = JSONArray(snapshot)
+        val original = index?.let { stages.optJSONObject(it) }
+        val originalKind = original?.optString("kind","Obiekt")
+        val kinds = (listOf("Obiekt", "Biuro", "Przejazd", "Zakupy", PrivateTimeRules.KIND, "Nieprzypisane") +
+            listOfNotNull(originalKind)).distinct()
+        val zone = ZoneId.systemDefault()
+        val startMs = original?.optLong("start", bounds.start)?.coerceIn(bounds.start,bounds.end) ?: bounds.start
+        val endMs = original?.optLong("end", bounds.end)?.coerceIn(bounds.start,bounds.end) ?: bounds.end
+        var start = Instant.ofEpochMilli(startMs).atZone(zone).toLocalDateTime()
+        var end = Instant.ofEpochMilli(endMs).atZone(zone).toLocalDateTime()
+        var objectId = original?.optString("objectId").orEmpty()
+        var objectLabel = original?.optString("object").orEmpty()
+        val layout = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(dp(16),0,dp(16),0) }
+        val category = Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, kinds)
+            setSelection(kinds.indexOf(originalKind ?: "Obiekt"))
+            contentDescription = "Rodzaj etapu"
+        }
+        val objectButton = Button(this)
+        val startDate = Button(this)
+        val startTime = Button(this)
+        val endDate = Button(this)
+        val endTime = Button(this)
+        fun refresh() {
+            objectButton.text = "Obiekt: " + objectLabel.ifBlank { "wybierz" }
+            startDate.text = "Data od: " + start.toLocalDate().format(displayDate)
+            startTime.text = "Godzina od: " + start.toLocalTime().format(DateTimeFormatter.ofPattern("HH:mm"))
+            endDate.text = "Data do: " + end.toLocalDate().format(displayDate)
+            endTime.text = "Godzina do: " + end.toLocalTime().format(DateTimeFormatter.ofPattern("HH:mm"))
+        }
+        objectButton.setOnClickListener {
+            chooseObject(false) { obj ->
+                if(obj!=null) { objectId=obj.optString("id"); objectLabel=objectName(obj); refresh() }
+            }
+        }
+        startDate.setOnClickListener { pickReportDate(start.toLocalDate()) { start=LocalDateTime.of(it,start.toLocalTime()); refresh() } }
+        endDate.setOnClickListener { pickReportDate(end.toLocalDate()) { end=LocalDateTime.of(it,end.toLocalTime()); refresh() } }
+        startTime.setOnClickListener { TimePickerDialog(this,{ _,h,m -> start=start.withHour(h).withMinute(m); refresh() },start.hour,start.minute,true).show() }
+        endTime.setOnClickListener { TimePickerDialog(this,{ _,h,m -> end=end.withHour(h).withMinute(m); refresh() },end.hour,end.minute,true).show() }
+        listOf(category, objectButton, startDate, startTime, endDate, endTime).forEach { layout.addView(it) }
+        refresh()
+        val builder = AlertDialog.Builder(this,R.style.WorkMeterDialogTheme)
+            .setTitle(if(index==null) "Dodaj etap" else "Edytuj etap")
+            .setView(ScrollView(this).apply { addView(layout) })
+            .setNegativeButton("Anuluj",null).setPositiveButton("Zapisz",null)
+        if(index!=null) builder.setNeutralButton("Usuń") { _,_ ->
+            confirmAction("Usunąć ten etap z historii zmiany?") {
+                stages.remove(index)
+                saveStageHistory(shiftId,bounds,snapshot,stages)
+            }
+        }
+        val dialog = builder.create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val from = WorkShiftIntegrity.resolveEditTime(start,zone,startMs)
+                val to = WorkShiftIntegrity.resolveEditTime(end,zone,endMs)
+                val others = (0 until stages.length()).filter { it != index }
+                    .mapNotNull { stages.optJSONObject(it)?.let(::stageInterval) }
+                if(from==null || to==null ||
+                    !WorkShiftIntegrity.canSaveStage(bounds,WorkShiftIntegrity.Interval(from,to),others)) {
+                    toast("Etap musi mieścić się w zmianie i nie może nakładać się na inne etapy")
+                    return@setOnClickListener
+                }
+                val kind = kinds[category.selectedItemPosition]
+                val previousObject = original?.takeIf { WorkPlaceRules.isOnSiteStage(originalKind) }?.optString("objectId")
+                val preservesLegacyObject = originalKind == kind && objectId == previousObject
+                val references = rows(data(),"objects").map {
+                    ObjectIntegrityRules.ObjectRef(it.optString("id"),it.optBoolean("archived"))
+                }
+                if(WorkPlaceRules.isOnSiteStage(kind) && !preservesLegacyObject && !ObjectIntegrityRules.canAssign(objectId,references)) {
+                    toast("Wybierz aktywny obiekt")
+                    return@setOnClickListener
+                }
+                if(kind=="Biuro" && !preservesLegacyObject &&
+                    objectById(objectId)?.let(::placeType)!=WorkPlaceRules.Type.OFFICE) {
+                    toast("Wybierz miejsce typu Biuro")
+                    return@setOnClickListener
+                }
+                val row = if(original!=null && originalKind==kind) JSONObject(original.toString()) else JSONObject()
+                row.put("start",from).put("end",to).put("kind",kind)
+                if(WorkPlaceRules.isOnSiteStage(kind)) row.put("objectId",objectId).put("object",objectLabel)
+                if(index==null) stages.put(row) else stages.put(index,row)
+                if(saveStageHistory(shiftId,bounds,snapshot,stages)) dialog.dismiss()
+            }
+        }
+        dialog.show()
+    }
+
+    private fun saveStageHistory(
+        shiftId: String, bounds: WorkShiftIntegrity.Interval, snapshot: String, stages: JSONArray
+    ): Boolean {
+        val d = data()
+        val shift = rows(d,"shifts").singleOrNull { it.optString("id")==shiftId } ?: return false
+        if(stageInterval(shift)!=bounds || (shift.optJSONArray("stages") ?: JSONArray()).toString()!=snapshot) {
+            toast("Historia etapów uległa zmianie. Otwórz edycję ponownie")
+            return false
+        }
+        arr(shift,"stageEdits").put(JSONObject().put("start",bounds.start).put("end",bounds.end)
+            .put("before",JSONArray(snapshot)).put("after",stages))
+        shift.put("stages",stages)
+        save(d,"EDIT_STAGES",shiftId)
+        shiftDetails(shiftId)
+        return true
+    }
+
+    private fun undoStageEdit(shiftId: String) {
+        val d = data()
+        val shift = rows(d,"shifts").singleOrNull { it.optString("id")==shiftId } ?: return
+        val edits = shift.optJSONArray("stageEdits") ?: return
+        val edit = edits.optJSONObject(edits.length()-1) ?: return
+        val before = edit.optJSONArray("before") ?: return
+        if(stageInterval(edit)!=stageInterval(shift) ||
+            edit.optJSONArray("after")?.toString()!=shift.optJSONArray("stages")?.toString()) {
+            toast("Zmiana lub historia etapów została zmodyfikowana")
+            return
+        }
+        edits.remove(edits.length()-1)
+        shift.put("stages",before)
+        save(d,"UNDO_EDIT_STAGES",shiftId)
+        shiftDetails(shiftId)
+    }
+
+    private fun uniqueShiftIndex(shifts: JSONArray, id: String): Int? =
+        HistoryRules.uniqueRecordIndex((0 until shifts.length()).map {
+            shifts.optJSONObject(it)?.optString("id")
+        },id)
+
+    private fun deleteShift(id:String) {
+        val original = data().optJSONArray("shifts") ?: return
+        val originalIndex = uniqueShiftIndex(original,id) ?: run {
+            toast("Nie można jednoznacznie znaleźć zmiany"); return
+        }
+        val expected = original.getJSONObject(originalIndex).toString()
+        confirmAction("Usunąć zmianę z raportu i zestawienia godzin? Materiały, zdjęcia i notatki pozostaną.") {
+            val d=data()
+            val shifts=d.optJSONArray("shifts") ?: return@confirmAction
+            val index=uniqueShiftIndex(shifts,id)
+            if(index==null || shifts.optJSONObject(index)?.toString()!=expected) {
+                toast("Zmiana została zmodyfikowana. Otwórz raport ponownie.")
+                return@confirmAction
+            }
+            val removed=shifts.remove(index) as JSONObject
+            d.put("deletedShiftUndo",JSONObject().put("index",index).put("shift",removed))
+            save(d,"DELETE_SHIFT",id); report()
+        }
+    }
+
+    private fun undoDeleteShift() {
+        val d=data()
+        val undo=d.optJSONObject("deletedShiftUndo") ?: return
+        val row=undo.optJSONObject("shift") ?: return
+        val id=row.optString("id")
+        val shifts=arr(d,"shifts")
+        val active=active(d)
+        if(id.isBlank() || (0 until shifts.length()).any { shifts.optJSONObject(it)?.optString("id")==id } ||
+            active?.optString("id")==id) {
+            toast("Zmiana z tym identyfikatorem już istnieje")
+            return
+        }
+        val intervals=rows(d,"shifts").map(::stageInterval).toMutableList()
+        if(active!=null) intervals.add(WorkShiftIntegrity.Interval(active.optLong("start",-1L),Long.MAX_VALUE))
+        if(!WorkShiftIntegrity.canSave(stageInterval(row),intervals)) {
+            toast("Nie można przywrócić zmiany, ponieważ jej czas koliduje z historią")
+            return
+        }
+        val index=undo.optInt("index",shifts.length()).coerceIn(0,shifts.length())
+        val restored=JSONArray()
+        for(i in 0..shifts.length()) {
+            if(i==index) restored.put(row)
+            if(i<shifts.length()) restored.put(shifts.get(i))
+        }
+        d.put("shifts",restored).remove("deletedShiftUndo")
+        save(d,"UNDO_DELETE_SHIFT",id); report()
     }
     private fun editShift(id:String) {
         val d=data()
-        val s=rows(d,"shifts").find { it.optString("id")==id } ?: return
-        var start=Instant.ofEpochMilli(s.optLong("start")).atZone(ZoneId.systemDefault()).toLocalDateTime()
-        var end=Instant.ofEpochMilli(s.optLong("end")).atZone(ZoneId.systemDefault()).toLocalDateTime()
+        val s=rows(d,"shifts").singleOrNull { it.optString("id")==id } ?: return
+        val zone=ZoneId.systemDefault()
+        val original=WorkShiftIntegrity.Interval(s.optLong("start"),s.optLong("end"))
+        var start=Instant.ofEpochMilli(original.start).atZone(zone).toLocalDateTime()
+        var end=Instant.ofEpochMilli(original.end).atZone(zone).toLocalDateTime()
         val layout=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(dp(16),0,dp(16),0) }
         val dateStart=Button(this)
         val dateEnd=Button(this)
@@ -1646,11 +2213,34 @@ class MainActivity : Activity() {
             .setNegativeButton("Anuluj",null).setPositiveButton("Zapisz",null).create()
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val st=start.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-                val en=end.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                val st=WorkShiftIntegrity.resolveEditTime(start,zone,original.start)
+                val en=WorkShiftIntegrity.resolveEditTime(end,zone,original.end)
+                if(st==null || en==null) {
+                    toast("Wybrana godzina nie istnieje w tej strefie czasowej")
+                    return@setOnClickListener
+                }
                 if(en<=st) { toast("Koniec musi być po rozpoczęciu"); return@setOnClickListener }
                 val current=data()
-                val row=rows(current,"shifts").find { it.optString("id")==id } ?: return@setOnClickListener
+                val saved=rows(current,"shifts")
+                val row=saved.singleOrNull { it.optString("id")==id } ?: return@setOnClickListener
+                if(row.optLong("start")!=original.start || row.optLong("end")!=original.end) {
+                    toast("Zmiana została zaktualizowana. Otwórz edycję ponownie")
+                    return@setOnClickListener
+                }
+                val proposed=WorkShiftIntegrity.Interval(st,en)
+                val otherShifts=saved.filter { it.optString("id")!=id }
+                    .map { WorkShiftIntegrity.Interval(it.optLong("start"),it.optLong("end")) }
+                    .toMutableList()
+                active(current)?.let { otherShifts.add(WorkShiftIntegrity.Interval(it.optLong("start",-1L),Long.MAX_VALUE)) }
+                if(!WorkShiftIntegrity.canSave(proposed,otherShifts)) {
+                    toast("Zmiana nakłada się na inną zmianę lub historia zawiera nieprawidłowe daty")
+                    return@setOnClickListener
+                }
+                val stages=rows(row,"stages").map { WorkShiftIntegrity.Interval(it.optLong("start"),it.optLong("end")) }
+                if(!WorkShiftIntegrity.preservesRecordedStages(original,proposed,stages)) {
+                    toast("Nowy zakres pominąłby część zapisanego etapu")
+                    return@setOnClickListener
+                }
                 arr(row,"edits").put(JSONObject().put("at",System.currentTimeMillis()).put("start",row.optLong("start")).put("end",row.optLong("end")))
                 row.put("start",st).put("end",en); save(current,"EDIT_SHIFT",id); dialog.dismiss(); report()
             }
@@ -1707,16 +2297,41 @@ class MainActivity : Activity() {
             if(requestCode==100) { contentResolver.openOutputStream(uri)?.use { it.write(exportData().toString(2).toByteArray(Charsets.UTF_8)) }; toast("Kopia zapisana") }
             if(requestCode==101) {
                 if(uploading) { toast("Poczekaj na zakończenie przesyłania przed importem"); return }
-                val content=contentResolver.openInputStream(uri)!!.bufferedReader().use { it.readText() }; val imported=JSONObject(content); validateImport(imported)
-                AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Przywrócić kopię?").setMessage("Obecne dane zostaną zastąpione.").setNegativeButton("Anuluj",null).setPositiveButton("Importuj") { _, _ ->
-                    prefs.edit().putString("preImportBackup",data().toString()).putString("data",imported.toString()).putInt("widgetTransparency",imported.optJSONObject("wtSettings")?.optInt("widgetTransparency",prefs.getInt("widgetTransparency",0))?.coerceIn(0,100) ?: prefs.getInt("widgetTransparency",0)).apply(); migrate(); migrateWallet(); GateWidget.refresh(this); logs()
-                }.show()
+                val content=contentResolver.openInputStream(uri)!!.bufferedReader().use { it.readText() }
+                val imported=JSONObject(content)
+                validateImport(imported)
+                val expectedJournal=prefs.getString("data","{}")
+                AlertDialog.Builder(this,R.style.WorkMeterDialogTheme)
+                    .setTitle("Przywrócić kopię?").setMessage("Obecne dane zostaną zastąpione.")
+                    .setNegativeButton("Anuluj",null).setPositiveButton("Importuj") { _, _ ->
+                        if(uploading || prefs.getString("data","{}")!=expectedJournal) {
+                            toast("Dane zmieniły się podczas podglądu. Otwórz kopię ponownie.")
+                            return@setPositiveButton
+                        }
+                        val consent=GpsWorkdaySession.hasConsent(prefs)
+                        val transparency=imported.optJSONObject("wtSettings")
+                            ?.optInt("widgetTransparency",prefs.getInt("widgetTransparency",0))
+                            ?.coerceIn(0,100) ?: prefs.getInt("widgetTransparency",0)
+                        val restored=prefs.edit().putString("preImportBackup",expectedJournal)
+                            .putString("data",imported.toString()).putInt("widgetTransparency",transparency)
+                            .putBoolean(GpsWorkdaySession.CONSENT,consent)
+                            .putBoolean("gps_enabled",false).putBoolean("gps_resume_pending",false)
+                            .putBoolean("gps_service_active",false).remove("gps_session_start")
+                            .commit()
+                        setGpsEnabled(false)
+                        if(!restored) {
+                            toast("Nie udało się potwierdzić zapisu kopii")
+                            return@setPositiveButton
+                        }
+                        migrate(); migrateWallet(); GateWidget.refresh(this); logs()
+                    }.show()
             }
         } catch (_:Exception) { toast("Błąd pliku JSON") }
     }
 
     private fun exportData():JSONObject = DriveBackupWorker.snapshot(this)
     private fun validateImport(d:JSONObject) {
+        require(!d.has("active") || d.optJSONObject("active")!=null) { "Nieprawidłowa aktywna zmiana" }
         for(key in listOf("objects","shifts","links","materials","notes","payments","expenses","logs")) if(d.has(key) && d.optJSONArray(key)==null) throw IllegalArgumentException("Nieprawidłowa lista: "+key)
         if(!listOf("objects","shifts","links","materials","notes","payments").any { d.has(it) }) throw IllegalArgumentException("Brak danych WT")
         for(e in rows(d,"expenses")) {
@@ -1733,7 +2348,11 @@ class MainActivity : Activity() {
     private val displayDate = DateTimeFormatter.ofPattern("dd-MM-yyyy")
     private fun rows(d:JSONObject,key:String) = (0 until arr(d,key).length()).mapNotNull { arr(d,key).optJSONObject(it) }
     private fun objectName(o:JSONObject) = listOf(o.optString("TAG"),o.optString("organization"),o.optString("city"),o.optString("Adres")).filter { it.isNotBlank() }.joinToString(" · ")
-    private fun objectById(id:String) = rows(data(),"objects").find { it.optString("id")==id }
+    private fun objectSummary(row: JSONObject) = ObjectUiGateway.Summary(
+        row.optString("id"), row.optString("TAG"), row.optString("city"), row.optString("Adres"),
+        row.optString("name", row.optString("Opis")), row.optBoolean("archived")
+    )
+    private fun objectById(id:String) = rows(data(),"objects").singleOrNull { id.isNotBlank() && it.optString("id")==id }
     private fun localDate(ms:Long) = Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()).toLocalDate()
     private fun dateText(iso:String):String = try { LocalDate.parse(iso).format(displayDate) } catch (_:Exception) { "Data nieznana — starszy wpis" }
     private fun recordDate(r:JSONObject):String {
@@ -1775,7 +2394,10 @@ class MainActivity : Activity() {
         objectPicker(optional,false,selected)
     }
     private fun objectPicker(optional:Boolean, arrival:Boolean, selected:(JSONObject?)->Unit) {
-        val options=rows(data(),"objects").filter { !it.optBoolean("archived") }
+        val savedObjects=rows(data(),"objects")
+        val catalog=ObjectUiGateway(savedObjects.map(::objectSummary))
+        val selectableIds=catalog.selectableObjects().map { it.id }.toSet()
+        val options=savedObjects.filter { it.optString("id") in selectableIds }
         val layout=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(dp(20),dp(8),dp(20),dp(8)) }
         val searchRow=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; gravity=Gravity.CENTER_VERTICAL }
         val query=EditText(ContextThemeWrapper(this,R.style.WorkMeterDialogTheme)).apply { hint="Szukaj miasta"; setSingleLine(); inputType=InputType.TYPE_CLASS_TEXT; imeOptions=android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH }
@@ -1786,7 +2408,11 @@ class MainActivity : Activity() {
         fun renderResults() {
             results.removeAllViews()
             val matches=options.filter { ObjectSearch.matches(it.optString("city"),query.text.toString()) }.sortedWith { x,y -> ObjectSearch.compareTags(x.optString("TAG"),y.optString("TAG")) }
-            for(obj in matches) results.addView(makeButton(objectName(obj)) { dialog.dismiss(); selected(obj) },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(6) })
+            for(obj in matches) results.addView(makeButton(objectName(obj)) {
+                val current=objectById(obj.optString("id"))?.takeUnless { it.optBoolean("archived") }
+                if(current==null) { toast("Obiekt nie jest już dostępny"); dialog.dismiss() }
+                else { dialog.dismiss(); selected(current) }
+            },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(6) })
             if(matches.isEmpty()) results.addView(TextView(this).apply { text="Brak obiektów dla tego miasta"; setTextColor(0xFF37474F.toInt()); setPadding(0,dp(12),0,dp(12)) })
         }
         searchRow.addView(makeButton("⌕") { renderResults(); (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(query.windowToken,0) }.apply { contentDescription="Szukaj"; textSize=24f; background=background(0xFF37474F.toInt()); setTextColor(Color.WHITE) },LinearLayout.LayoutParams(dp(48),dp(48)))
@@ -1868,6 +2494,7 @@ class MainActivity : Activity() {
         base(obj.optString("TAG")); screen="object:"+id; nav()
         val period=JSONObject()
         label(objectName(obj)); label(obj.optString("notes",obj.optString("Opis")))
+        label("Typ miejsca: "+placeType(obj).label)
         button("Edytuj obiekt") { newForm("objects",id) }
         button("Otwórz w Google Maps") {
             val link=obj.optString("maps")
@@ -1882,7 +2509,7 @@ class MainActivity : Activity() {
             if(!sh.has("end")) stages.add(JSONObject().put("start",sh.optLong("stageStart")).put("end",System.currentTimeMillis()).put("objectId",sh.optString("objectId")).put("kind",sh.optString("kind","Obiekt")))
             if(stages.isEmpty()) { unassigned++; continue }
             for(st in stages) {
-                if(st.optString("objectId")!=id || st.optString("kind","Obiekt")!="Obiekt") continue
+                if(st.optString("objectId")!=id || !WorkPlaceRules.isOnSiteStage(st.optString("kind","Obiekt"))) continue
                 var a=maxOf(st.optLong("start"),sh.optLong("start"))
                 val end=minOf(st.optLong("end"),if(sh.has("end")) sh.optLong("end") else System.currentTimeMillis())
                 for((day,ms) in DomainRules.timeByDay(a,end,ZoneId.systemDefault())) {
@@ -1896,11 +2523,19 @@ class MainActivity : Activity() {
         button("Materiały") { openScreen("list:materials:"+id) }
         button("Zdjęcia") { openScreen("list:links:"+id) }
         button("Notatki obiektu") { openScreen("list:notes:"+id) }
-        button(if(obj.optBoolean("archived")) "Przywróć obiekt" else "Usuń z listy aktywnych") {
+        val archiveObject = !obj.optBoolean("archived")
+        button(if(archiveObject) "Usuń z listy aktywnych" else "Przywróć obiekt") {
             confirmAction {
-                val d=data(); val o=rows(d,"objects").find { it.optString("id")==id } ?: return@confirmAction
-                o.put("archived",!o.optBoolean("archived"))
-                save(d,"OBJECT_ARCHIVE",id); objects()
+                val d=data()
+                val saved=rows(d,"objects")
+                val change=ObjectUiGateway(saved.map(::objectSummary)).setArchived(id,archiveObject)
+                    ?: return@confirmAction
+                val row=saved.singleOrNull { it.optString("id")==change.id } ?: return@confirmAction
+                if(row.optBoolean("archived")!=change.archived) {
+                    row.put("archived",change.archived)
+                    save(d,"OBJECT_ARCHIVE",id)
+                }
+                objects()
             }
         }
         label("Usunięcie z listy archiwizuje obiekt. Historia pracy i wpisy pozostają dostępne.")
@@ -2138,6 +2773,9 @@ class MainActivity : Activity() {
             field("Miasto","city")
             if(draft.optString("TAG").isBlank()) field("Tag (opcjonalnie)","tagPrefix") else label("Tag (stały): "+draft.optString("TAG"))
             field("Adres","Adres"); field("Nazwa organizacji","organization")
+            button("Typ miejsca: "+placeType(draft).label) {
+                pickPlaceType { type -> draft.put("placeType",type.name); renderForm() }
+            }
             field("Notatki / kontakt","notes",true); field("Link Google Maps (opcjonalnie)","maps")
             val savedGeo=prefs.getString("gps_object_"+draft.optString("id"),null)
             val pendingGeo=draft.optJSONObject("_gps_capture")
@@ -2216,7 +2854,20 @@ class MainActivity : Activity() {
         val d=data()
         if(formKind=="objects") {
             val city=draft.optString("city").trim()
-            if(city.isBlank() || draft.optString("Adres").isBlank()) { toast("Podaj miasto i adres"); return }
+            val existingObjects=rows(d,"objects")
+            val catalog=ObjectUiGateway(existingObjects.map(::objectSummary))
+            val draftObject=objectSummary(draft)
+            val previousId=existingObjects.firstOrNull { it.optString("id")==draftObject.id }?.optString("id")
+            val error=catalog.validateObjectDraft(draftObject,previousId,draft.optString("tagPrefix"))
+            if(error!=null) {
+                toast(when(error) {
+                    ObjectUiGateway.DraftError.MISSING_CITY,
+                    ObjectUiGateway.DraftError.MISSING_ADDRESS -> "Podaj miasto i adres"
+                    ObjectUiGateway.DraftError.INVALID_TAG_PREFIX -> "Tag musi zawierać litery lub cyfry"
+                    else -> "Nieprawidłowy identyfikator obiektu"
+                })
+                return
+            }
             if(draft.optString("TAG").isBlank()) {
                 val prefix=if(draft.optString("tagPrefix").isBlank()) DomainRules.cityPrefix(city) else DomainRules.customPrefix(draft.optString("tagPrefix"))
                 if(prefix.isBlank()) { toast("Tag musi zawierać litery lub cyfry"); return }
@@ -2244,6 +2895,24 @@ class MainActivity : Activity() {
         }
         val maps=draft.optString("maps"); val link=draft.optString("Link Google Drive")
         if((maps.isNotBlank() && !maps.startsWith("https://")) || (link.isNotBlank() && !link.startsWith("https://"))) { toast("Link musi zaczynać się od https://"); return }
+        // Validate object references at the persistence boundary, including stale drafts.
+        val objectRefs=rows(d,"objects").map { ObjectIntegrityRules.ObjectRef(it.optString("id"),it.optBoolean("archived")) }
+        if(formKind!="objects") {
+            val assigned=draft.optString("objectId")
+            if(assigned.isNotBlank()) {
+                val old=rows(d,formKind).find { it.optString("id")==draft.optString("id") }
+                if(!ObjectIntegrityRules.canSaveAssignment(assigned,old?.optString("objectId"),objectRefs)) {
+                    toast("Wybierz aktywny obiekt"); return
+                }
+            }
+        }
+        if(formKind=="links") {
+            val previous=rows(d,"links").find { it.optString("id")==draft.optString("id") }
+            if(!ObjectIntegrityRules.canSavePhotoEntry(
+                arr(draft,"photos").length(),draft.optString("Link Google Drive"),
+                draft.optString("objectId"),previous?.optString("objectId"),objectRefs
+            )) { toast("Zdjęcia wymagają aktywnego obiektu i zdjęcia lub linku"); return }
+        }
         val capturedGeo=if(formKind=="objects") draft.optJSONObject("_gps_capture") else null
         val objectId=draft.optString("id")
         val geoCapture=if(capturedGeo!=null) GpsObjectLocationRules.Capture(
@@ -2328,6 +2997,13 @@ class MainActivity : Activity() {
             else toast("Bez pozwolenia na lokalizację GPS pozostanie wyłączony.")
             if(screen=="gps") gpsScreen()
         }
+        if(requestCode==308) {
+            if(grantResults.firstOrNull()==PackageManager.PERMISSION_GRANTED) {
+                CoreGpsStageBridge.refresh(this)
+                toast("Powiadomienia GPS włączone")
+            } else toast("Powiadomienia GPS wyłączone. Włączysz je później w ustawieniach telefonu.")
+            if(screen=="gps") gpsScreen()
+        }
         if(requestCode in listOf(204,205)) {
             if(grantResults.firstOrNull()==android.content.pm.PackageManager.PERMISSION_GRANTED) UploadNotifications.shortcut(this)
             else toast("Powiadomienia są wyłączone. Możesz włączyć je w ustawieniach telefonu.")
@@ -2403,17 +3079,41 @@ class MainActivity : Activity() {
     }
     private fun charts() {
         base("Grafiki");screen="charts";nav()
-        val range=if(prefs.getString("chartPeriod","week")=="month") TimeAnalytics.previousMonth(LocalDate.now()) else TimeAnalytics.previousWeek(LocalDate.now())
+        val today=LocalDate.now()
+        val period=TimeAnalytics.restorePeriod(prefs.getString("chartPeriod",null))
+        fun datePreference(key: String): LocalDate =
+            runCatching { LocalDate.parse(prefs.getString(key, today.toString())) }.getOrDefault(today)
+        val custom=datePreference("chartFrom") to datePreference("chartTo")
+        val range=TimeAnalytics.dateRange(period,today,custom)
         filters("charts") {
-            button("Ostatni tydzień") { prefs.edit().putString("chartPeriod","week").apply();charts() }
-            button("Ostatni miesiąc") { prefs.edit().putString("chartPeriod","month").apply();charts() }
+            val periods=listOf(
+                TimeAnalytics.Period.TODAY to "Dzisiaj",
+                TimeAnalytics.Period.CURRENT_WEEK to "Bieżący tydzień",
+                TimeAnalytics.Period.PREVIOUS_WEEK to "Ostatni tydzień",
+                TimeAnalytics.Period.CURRENT_MONTH to "Bieżący miesiąc",
+                TimeAnalytics.Period.PREVIOUS_MONTH to "Ostatni miesiąc",
+                TimeAnalytics.Period.CUSTOM to "Własny okres"
+            )
+            for((choice,caption) in periods) button(caption) {
+                prefs.edit().putString("chartPeriod",choice.name).apply()
+                charts()
+            }
+            if(period==TimeAnalytics.Period.CUSTOM) {
+                button("Data od: "+dateText(custom.first.toString())) {
+                    pickReportDate(custom.first) { prefs.edit().putString("chartFrom",it.toString()).apply(); charts() }
+                }
+                button("Data do: "+dateText(custom.second.toString())) {
+                    pickReportDate(custom.second) { prefs.edit().putString("chartTo",it.toString()).apply(); charts() }
+                }
+            }
         }
+        if(range==null) { label("Data do nie może być wcześniejsza niż Data od."); return }
         label("Wybrany okres: "+dateText(range.first.toString())+" — "+dateText(range.second.toString()))
         val shifts=(rows(data(),"shifts")+listOfNotNull(active(data()))).map { sh ->
             val end=sh.optLong("end",System.currentTimeMillis())
             val stages=rows(sh,"stages").toMutableList()
             if(!sh.has("end")) stages.add(JSONObject().put("start",sh.optLong("stageStart",sh.optLong("start"))).put("end",end).put("kind",sh.optString("kind","Obiekt")).put("objectId",sh.optString("objectId")))
-            TimeAnalytics.Shift(sh.optLong("start"),end,stages.map { st -> TimeAnalytics.Stage(st.optLong("start"),st.optLong("end"),when(st.optString("kind")) { "Obiekt" -> if(st.optString("objectId").isNotBlank() || st.optString("object").isNotBlank()) 0 else 3; "Zakupy" -> 1; "Przejazd" -> 2; else -> 3 }) })
+            TimeAnalytics.Shift(sh.optLong("start"),end,stages.map { st -> TimeAnalytics.Stage(st.optLong("start"),st.optLong("end"),when(st.optString("kind")) { PrivateTimeRules.KIND -> TimeAnalytics.PERSONAL; "Biuro" -> TimeAnalytics.OFFICE; "Obiekt" -> if(st.optString("objectId").isNotBlank() || st.optString("object").isNotBlank()) 0 else 3; "Zakupy" -> 1; "Przejazd" -> 2; else -> 3 }) })
         }
         val result=TimeAnalytics.calculate(shifts,range.first,range.second,ZoneId.systemDefault())
         label("Statystyka czasu pracy")
@@ -2424,14 +3124,25 @@ class MainActivity : Activity() {
         }
         label("Podział czasu pracy")
         root.addView(TimeChart(this,result,true),LinearLayout.LayoutParams(-1,dp(240)))
-        val sum=result.totals.sum()
+        val sum=result.workMillis
         result.totals.forEachIndexed { i,n ->
-            root.addView(TextView(this).apply { text="● "+TimeChart.names[i]+" — "+duration(n)+" · "+"%.1f%%".format(Locale("pl"),if(sum==0L) 0.0 else n*100.0/sum);textSize=16f;setTextColor(0xFF37474F.toInt());setPadding(0,dp(7),0,dp(7)) })
+            root.addView(TextView(this).apply { text="● "+TimeChart.names[i]+" — "+duration(n)+" · "+"%.1f%%".format(Locale("pl"),result.sharePercent(i));textSize=16f;setTextColor(0xFF37474F.toInt());setPadding(0,dp(7),0,dp(7)) })
         }
         if(sum==0L) label("Brak czasu pracy w wybranym okresie.")
-        label("Podział nie zmienia czasu płatnego. Cała zmiana jest czasem pracy.")
+        if(result.personalMillis>0) label("Czas prywatny: "+duration(result.personalMillis)+" · poza czasem pracy")
+        filters("chartComparison",caption="Porównanie okresów") {
+            val previous=TimeAnalytics.comparisonRange(period,range)
+            val comparison=TimeAnalytics.calculate(shifts,previous.first,previous.second,ZoneId.systemDefault())
+            label("Poprzedni okres: "+dateText(previous.first.toString())+" — "+dateText(previous.second.toString()))
+            label("Czas pracy: "+duration(sum)+" · wcześniej: "+duration(comparison.workMillis))
+            result.totals.forEachIndexed { category, millis ->
+                label(TimeChart.names[category]+": "+duration(millis)+" · wcześniej: "+
+                    duration(comparison.totals[category]))
+            }
+        }
     }
     private fun toggleShopping() {
+        if(active(data())?.optString("kind")==PrivateTimeRules.KIND) { toast("Najpierw wznów pracę"); return }
         val a=active(data()) ?: run { toast("Najpierw rozpocznij pracę");return }
         if(a.optString("kind")=="Zakupy") {
             confirmAction("Zakończyć zakupy? Wybierz obiekt lub rozpocznij przejazd.") {
@@ -2442,8 +3153,11 @@ class MainActivity : Activity() {
         } else startShopping()
     }
     private fun startShopping() {
+        if(active(data())?.optString("kind")==PrivateTimeRules.KIND) { toast("Najpierw wznów pracę"); return }
         val d=data();val a=active(d) ?: return
-        val now=System.currentTimeMillis();val id=UUID.randomUUID().toString()
+        val now=System.currentTimeMillis()
+        if(!canCloseCurrentStage(a,now)) return
+        val id=UUID.randomUUID().toString()
         if(a.optString("kind")=="Przejazd") a.optJSONObject("stageMeta")?.put("toObject","Zakupy")
         closeStage(a,now)
         val note=JSONObject().put("id",id).put("date",localDate(now).toString()).put("created",fmt.format(Date(now))).put("shopping",true).put("text","").put("photos",JSONArray()).put("objectId",a.optString("objectId"))
@@ -2542,9 +3256,19 @@ class MainActivity : Activity() {
         root.addView(input,LinearLayout.LayoutParams(-1,dp(48)))
     }
     private fun pendingMaterial():JSONObject? {
-        val qty=DomainRules.quantity(draft.optString("quantity"),draft.optString("unit","szt."))
-        if(draft.optString("name").isBlank() || qty==null) { toast("Podaj nazwę i poprawną ilość większą od zera");return null }
-        return JSONObject().put("name",draft.optString("name").trim()).put("quantity",qty.toPlainString()).put("unit",draft.optString("unit","szt.")).put("photos",JSONArray(arr(draft,"photos").toString()))
+        return validatedMaterialLine(draft) ?: run {
+            toast("Podaj nazwę i poprawną ilość większą od zera")
+            null
+        }
+    }
+
+    private fun validatedMaterialLine(line: JSONObject): JSONObject? {
+        val fields=MaterialStock.validateDraft(
+            line.optString("name"),line.optString("quantity"),line.optString("unit","szt.")) ?: return null
+        val photos=line.optJSONArray("photos")
+        if(line.has("photos") && photos==null) return null
+        return JSONObject().put("name",fields.name).put("quantity",fields.quantity)
+            .put("unit",fields.unit).put("photos",JSONArray(photos?.toString() ?: "[]"))
     }
     private fun addBatchLine() {
         val row=pendingMaterial() ?: return
@@ -2555,8 +3279,20 @@ class MainActivity : Activity() {
     private fun saveMaterials() {
         if(recordDate(draft).isBlank()) { toast("Wybierz datę");return }
         if(draft.optString("storage")!="car" && draft.optString("objectId").isBlank()) { toast("Wybierz obiekt");return }
-        val batch=rows(draft,"batch").map { JSONObject(it.toString()) }.toMutableList()
+        val storedBatch=draft.optJSONArray("batch")
+        if(draft.has("batch") && storedBatch==null) { toast("Nieprawidłowa lista materiałów"); return }
+        val batch=mutableListOf<JSONObject>()
+        if(storedBatch!=null) for(i in 0 until storedBatch.length()) {
+            val line=storedBatch.optJSONObject(i)?.let(::validatedMaterialLine)
+            if(line==null) { toast("Sprawdź zapisane pozycje materiałów"); return }
+            batch.add(line)
+        }
         val d=data();val existing=rows(d,"materials").find { it.optString("id")==draft.optString("id") }
+        val objectRefs=rows(d,"objects").map { ObjectIntegrityRules.ObjectRef(it.optString("id"),it.optBoolean("archived")) }
+        val destination=draft.optString("objectId")
+        if(!ObjectIntegrityRules.canSaveMaterialAssignment(draft.optString("storage"),destination,existing?.optString("objectId"),objectRefs)) {
+            toast("Wybierz aktywny obiekt dla materiałów");return
+        }
         if(draft.optString("name").isNotBlank() || draft.optString("quantity").isNotBlank() || batch.isEmpty()) batch.add(pendingMaterial() ?: return)
         if(existing!=null && batch.size!=1) { toast("Edytuj jeden zapis naraz");return }
         val list=arr(d,"materials");val saved=mutableListOf<JSONObject>()
