@@ -21,3 +21,5 @@ The local scheduler is independent of Drive authentication and uses unique WorkM
 | Google Drive | Existing JSON upload and authorization; ZIP listing/import pending | `DriveBackupWorker`; real account verification pending |
 | CSV / PDF | Export components present; integration and device validation pending | `WorkMeterCsvTest`, `BackupOutputTest` |
 | UI / themes | Integration contract only | Three-theme and accessibility QA pending |
+
+`LocalBackups` is the entry point for UI integration. Use `status` and `copies` for the screen, `updateSchedule` for changes, and `export` for saving a verified local ZIP to a SAF document. `prepareRestore` and `prepareImport` return a session with a preview. Keep the session until explicit confirmation or cancellation and invoke its `commit` or `discard` accordingly. These operations perform disk I/O and should run off the UI thread. A dated export filename is available from `BackupFilePicker.suggestName`.

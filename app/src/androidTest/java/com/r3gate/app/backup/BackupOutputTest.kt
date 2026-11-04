@@ -10,6 +10,25 @@ import java.time.LocalDate
 
 @RunWith(AndroidJUnit4::class)
 class BackupOutputTest {
+    @Test fun localBackupPreviewDoesNotReplaceJournalAndCanBeDiscarded() {
+        val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
+        val prefs = context.getSharedPreferences("r3_gate", android.content.Context.MODE_PRIVATE)
+        val original = prefs.getString("data", null)
+        val directory = java.io.File(context.filesDir, LocalBackupWorker.DIRECTORY)
+        val backup = LocalBackupStore.create(directory, """{"objects":[{"id":"backup-test"}]}""",
+            { error("No attachments in fixture") }, retain = 30)
+        try {
+            val session = LocalBackups.prepareRestore(context, backup.name)
+            assertEquals(1, session.preview.objects)
+            assertEquals(original, prefs.getString("data", null))
+            session.discard()
+            assertFalse(session.stagingDirectory.exists())
+            assertEquals(original, prefs.getString("data", null))
+        } finally {
+            backup.delete()
+        }
+    }
+
     @Test fun pdfProducesRealPdfHeaderAndPages() {
         val output = ByteArrayOutputStream()
         WorkMeterPdf.write(output, "Raport czasu pracy",
