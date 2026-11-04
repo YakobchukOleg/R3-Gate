@@ -5,7 +5,9 @@ import java.time.*
 object TimeAnalytics {
     data class Stage(val start:Long,val end:Long,val category:Int)
     data class Shift(val start:Long,val end:Long,val stages:List<Stage>)
-    const val PERSONAL = 4
+    const val OFFICE = 4
+    const val WORK_CATEGORY_COUNT = 5
+    const val PERSONAL = 5
     data class Result(val totals:LongArray,val hours:Array<LongArray>,val personalMillis:Long=0L) {
         val workMillis: Long get() = totals.sum()
         fun sharePercent(category: Int): Double =
@@ -60,8 +62,8 @@ object TimeAnalytics {
     private data class Boundary(val time: Long, val sliceIndex: Int, val begins: Boolean)
 
     fun calculate(shifts:List<Shift>,from:LocalDate,to:LocalDate,zone:ZoneId):Result {
-        val totals = LongArray(4)
-        val hours = Array(24) { LongArray(4) }
+        val totals = LongArray(WORK_CATEGORY_COUNT)
+        val hours = Array(24) { LongArray(WORK_CATEGORY_COUNT) }
         if (to < from) return Result(totals, hours)
         val lower = from.atStartOfDay(zone).toInstant().toEpochMilli()
         val upper = to.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()

@@ -16,7 +16,7 @@ class TimeAnalyticsOverlapTest {
         val shift = TimeAnalytics.Shift(start, start + hour,
             listOf(TimeAnalytics.Stage(start, start + hour, 0)))
         val result = TimeAnalytics.calculate(listOf(shift, shift), day, day, zone)
-        assertArrayEquals(longArrayOf(hour, 0, 0, 0), result.totals)
+        assertArrayEquals(longArrayOf(hour, 0, 0, 0, 0), result.totals)
         assertEquals(hour, result.hours.sumOf { it.sum() })
     }
 
@@ -26,7 +26,7 @@ class TimeAnalyticsOverlapTest {
         val second = TimeAnalytics.Shift(start + hour, start + 5 * hour,
             listOf(TimeAnalytics.Stage(start + 2 * hour, start + 3 * hour, 2)))
         val result = TimeAnalytics.calculate(listOf(first, second), day, day, zone)
-        assertArrayEquals(longArrayOf(2 * hour, 0, hour, 2 * hour), result.totals)
+        assertArrayEquals(longArrayOf(2 * hour, 0, hour, 2 * hour, 0), result.totals)
         assertEquals(5 * hour, result.hours.sumOf { it.sum() })
     }
 
@@ -35,7 +35,7 @@ class TimeAnalyticsOverlapTest {
             listOf(TimeAnalytics.Stage(-1, start + hour, 0), TimeAnalytics.Stage(start, start - 1, 1)))
         val invalid = TimeAnalytics.Shift(-1, start + hour, emptyList())
         val result = TimeAnalytics.calculate(listOf(shift, invalid), day, day, zone)
-        assertArrayEquals(longArrayOf(0, 0, 0, hour), result.totals)
+        assertArrayEquals(longArrayOf(0, 0, 0, hour, 0), result.totals)
     }
 
     @Test fun thirtyMinuteClockChangeSplitsLocalHourBuckets() {

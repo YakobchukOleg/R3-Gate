@@ -40,7 +40,7 @@ class TimeAnalyticsPeriodsTest {
             TimeAnalytics.Stage(start + hour, start + 2 * hour, TimeAnalytics.PERSONAL)
         ))
         val result = TimeAnalytics.calculate(listOf(shift), day, day, zone)
-        assertArrayEquals(longArrayOf(hour, 0, 0, hour), result.totals)
+        assertArrayEquals(longArrayOf(hour, 0, 0, hour, 0), result.totals)
         assertEquals(hour, result.personalMillis)
         assertEquals(2 * hour, result.hours.sumOf { it.sum() })
     }
@@ -51,7 +51,7 @@ class TimeAnalyticsPeriodsTest {
         val work = TimeAnalytics.Shift(start + hour, start + 3 * hour,
             listOf(TimeAnalytics.Stage(start + hour, start + 3 * hour, 0)))
         val result = TimeAnalytics.calculate(listOf(work, personal), day, day, zone)
-        assertArrayEquals(longArrayOf(hour, 0, 0, 0), result.totals)
+        assertArrayEquals(longArrayOf(hour, 0, 0, 0, 0), result.totals)
         assertEquals(2 * hour, result.personalMillis)
     }
 

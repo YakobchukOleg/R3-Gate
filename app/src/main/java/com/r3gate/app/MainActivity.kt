@@ -258,7 +258,7 @@ class MainActivity : Activity() {
                             ?.put("toObjectId",event.objectId)
                     closeStage(nowActive,now)
                     nowActive.remove("stageMeta")
-                    nowActive.put("stageStart",now).put("kind","Obiekt")
+                    nowActive.put("stageStart",now).put("kind",workStageFor(selected))
                         .put("object",objectName(selected)).put("objectId",event.objectId)
                 }
                 // Commit the confirmed stage and reviewed proposal in the same durable write.
@@ -321,7 +321,7 @@ class MainActivity : Activity() {
             val pausedId = shift.optString("pausedObjectId")
             val activeObject = rows(d, "objects").singleOrNull { it.optString("id") == pausedId }
                 ?.takeUnless { it.optBoolean("archived") }
-            val canResume = pausedKind != "Obiekt" || activeObject != null
+            val canResume = !WorkPlaceRules.isOnSiteStage(pausedKind) || activeObject != null
             shift.put("kind", if (canResume) pausedKind else "Nieprzypisane")
                 .put("object", if (canResume) shift.optString("pausedObject") else "")
                 .put("objectId", if (canResume) pausedId else "")
@@ -353,7 +353,7 @@ class MainActivity : Activity() {
     }
     private fun startOnObject(obj: JSONObject) {
         val d=data(); if (active(d)!=null) { toast("Dzień pracy już rozpoczęty"); home(); return }
-        val t=System.currentTimeMillis(); d.put("active",JSONObject().put("id",UUID.randomUUID().toString()).put("start",t).put("object",objectName(obj)).put("objectId",obj.optString("id")).put("stageStart",t).put("stages",JSONArray()).put("rate",defaultRate().toPlainString())); save(d,"START",fmt.format(Date(t)))
+        val t=System.currentTimeMillis(); d.put("active",JSONObject().put("id",UUID.randomUUID().toString()).put("start",t).put("object",objectName(obj)).put("objectId",obj.optString("id")).put("kind",workStageFor(obj)).put("stageStart",t).put("stages",JSONArray()).put("rate",defaultRate().toPlainString())); save(d,"START",fmt.format(Date(t)))
         if (GpsWorkdaySession.hasConsent(prefs)) setGpsEnabled(true)
         home()
     }
@@ -399,7 +399,7 @@ class MainActivity : Activity() {
                 if(a.optString("kind")=="Przejazd") a.optJSONObject("stageMeta")?.put("toObject",objectName(obj))?.put("toObjectId",obj.optString("id"))
                 closeStage(a,now)
                 a.remove("stageMeta")
-                a.put("stageStart",now).put("kind","Obiekt")
+                a.put("stageStart",now).put("kind",workStageFor(obj))
                     .put("object",objectName(obj)).put("objectId",obj.optString("id"))
                 save(d,"STAGE",objectName(obj)); home()
             }
@@ -420,7 +420,7 @@ class MainActivity : Activity() {
                 val now=System.currentTimeMillis()
                 current.optJSONObject("stageMeta")?.put("toObject",objectName(obj))?.put("toObjectId",obj.optString("id"))
                 closeStage(current,now); current.remove("stageMeta")
-                current.put("stageStart",now).put("kind","Obiekt").put("object",objectName(obj)).put("objectId",obj.optString("id"))
+                current.put("stageStart",now).put("kind",workStageFor(obj)).put("object",objectName(obj)).put("objectId",obj.optString("id"))
                 save(d,"ARRIVAL",objectName(obj)); home()
             }
         }
@@ -751,6 +751,7 @@ class MainActivity : Activity() {
                 a==null -> "Gotowy do rozpoczęcia pracy"
                 a.optString("kind")=="Przejazd" -> "W drodze"
                 a.optString("kind")=="Zakupy" -> "Zakupy"
+                a.optString("kind")=="Biuro" -> "Biuro · "+a.optString("object")
                 else -> a.optString("object").ifBlank { "Bez przypisanego obiektu" }
             },16f,Color.WHITE,true),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(5) })
         hero.addView(text(
@@ -1140,20 +1141,38 @@ class MainActivity : Activity() {
         button("Odśwież diagnostykę") { gpsDeviceDiagnostics() }
     }
 
+    private fun placeType(row: JSONObject): WorkPlaceRules.Type = WorkPlaceRules.type(
+        row.optString("placeType"), prefs.getString("gps_place_kind_"+row.optString("id"),null)=="SHOPPING"
+    )
+
+    private fun workStageFor(row: JSONObject): String = WorkPlaceRules.workStage(placeType(row))
+
+    private fun pickPlaceType(selected: (WorkPlaceRules.Type) -> Unit) {
+        val types=WorkPlaceRules.Type.entries
+        AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Typ miejsca")
+            .setItems(types.map { it.label }.toTypedArray()) { _,i -> selected(types[i]) }
+            .setNegativeButton("Anuluj",null).show()
+    }
+
     private fun gpsPlaceKinds() {
         base("GPS · typy geostref"); screen="gpsPlaceKinds"; nav()
-        label("Oznacz zapisany obiekt jako sklep z materiałami tylko wtedy, gdy faktycznie nim jest. Sam GPS nie rozpoznaje celu wizyty.")
-        label("Zmiana typu nie wpływa na czas pracy, wynagrodzenie ani historię przejazdów.")
+        label("Typ miejsca pomaga opisać obserwację GPS. Potwierdzona historia pozostaje bez zmian.")
         val objects=rows(data(),"objects").filter { !it.optBoolean("archived") }
         if(objects.isEmpty()) label("Brak obiektów. Dodaj lokalizację w sekcji Obiekty.")
         for(o in objects) {
             val id=o.optString("id")
             if(id.isBlank()) continue
-            val key="gps_place_kind_"+id
-            val isShop=prefs.getString(key,"WORKSITE")=="SHOPPING"
-            button(objectName(o)+" · "+if(isShop) "SKLEP Z MATERIAŁAMI" else "OBIEKT PRACY") {
-                prefs.edit().putString(key,if(isShop) "WORKSITE" else "SHOPPING").apply()
-                gpsPlaceKinds()
+            button(objectName(o)+" · "+placeType(o).label) {
+                pickPlaceType { type ->
+                    val d=data()
+                    val row=rows(d,"objects").singleOrNull { it.optString("id")==id }
+                        ?.takeUnless { it.optBoolean("archived") }
+                    if(row!=null && placeType(row)!=type) {
+                        row.put("placeType",type.name)
+                        save(d,"OBJECT_PLACE_TYPE",id)
+                    }
+                    gpsPlaceKinds()
+                }
             }
         }
         button("GPS · wróć") { gpsScreen() }
@@ -1164,7 +1183,7 @@ class MainActivity : Activity() {
         label("GPS aktywny działa w tle z widocznym powiadomieniem. Wyłącz GPS, aby zakończyć rejestrację.")
         gpsResumePrompt()
         button("Diagnostyka GPS i baterii Android") { gpsDeviceDiagnostics() }
-        button("Typy geostref: obiekt / sklep z materiałami") { gpsPlaceKinds() }
+        button("Typy geostref: obiekt / sklep / biuro") { gpsPlaceKinds() }
         val adaptive=prefs.getBoolean("gps_adaptive_sampling",false)
         button("Oszczędzanie GPS z akcelerometrem: "+if(adaptive) "WŁĄCZONE" else "WYŁĄCZONE") {
             prefs.edit().putBoolean("gps_adaptive_sampling",!adaptive).apply()
@@ -1271,7 +1290,7 @@ class MainActivity : Activity() {
         for((id,matching) in objectsById) {
             val o=matching.singleOrNull() ?: continue
             if(id.isNotBlank() && !o.optBoolean("archived"))
-                worksiteKinds[id]=if(prefs.getString("gps_place_kind_"+id,"WORKSITE")=="SHOPPING")
+                worksiteKinds[id]=if(placeType(o)==WorkPlaceRules.Type.SHOP)
                     GpsActivitySuggestionRules.Kind.SHOPPING
                 else GpsActivitySuggestionRules.Kind.WORKSITE
         }
@@ -1281,9 +1300,12 @@ class MainActivity : Activity() {
             activityEvents,worksiteKinds,System.currentTimeMillis(),workSuggestionsAllowed)
         if(hint!=null) {
             when(hint.kind) {
-                GpsActivitySuggestionRules.Kind.WORKSITE ->
-                    label("GPS · możliwy przyjazd na obiekt: "+
-                        (hint.placeId?.let { objectById(it)?.let { obj -> objectName(obj) } } ?: hint.placeId ?: ""))
+                GpsActivitySuggestionRules.Kind.WORKSITE -> {
+                    val place=hint.placeId?.let(::objectById)
+                    val caption=if(place!=null && placeType(place)==WorkPlaceRules.Type.OFFICE)
+                        "GPS · możliwy przyjazd do biura: " else "GPS · możliwy przyjazd na obiekt: "
+                    label(caption+(place?.let(::objectName) ?: hint.placeId.orEmpty()))
+                }
                 GpsActivitySuggestionRules.Kind.SHOPPING -> {
                     label("GPS · możliwy postój na zakupy materiałów")
                     val shopId=hint.placeId
@@ -1327,7 +1349,7 @@ class MainActivity : Activity() {
                                                 GpsActivitySuggestionRules.workSuggestionsAllowed(
                                                     active(latest)?.optString("kind","Obiekt")) &&
                                                 shop?.optBoolean("archived")==false &&
-                                                prefs.getString("gps_place_kind_"+shopId,"WORKSITE")=="SHOPPING"
+                                                shop?.let(::placeType)==WorkPlaceRules.Type.SHOP
                                             if(GpsShopConfirmationRules.canConfirm(
                                                 freshEvents,matched.startMs,matched.endMs,stillEligible,
                                                 prefs.getString(categoryKey,"UNKNOWN") ?: "UNKNOWN",
@@ -1808,7 +1830,10 @@ class MainActivity : Activity() {
             if(to<=from) continue
             if(from>cursor) label("Brak przypisanego etapu: "+fmt.format(Date(cursor))+" → "+fmt.format(Date(from))+" · "+duration(from-cursor))
             val kind=stage.optString("kind","Obiekt")
-            val name=if(kind=="Obiekt") stage.optString("object").ifBlank { objectById(stage.optString("objectId"))?.let { objectName(it) } ?: "Obiekt bez nazwy" } else kind
+            val placeName=stage.optString("object").ifBlank {
+                objectById(stage.optString("objectId"))?.let(::objectName) ?: "Miejsce bez nazwy"
+            }
+            val name=when(kind) { "Obiekt" -> placeName; "Biuro" -> "Biuro · "+placeName; else -> kind }
             if(kind=="Przejazd") label("Z: "+stage.optString("fromObject","—")+"\nDo: "+stage.optString("toObject","—"))
             if(kind=="Zakupy" && stage.optString("shoppingRecordId").isNotBlank()) button("Zakupy / paragony") { recordDetails("notes",stage.optString("shoppingRecordId"),screen) }
             label(name+"\n"+fmt.format(Date(from))+" → "+fmt.format(Date(to))+"\nCzas: "+duration(to-from))
@@ -1848,7 +1873,7 @@ class MainActivity : Activity() {
         val stages = JSONArray(snapshot)
         val original = index?.let { stages.optJSONObject(it) }
         val originalKind = original?.optString("kind","Obiekt")
-        val kinds = (listOf("Obiekt", "Przejazd", "Zakupy", PrivateTimeRules.KIND, "Nieprzypisane") +
+        val kinds = (listOf("Obiekt", "Biuro", "Przejazd", "Zakupy", PrivateTimeRules.KIND, "Nieprzypisane") +
             listOfNotNull(originalKind)).distinct()
         val zone = ZoneId.systemDefault()
         val startMs = original?.optLong("start", bounds.start)?.coerceIn(bounds.start,bounds.end) ?: bounds.start
@@ -1909,18 +1934,23 @@ class MainActivity : Activity() {
                     return@setOnClickListener
                 }
                 val kind = kinds[category.selectedItemPosition]
-                val previousObject = original?.takeIf { originalKind == "Obiekt" }?.optString("objectId")
-                val preservesLegacyObject = originalKind == "Obiekt" && objectId == previousObject
+                val previousObject = original?.takeIf { WorkPlaceRules.isOnSiteStage(originalKind) }?.optString("objectId")
+                val preservesLegacyObject = originalKind == kind && objectId == previousObject
                 val references = rows(data(),"objects").map {
                     ObjectIntegrityRules.ObjectRef(it.optString("id"),it.optBoolean("archived"))
                 }
-                if(kind=="Obiekt" && !preservesLegacyObject && !ObjectIntegrityRules.canAssign(objectId,references)) {
+                if(WorkPlaceRules.isOnSiteStage(kind) && !preservesLegacyObject && !ObjectIntegrityRules.canAssign(objectId,references)) {
                     toast("Wybierz aktywny obiekt")
+                    return@setOnClickListener
+                }
+                if(kind=="Biuro" && !preservesLegacyObject &&
+                    objectById(objectId)?.let(::placeType)!=WorkPlaceRules.Type.OFFICE) {
+                    toast("Wybierz miejsce typu Biuro")
                     return@setOnClickListener
                 }
                 val row = if(original!=null && originalKind==kind) JSONObject(original.toString()) else JSONObject()
                 row.put("start",from).put("end",to).put("kind",kind)
-                if(kind=="Obiekt") row.put("objectId",objectId).put("object",objectLabel)
+                if(WorkPlaceRules.isOnSiteStage(kind)) row.put("objectId",objectId).put("object",objectLabel)
                 if(index==null) stages.put(row) else stages.put(index,row)
                 if(saveStageHistory(shiftId,bounds,snapshot,stages)) dialog.dismiss()
             }
@@ -2252,6 +2282,7 @@ class MainActivity : Activity() {
         base(obj.optString("TAG")); screen="object:"+id; nav()
         val period=JSONObject()
         label(objectName(obj)); label(obj.optString("notes",obj.optString("Opis")))
+        label("Typ miejsca: "+placeType(obj).label)
         button("Edytuj obiekt") { newForm("objects",id) }
         button("Otwórz w Google Maps") {
             val link=obj.optString("maps")
@@ -2266,7 +2297,7 @@ class MainActivity : Activity() {
             if(!sh.has("end")) stages.add(JSONObject().put("start",sh.optLong("stageStart")).put("end",System.currentTimeMillis()).put("objectId",sh.optString("objectId")).put("kind",sh.optString("kind","Obiekt")))
             if(stages.isEmpty()) { unassigned++; continue }
             for(st in stages) {
-                if(st.optString("objectId")!=id || st.optString("kind","Obiekt")!="Obiekt") continue
+                if(st.optString("objectId")!=id || !WorkPlaceRules.isOnSiteStage(st.optString("kind","Obiekt"))) continue
                 var a=maxOf(st.optLong("start"),sh.optLong("start"))
                 val end=minOf(st.optLong("end"),if(sh.has("end")) sh.optLong("end") else System.currentTimeMillis())
                 for((day,ms) in DomainRules.timeByDay(a,end,ZoneId.systemDefault())) {
@@ -2530,6 +2561,9 @@ class MainActivity : Activity() {
             field("Miasto","city")
             if(draft.optString("TAG").isBlank()) field("Tag (opcjonalnie)","tagPrefix") else label("Tag (stały): "+draft.optString("TAG"))
             field("Adres","Adres"); field("Nazwa organizacji","organization")
+            button("Typ miejsca: "+placeType(draft).label) {
+                pickPlaceType { type -> draft.put("placeType",type.name); renderForm() }
+            }
             field("Notatki / kontakt","notes",true); field("Link Google Maps (opcjonalnie)","maps")
             val savedGeo=prefs.getString("gps_object_"+draft.optString("id"),null)
             val pendingGeo=draft.optJSONObject("_gps_capture")
@@ -2867,7 +2901,7 @@ class MainActivity : Activity() {
             val end=sh.optLong("end",System.currentTimeMillis())
             val stages=rows(sh,"stages").toMutableList()
             if(!sh.has("end")) stages.add(JSONObject().put("start",sh.optLong("stageStart",sh.optLong("start"))).put("end",end).put("kind",sh.optString("kind","Obiekt")).put("objectId",sh.optString("objectId")))
-            TimeAnalytics.Shift(sh.optLong("start"),end,stages.map { st -> TimeAnalytics.Stage(st.optLong("start"),st.optLong("end"),when(st.optString("kind")) { PrivateTimeRules.KIND -> TimeAnalytics.PERSONAL; "Obiekt" -> if(st.optString("objectId").isNotBlank() || st.optString("object").isNotBlank()) 0 else 3; "Zakupy" -> 1; "Przejazd" -> 2; else -> 3 }) })
+            TimeAnalytics.Shift(sh.optLong("start"),end,stages.map { st -> TimeAnalytics.Stage(st.optLong("start"),st.optLong("end"),when(st.optString("kind")) { PrivateTimeRules.KIND -> TimeAnalytics.PERSONAL; "Biuro" -> TimeAnalytics.OFFICE; "Obiekt" -> if(st.optString("objectId").isNotBlank() || st.optString("object").isNotBlank()) 0 else 3; "Zakupy" -> 1; "Przejazd" -> 2; else -> 3 }) })
         }
         val result=TimeAnalytics.calculate(shifts,range.first,range.second,ZoneId.systemDefault())
         label("Statystyka czasu pracy")

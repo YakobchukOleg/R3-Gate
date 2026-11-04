@@ -17,7 +17,7 @@ object CoreGpsSessionGate {
 
     fun isEligible(state: Snapshot): Boolean =
         state.gpsEnabled && state.shiftOpen &&
-            state.shiftKind in setOf("Obiekt", "Przejazd") &&
+            (WorkPlaceRules.isOnSiteStage(state.shiftKind) || state.shiftKind == "Przejazd") &&
             state.shiftStartMs > 0L &&
             state.stageStartMs >= state.shiftStartMs &&
             state.nowMs >= state.stageStartMs

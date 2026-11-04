@@ -7,8 +7,8 @@ import java.util.Locale
 
 class TimeChart(context:Context,private val result:TimeAnalytics.Result,private val ring:Boolean):View(context) {
     companion object {
-        val colors=intArrayOf(0xFF55AD83.toInt(),0xFFE9B2B7.toInt(),0xFF9EA9AF.toInt(),0xFFD9CDB9.toInt())
-        val names=listOf("Na obiekcie","Zakupy","Przejazdy","Nieprzypisane")
+        val colors=intArrayOf(0xFF55AD83.toInt(),0xFFE9B2B7.toInt(),0xFF9EA9AF.toInt(),0xFFD9CDB9.toInt(),0xFF71868D.toInt())
+        val names=listOf("Na obiekcie","Zakupy","Przejazdy","Nieprzypisane","Biuro")
     }
     private val paint=Paint(Paint.ANTI_ALIAS_FLAG)
     init { contentDescription=if(ring) "Podział czasu pracy. Wartości w legendzie poniżej." else "Statystyka czasu pracy według godzin. Wartości w tabeli poniżej." }

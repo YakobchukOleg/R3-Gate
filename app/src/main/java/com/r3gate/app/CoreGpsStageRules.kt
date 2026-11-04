@@ -14,7 +14,7 @@ object CoreGpsStageRules {
         if (!shift.active || gpsObjectId.isNullOrBlank() || gpsObjectId !in activeObjectIds) return null
         return when {
             kind == CoreGpsProposalInbox.Kind.DEPARTURE &&
-                shift.kind == "Obiekt" && shift.objectId == gpsObjectId -> Proposal.START_TRAVEL
+                WorkPlaceRules.isOnSiteStage(shift.kind) && shift.objectId == gpsObjectId -> Proposal.START_TRAVEL
             kind == CoreGpsProposalInbox.Kind.ARRIVAL &&
                 shift.kind == "Przejazd" -> Proposal.ARRIVE_OBJECT
             else -> null
