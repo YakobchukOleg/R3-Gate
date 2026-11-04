@@ -6,6 +6,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.Worker
 import androidx.work.WorkerParameters
+import androidx.work.workDataOf
 import java.io.FileNotFoundException
 import java.io.IOException
 import java.util.concurrent.TimeUnit
@@ -19,7 +20,7 @@ internal class LocalBackupWorker(context: Context, parameters: WorkerParameters)
             LocalBackups.createNow(context) {
                 if (isStopped || !settings.getBoolean(ENABLED, false)) throw InterruptedException()
             }
-            Result.success()
+            Result.success(workDataOf(BackupStatus.VERIFIED to true))
         } catch (_: InterruptedException) {
             Result.retry()
         } catch (_: SecurityException) {
@@ -49,7 +50,7 @@ internal class LocalBackupWorker(context: Context, parameters: WorkerParameters)
         const val LAST_FILE = "last_file"
         const val STATUS_ERROR = "error"
         const val DIRECTORY = "local-backups"
-        private const val WORK = "workmeter-local-backup"
+        const val WORK = "workmeter-local-backup"
 
         fun schedule(context: Context) {
             val settings = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)

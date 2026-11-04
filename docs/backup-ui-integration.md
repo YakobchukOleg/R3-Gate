@@ -59,3 +59,12 @@ verified photos, materials, notes, payments, expenses and reference warnings. It
 indicates whether confirming would replace the current journal. Localize these counts
 with the common UI resources. Confirming an identical archive releases its staging
 directory without replacing the journal.
+
+## Shared status
+
+`BackupStatus.read` returns local schedule and last copy, Drive connectivity and
+the verified ZIP timestamp for the connected account, plus WorkManager states.
+Use `BackupState.label` for Polish labels and `needsAttention` for contextual
+indicators. Present scheduled periodic work separately from a retry waiting
+for connectivity. Older successful workers without a verified result are
+excluded from the operation list. Read this snapshot off the UI thread.

@@ -8,6 +8,7 @@ import com.google.android.gms.common.api.Scope
 import com.google.android.gms.tasks.Tasks
 import org.json.JSONObject
 import com.r3gate.app.backup.BackupSnapshot
+import com.r3gate.app.backup.BackupStatus
 import com.r3gate.app.backup.DriveBackupFailure
 import com.r3gate.app.backup.DriveBackupMaintenance
 import com.r3gate.app.backup.DriveBackupUpload
@@ -43,7 +44,7 @@ class DriveBackupWorker(context:Context,params:WorkerParameters):Worker(context,
             if (pending != null && !email.equals(pending.optString("account"), true)) return Result.failure()
             if (pending?.optBoolean("complete") == true) {
                 directory.deleteRecursively()
-                if (runAttemptCount > 0) return Result.success()
+                if (runAttemptCount > 0) return Result.success(workDataOf(BackupStatus.VERIFIED to true, BackupStatus.VERIFIED_ACCOUNT to email))
                 check(queue.edit().remove(key).commit())
             }
             val authorization = Tasks.await(Identity.getAuthorizationClient(applicationContext).authorize(
@@ -76,6 +77,7 @@ class DriveBackupWorker(context:Context,params:WorkerParameters):Worker(context,
                 check(queue.edit().putString(key, operation.toString()).commit())
                 parent to driveId
             }
+            setProgressAsync(workDataOf(BackupStatus.SENDING to true))
             upload.upload(driveId, parent, archive, operation.optString("session").takeIf(String::isNotBlank),
                 saveSession = { session ->
                     checkActive()
@@ -87,18 +89,20 @@ class DriveBackupWorker(context:Context,params:WorkerParameters):Worker(context,
             val whenSaved=java.text.SimpleDateFormat("dd-MM-yyyy HH:mm",java.util.Locale.US).format(java.util.Date())
             check(prefs.edit().putString("lastDriveBackup", whenSaved)
                 .putString("backupStatus", "Kopia ZIP zapisana: $whenSaved")
-                .putString("backupFolder", "WorkMeter / Backup").commit())
+                .putString("backupFolder", "WorkMeter / Backup")
+                .putString(BackupStatus.VERIFIED_AT, java.time.Instant.now().toString())
+                .putString(BackupStatus.VERIFIED_ACCOUNT, email).commit())
             check(queue.edit().putString(key, operation.put("complete", true).toString()).commit())
             directory.deleteRecursively()
             UploadNotifications.result(applicationContext,"backup","Kopia ZIP zapisana w WorkMeter / Backup",false)
-            return Result.success()
+            return Result.success(workDataOf(BackupStatus.VERIFIED to true, BackupStatus.VERIFIED_ACCOUNT to email))
         } catch(_:InterruptedException) { return Result.retry() }
         catch(e:Exception) {
             if(isStopped) return Result.retry()
             val failure = (e as? DriveHttpException)?.let { DriveBackupFailure.from(it) }
             if (failure == DriveBackupFailure.ACCOUNT) return needsAccount()
             if (failure == DriveBackupFailure.STORAGE_QUOTA) {
-                return failed("Brak miejsca w Google Drive. Zwolnij miejsce i ponów kopię.")
+                return failed("Brak miejsca w Google Drive. Zwolnij miejsce i ponów kopię.", needsAction = true)
             }
             if (failure == DriveBackupFailure.REJECTED || e is FileNotFoundException ||
                 e is SecurityException || e is IllegalArgumentException) {
@@ -117,7 +121,7 @@ class DriveBackupWorker(context:Context,params:WorkerParameters):Worker(context,
 
     private fun cleanQueue(root: File, queue: android.content.SharedPreferences) {
         val states = try {
-            WorkManager.getInstance(applicationContext).getWorkInfosByTag("driveBackup")
+            WorkManager.getInstance(applicationContext).getWorkInfosByTag(BackupStatus.DRIVE_TAG)
                 .get(3, TimeUnit.SECONDS)
         } catch (_: TimeoutException) {
             return
@@ -133,15 +137,15 @@ class DriveBackupWorker(context:Context,params:WorkerParameters):Worker(context,
         editor.apply()
     }
 
-    private fun failed(message: String): Result {
+    private fun failed(message: String, needsAction: Boolean = false): Result {
         prefs.edit().putString("backupStatus", message).apply()
-        return Result.failure()
+        return Result.failure(workDataOf(BackupStatus.ACTION_REQUIRED to needsAction))
     }
 
     private fun needsAccount():Result {
         prefs.edit().putString("backupStatus","Połącz ponownie Google Disk, aby wznowić kopię").apply()
         UploadNotifications.result(applicationContext,"backup","Kopia wymaga połączenia Google Disk — dotknij, aby wznowić",true)
-        return Result.failure(workDataOf("needsAccount" to true))
+        return Result.failure(workDataOf(BackupStatus.ACTION_REQUIRED to true))
     }
     companion object {
         fun snapshot(context:Context):JSONObject {
@@ -157,8 +161,8 @@ class DriveBackupWorker(context:Context,params:WorkerParameters):Worker(context,
             val request=PeriodicWorkRequestBuilder<DriveBackupWorker>(1,TimeUnit.DAYS)
                 .setInputData(workDataOf("backupAccount" to p.getString("driveEmail", "").orEmpty()))
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL,30,TimeUnit.SECONDS).addTag("driveBackup").build()
-            WorkManager.getInstance(context).enqueueUniquePeriodicWork("workmeter-daily-backup",ExistingPeriodicWorkPolicy.UPDATE,request)
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL,30,TimeUnit.SECONDS).addTag(BackupStatus.DRIVE_TAG).addTag(BackupStatus.DAILY_TAG).build()
+            WorkManager.getInstance(context).enqueueUniquePeriodicWork(BackupStatus.DAILY_TAG,ExistingPeriodicWorkPolicy.UPDATE,request)
         }
         fun manual(context:Context) {
             val prefs = context.getSharedPreferences("r3_gate", Context.MODE_PRIVATE)
@@ -166,7 +170,7 @@ class DriveBackupWorker(context:Context,params:WorkerParameters):Worker(context,
             val request=OneTimeWorkRequestBuilder<DriveBackupWorker>()
                 .setInputData(workDataOf("backupAccount" to prefs.getString("driveEmail", "").orEmpty()))
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL,30,TimeUnit.SECONDS).addTag("driveBackup").build()
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL,30,TimeUnit.SECONDS).addTag(BackupStatus.DRIVE_TAG).build()
             WorkManager.getInstance(context).enqueueUniqueWork("workmeter-manual-backup",ExistingWorkPolicy.KEEP,request)
         }
     }
