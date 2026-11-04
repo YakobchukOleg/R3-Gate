@@ -25,15 +25,23 @@ object DomainRules {
         return (prefix+"-"+"%02d".format(Locale.ROOT,n)) to n
     }
     fun quantity(text:String,unit:String):BigDecimal? {
-        val q=text.trim().replace(",",".").toBigDecimalOrNull() ?: return null
-        if(q<=BigDecimal.ZERO || unit !in listOf("szt.","m")) return null
-        if(unit=="szt." && q.stripTrailingZeros().scale()>0) return null
-        return q.stripTrailingZeros()
+        val input = text.trim()
+        if (input.length > 256 || unit !in listOf("szt.", "m")) return null
+        val q = input.replace(",", ".").toBigDecimalOrNull() ?: return null
+        // Bound the expanded decimal before it is written with toPlainString().
+        if (q.signum() <= 0 || q.scale() !in -128..128 || q.precision() > 128) return null
+        val normalized = q.stripTrailingZeros()
+        if (unit == "szt." && normalized.scale() > 0) return null
+        return normalized
     }
     fun inRange(date:String,from:String,to:String):Boolean {
         if(from.isBlank() && to.isBlank()) return true
-        val d=try { LocalDate.parse(date) } catch (_:Exception) { return false }
-        return (from.isBlank() || d>=LocalDate.parse(from)) && (to.isBlank() || d<=LocalDate.parse(to))
+        return try {
+            val d = LocalDate.parse(date)
+            (from.isBlank() || d >= LocalDate.parse(from)) && (to.isBlank() || d <= LocalDate.parse(to))
+        } catch (_: java.time.format.DateTimeParseException) {
+            false
+        }
     }
     fun timeByDay(start:Long,end:Long,zone:ZoneId):Map<String,Long> {
         val result=linkedMapOf<String,Long>()

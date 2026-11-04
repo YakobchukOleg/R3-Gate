@@ -2560,9 +2560,19 @@ class MainActivity : Activity() {
         root.addView(input,LinearLayout.LayoutParams(-1,dp(48)))
     }
     private fun pendingMaterial():JSONObject? {
-        val qty=DomainRules.quantity(draft.optString("quantity"),draft.optString("unit","szt."))
-        if(draft.optString("name").isBlank() || qty==null) { toast("Podaj nazwę i poprawną ilość większą od zera");return null }
-        return JSONObject().put("name",draft.optString("name").trim()).put("quantity",qty.toPlainString()).put("unit",draft.optString("unit","szt.")).put("photos",JSONArray(arr(draft,"photos").toString()))
+        return validatedMaterialLine(draft) ?: run {
+            toast("Podaj nazwę i poprawną ilość większą od zera")
+            null
+        }
+    }
+
+    private fun validatedMaterialLine(line: JSONObject): JSONObject? {
+        val fields=MaterialStock.validateDraft(
+            line.optString("name"),line.optString("quantity"),line.optString("unit","szt.")) ?: return null
+        val photos=line.optJSONArray("photos")
+        if(line.has("photos") && photos==null) return null
+        return JSONObject().put("name",fields.name).put("quantity",fields.quantity)
+            .put("unit",fields.unit).put("photos",JSONArray(photos?.toString() ?: "[]"))
     }
     private fun addBatchLine() {
         val row=pendingMaterial() ?: return
@@ -2573,7 +2583,14 @@ class MainActivity : Activity() {
     private fun saveMaterials() {
         if(recordDate(draft).isBlank()) { toast("Wybierz datę");return }
         if(draft.optString("storage")!="car" && draft.optString("objectId").isBlank()) { toast("Wybierz obiekt");return }
-        val batch=rows(draft,"batch").map { JSONObject(it.toString()) }.toMutableList()
+        val storedBatch=draft.optJSONArray("batch")
+        if(draft.has("batch") && storedBatch==null) { toast("Nieprawidłowa lista materiałów"); return }
+        val batch=mutableListOf<JSONObject>()
+        if(storedBatch!=null) for(i in 0 until storedBatch.length()) {
+            val line=storedBatch.optJSONObject(i)?.let(::validatedMaterialLine)
+            if(line==null) { toast("Sprawdź zapisane pozycje materiałów"); return }
+            batch.add(line)
+        }
         val d=data();val existing=rows(d,"materials").find { it.optString("id")==draft.optString("id") }
         val objectRefs=rows(d,"objects").map { ObjectIntegrityRules.ObjectRef(it.optString("id"),it.optBoolean("archived")) }
         val destination=draft.optString("objectId")
