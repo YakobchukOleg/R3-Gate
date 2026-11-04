@@ -400,9 +400,10 @@ class ObjectListPanelInstrumentedTest {
                 val card=views(activity).filterIsInstance<WorkRecordListCard>().single()
                 card.performClick()
                 assertTrue(texts(activity).contains("1 zdjęcie"))
-                val placeholder=views(activity).filterIsInstance<android.widget.ImageView>()
+                val placeholder=views(activity).filterIsInstance<TextView>()
                     .firstOrNull { it.contentDescription?.toString()?.contains("Niedostępne na urządzeniu")==true }
                 assertNotNull("Missing photo should expose accessible fallback",placeholder)
+                assertTrue(texts(activity).contains("Oryginał zdjęcia nie jest dostępny na tym urządzeniu"))
                 assertEquals(1,JSONObject(pref.getString("data","{}")!!).getJSONArray("links").length())
             }
         }
