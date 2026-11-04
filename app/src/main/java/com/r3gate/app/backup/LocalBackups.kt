@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import java.io.File
 import java.io.FileNotFoundException
+import java.io.IOException
 import java.time.Instant
 
 /** Storage and schedule API for the settings screen. File I/O must run off the UI thread. */
@@ -43,9 +44,28 @@ object LocalBackups {
         LocalBackupWorker.schedule(context)
     }
 
-    fun copies(context: Context): List<Copy> = files(context).map {
-        Copy(it.name, Instant.ofEpochMilli(it.lastModified()), it.length())
+    fun copies(context: Context): List<Copy> = files(context).map(::describe)
+
+    /** Creates an offline copy regardless of the periodic schedule. */
+    fun createNow(context: Context): Copy = createNow(context) {}
+
+    internal fun createNow(context: Context, checkActive: () -> Unit): Copy = synchronized(LocalBackupStore) {
+        val preferences = settings(context)
+        val retention = preferences.getInt(LocalBackupWorker.RETENTION, 7).coerceIn(1, 30)
+        val archive = BackupSnapshot.create(context, directory(context), retention, checkActive)
+        val saved = preferences.edit().putString(LocalBackupWorker.LAST_SUCCESS, Instant.now().toString())
+            .putString(LocalBackupWorker.LAST_FILE, archive.name).remove(LocalBackupWorker.STATUS_ERROR).commit()
+        if (!saved) throw IOException("Cannot record the latest local backup")
+        describe(archive)
     }
+
+    /** Exports a fresh verified snapshot to the document selected by the user. */
+    fun exportCurrent(context: Context, target: Uri): Copy = synchronized(LocalBackupStore) {
+        createNow(context).also { export(context, it.name, target) }
+    }
+
+    private fun describe(file: File) =
+        Copy(file.name, Instant.ofEpochMilli(file.lastModified()), file.length())
 
     /** Copies a previously published archive to a user-selected document. */
     fun export(context: Context, name: String, target: Uri) = synchronized(LocalBackupStore) {
@@ -70,7 +90,9 @@ object LocalBackups {
         files(context).singleOrNull { it.name == name } ?: throw FileNotFoundException()
 
     private fun files(context: Context): List<File> =
-        LocalBackupStore.list(File(context.filesDir, LocalBackupWorker.DIRECTORY))
+        LocalBackupStore.list(directory(context))
+
+    private fun directory(context: Context) = File(context.filesDir, LocalBackupWorker.DIRECTORY)
 
     private fun settings(context: Context) =
         context.getSharedPreferences(LocalBackupWorker.PREFERENCES, Context.MODE_PRIVATE)

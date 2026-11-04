@@ -7,7 +7,7 @@ import com.google.android.gms.auth.api.identity.AuthorizationRequest
 import com.google.android.gms.common.api.Scope
 import com.google.android.gms.tasks.Tasks
 import org.json.JSONObject
-import android.net.Uri
+import com.r3gate.app.backup.BackupSnapshot
 import com.r3gate.app.backup.DriveBackupFailure
 import com.r3gate.app.backup.DriveBackupMaintenance
 import com.r3gate.app.backup.DriveBackupUpload
@@ -64,12 +64,7 @@ class DriveBackupWorker(context:Context,params:WorkerParameters):Worker(context,
                 require(existing?.name == operation.getString("file")) { "Pending backup archive missing" }
                 checkNotNull(existing)
             } else {
-                existing ?: LocalBackupStore.create(directory, snapshot(applicationContext).toString(), { value ->
-                    checkActive()
-                    val uri = Uri.parse(value)
-                    require(uri.scheme == "content" || uri.scheme == "file")
-                    applicationContext.contentResolver.openInputStream(uri) ?: throw FileNotFoundException()
-                }, retain = 1, beforePublish = ::checkActive)
+                existing ?: BackupSnapshot.create(applicationContext, directory, retain = 1, checkActive = ::checkActive)
             }
             val (parent, driveId) = if (operation.has("driveId")) {
                 operation.getString("parent") to operation.getString("driveId")

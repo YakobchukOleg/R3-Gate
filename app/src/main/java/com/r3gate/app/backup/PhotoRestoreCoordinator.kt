@@ -26,6 +26,7 @@ object PhotoRestoreCoordinator {
         private val snapshots: Map<String, String>
     ) {
         val stagingDirectory: File get() = prepared.staged.directory
+        val summary: RestoreSummary = RestoreSummary.from(preview, photoCount)
         private var finished = false
 
         /** Explicitly cancel a pending restore, deleting its private staged photos. */
@@ -61,6 +62,7 @@ object PhotoRestoreCoordinator {
                 )
                 try {
                     val result = JournalRestoreStore.restore(context, modified, true)
+                    if (result == JournalRestoreStore.Outcome.UNCHANGED) prepared.discard()
                     finished = true
                     result
                 } catch (failure: Exception) {
@@ -100,7 +102,9 @@ object PhotoRestoreCoordinator {
             val rewritten = rewrittenJournal(context, plan.journalJson, prepared)
             require(prepared.journalJson == rewritten) { "Archive changed between verification passes" }
             val snapshots = prepared.staged.files.mapValues { (_, file) -> digestFile(file) }
-            Session(plan, prepared.remappedCount, plan.journalJson, prepared, snapshots)
+            val decision = if (rewritten == current) RestorePlan.Decision.NO_CHANGES
+                else RestorePlan.Decision.REPLACE_REQUIRES_CONFIRMATION
+            Session(plan.copy(decision = decision), prepared.remappedCount, plan.journalJson, prepared, snapshots)
         } catch (failure: Exception) {
             prepared.discard()
             throw failure

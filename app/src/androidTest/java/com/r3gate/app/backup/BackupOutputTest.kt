@@ -29,6 +29,64 @@ class BackupOutputTest {
         }
     }
 
+    @Test fun freshLocalExportRoundTripsJournalAndFinance() {
+        val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
+        val prefs = context.getSharedPreferences("r3_gate", android.content.Context.MODE_PRIVATE)
+        val original = prefs.getString("data", null)
+        val backupPrefs = context.getSharedPreferences(LocalBackupWorker.PREFERENCES, android.content.Context.MODE_PRIVATE)
+        val lastFile = backupPrefs.getString(LocalBackupWorker.LAST_FILE, null)
+        val lastSuccess = backupPrefs.getString(LocalBackupWorker.LAST_SUCCESS, null)
+        val oldError = backupPrefs.getString(LocalBackupWorker.STATUS_ERROR, null)
+        val target = java.io.File.createTempFile("backup-output-", ".zip", context.cacheDir)
+        var copy: LocalBackups.Copy? = null
+        val journal = """{"objects":[{"id":"archived","archived":true}],"shifts":[{"id":"shift","objectId":"archived","start":100,"end":200,"rate":"30"}],"payments":[{"id":"payment","amount":"120.50"}],"expenses":[{"id":"expense","amount":"42.15"}]}"""
+        try {
+            assertTrue(prefs.edit().putString("data", journal).commit())
+            val created = LocalBackups.exportCurrent(context, android.net.Uri.fromFile(target))
+            copy = created
+            assertEquals(created, LocalBackups.status(context).latestCopy)
+            assertEquals(created.sizeBytes, target.length())
+            val originalData = org.json.JSONObject(journal)
+            val archived = org.json.JSONObject(ArchivePreflight.verify { target.inputStream() }.journalJson)
+            for (field in listOf("objects", "shifts", "payments", "expenses")) {
+                assertEquals(originalData.getJSONArray(field).toString(), archived.getJSONArray(field).toString())
+            }
+
+            assertTrue(prefs.edit().putString("data", "{}").commit())
+            val session = LocalBackups.prepareImport(context, android.net.Uri.fromFile(target))
+            assertEquals(1, session.summary.closedShifts)
+            assertEquals(1, session.summary.payments)
+            assertEquals(1, session.summary.expenses)
+            assertEquals("{}", prefs.getString("data", null))
+            assertEquals(JournalRestoreStore.Outcome.RESTORED, session.commit(context, confirmed = true))
+            assertEquals(archived.toString(), prefs.getString("data", null))
+            session.stagingDirectory.delete()
+        } finally {
+            prefs.edit().putString("data", original).commit()
+            backupPrefs.edit().putString(LocalBackupWorker.LAST_FILE, lastFile)
+                .putString(LocalBackupWorker.LAST_SUCCESS, lastSuccess).putString(LocalBackupWorker.STATUS_ERROR, oldError).commit()
+            copy?.let { java.io.File(context.filesDir, LocalBackupWorker.DIRECTORY + "/" + it.name).delete() }
+            target.delete()
+        }
+    }
+
+    @Test fun confirmingIdenticalPhotoFreeArchiveCleansStaging() {
+        val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
+        val prefs = context.getSharedPreferences("r3_gate", android.content.Context.MODE_PRIVATE)
+        val original = prefs.getString("data", null)
+        val output = ByteArrayOutputStream()
+        PhotoArchivePackage.write("{}", emptyList(), { error("Unexpected photo") }, output)
+        try {
+            assertTrue(prefs.edit().putString("data", "{}").commit())
+            val session = PhotoRestoreCoordinator.prepare(context) { output.toByteArray().inputStream() }
+            assertFalse(session.summary.replacesJournal)
+            assertEquals(JournalRestoreStore.Outcome.UNCHANGED, session.commit(context, confirmed = true))
+            assertFalse(session.stagingDirectory.exists())
+        } finally {
+            prefs.edit().putString("data", original).commit()
+        }
+    }
+
     @Test fun pdfProducesRealPdfHeaderAndPages() {
         val output = ByteArrayOutputStream()
         WorkMeterPdf.write(output, "Raport czasu pracy",

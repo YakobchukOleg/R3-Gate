@@ -46,3 +46,16 @@ against Drive metadata again before downloading. `DriveBackups.prepareRestore` r
 the same preview session as local restore after checking the downloaded bytes and ZIP.
 Run both operations off the UI thread and keep the token in memory. Legacy JSON files
 remain in Drive. Settings integration and verification with a real account are pending.
+
+## Manual local ZIP and restore summary
+
+`LocalBackups.createNow` creates an offline copy even when the schedule is disabled.
+`LocalBackups.exportCurrent` writes a freshly verified snapshot to the user's SAF
+destination, while keeping the local copy under the configured retention policy.
+Manual, scheduled and Drive backups use the same snapshot path.
+
+Use `Session.summary` for counts of objects, archived objects, closed and active work,
+verified photos, materials, notes, payments, expenses and reference warnings. It
+indicates whether confirming would replace the current journal. Localize these counts
+with the common UI resources. Confirming an identical archive releases its staging
+directory without replacing the journal.
