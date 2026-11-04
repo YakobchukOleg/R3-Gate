@@ -322,8 +322,6 @@ class MainActivity : Activity() {
         root=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(dp(16),dp(12),dp(16),dp(24)); isFocusableInTouchMode=true; descendantFocusability=ViewGroup.FOCUS_BEFORE_DESCENDANTS }
         scroll.addView(root,FrameLayout.LayoutParams(-1,-2))
         frame.addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
-        // Persistent six-item navigation mirrors the supplied WorkMeter 4.0 prototype.
-        // It lives outside the screen-specific content, so forms and history remain intact.
         val navigation=LinearLayout(this).apply {
             orientation=LinearLayout.HORIZONTAL
             gravity=Gravity.CENTER_VERTICAL
@@ -331,34 +329,42 @@ class MainActivity : Activity() {
             setBackgroundColor(palette.background)
             elevation=dp(4).toFloat()
         }
-        val destinations=listOf(
-            Triple("⌂","Dzisiaj","home"),
-            Triple("◷","Mój czas","report"),
-            Triple("▦","Obiekty","objects"),
-            Triple("▧","Zdjęcia","list:links:"),
-            Triple("▤","Materiały","list:materials:"),
-            Triple("☷","Więcej","menu")
-        )
-        destinations.forEach { (symbol,name,target) ->
+        for (destination in WorkMeterDestination.entries) {
             navigation.addView(Button(this).apply {
-                text="$symbol\n$name"
-                contentDescription=name
-                textSize=10f
-                isAllCaps=false
-                minHeight=dp(52); minimumHeight=dp(52)
-                setPadding(0,0,0,0)
-                setTextColor(if(screen==target || (target=="menu" && screen.startsWith("menu"))) palette.accentText else palette.secondaryText)
-                background=android.graphics.drawable.ColorDrawable(Color.TRANSPARENT)
-                backgroundTintList=null
-                setOnClickListener {
-                    when(target) {
-                        "report" -> report()
-                        else -> openScreen(target)
+                text = "${destination.icon}\n${destination.label}"
+                contentDescription = destination.label
+                textSize = 11f
+                isAllCaps = false
+                minimumHeight = dp(52)
+                minHeight = dp(52)
+                setPadding(dp(2), dp(6), dp(2), dp(6))
+                background = android.graphics.drawable.ColorDrawable(Color.TRANSPARENT)
+                backgroundTintList = null
+                post {
+                    val displayedScreen = when {
+                        screen == "form" -> formReturn
+                        screen.startsWith("detail:") -> detailParent
+                        else -> screen
                     }
+                    isSelected = destination == WorkMeterDestination.forScreen(displayedScreen)
+                    setTextColor(if (isSelected) palette.accentText else palette.secondaryText)
+                    setTypeface(null, if (isSelected) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
                 }
-            },LinearLayout.LayoutParams(0,dp(55),1f))
+                setOnClickListener {
+                    val navigate: () -> Unit = {
+                        when (destination) {
+                            WorkMeterDestination.START -> home()
+                            WorkMeterDestination.OBJECTS -> openScreen("objects")
+                            WorkMeterDestination.TIME -> report()
+                            WorkMeterDestination.FINANCE -> confirmPin { walletUnlocked = true; wallet() }
+                            WorkMeterDestination.MORE -> menu()
+                        }
+                    }
+                    if (screen == "form") leaveForm(navigate = navigate) else navigate()
+                }
+            }, LinearLayout.LayoutParams(0, -2, 1f))
         }
-        frame.addView(navigation,LinearLayout.LayoutParams(-1,dp(62)))
+        frame.addView(navigation, LinearLayout.LayoutParams(-1, -2))
         val bottom=View(this); frame.addView(bottom,LinearLayout.LayoutParams(-1,0))
         frame.setOnApplyWindowInsetsListener { _,insets ->
             val topInset:Int; val bottomInset:Int
@@ -441,13 +447,7 @@ class MainActivity : Activity() {
             screen == "payment" || screen=="expenses" -> wallet()
             screen=="car" || screen.startsWith("materialGroup:") -> openScreen("list:materials:")
             screen=="queue" -> openScreen("list:links:")
-            screen == "form" -> {
-                AlertDialog.Builder(this,dialogStyle).setMessage("Zachować szkic i wrócić?")
-                    .setNegativeButton("Zostań",null).setPositiveButton("Wróć") { _, _ ->
-                        prefs.edit().putString("draft_$formKind",draft.toString()).apply()
-                        openScreen(formReturn)
-                    }.show()
-            }
+            screen == "form" -> leaveForm(back = true) { openScreen(formReturn) }
             screen.startsWith("detail:") -> openScreen(detailParent)
             screen.startsWith("shift:") -> report()
             screen.startsWith("object:") -> openScreen("objects")
@@ -456,6 +456,14 @@ class MainActivity : Activity() {
             screen == "notesActive" || screen == "notesLog" -> openScreen("notes")
             else -> home()
         }
+    }
+    private fun leaveForm(back: Boolean = false, navigate: () -> Unit) {
+        val message = if (back) "Zachować szkic i wrócić?" else "Zachować szkic i przejść dalej?"
+        AlertDialog.Builder(this, dialogStyle).setMessage(message)
+            .setNegativeButton("Zostań", null).setPositiveButton(if (back) "Wróć" else "Zachowaj") { _, _ ->
+                prefs.edit().putString("draft_$formKind", draft.toString()).apply()
+                navigate()
+            }.show()
     }
     @Deprecated("Legacy back dispatcher")
     override fun onBackPressed() { back() }
@@ -650,6 +658,7 @@ class MainActivity : Activity() {
             "▦  Obiekty" to { objects() },
             "▧  Zdjęcia" to { openScreen("list:links:") },
             "▤  Materiały" to { openScreen("list:materials:") },
+            "📝  Notatki" to { openScreen("notes") },
             "◔  Grafiki" to { charts() },
             "🔐  Portfel" to { confirmPin { walletUnlocked=true;wallet() } },
             "⚙  Ustawienia" to { settings() }

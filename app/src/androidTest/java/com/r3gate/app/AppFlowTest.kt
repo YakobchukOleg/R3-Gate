@@ -644,6 +644,24 @@ class AppFlowTest {
         }
     }
 
+    @Test fun bottomNavigationOpensFinanceOnlyAfterPin() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val buttons = all(activity).filterIsInstance<Button>()
+                val tabs = listOf("Start", "Obiekty", "Mój czas", "Finanse", "Więcej")
+                assertEquals(tabs, buttons.map { it.contentDescription?.toString() }.filter { it in tabs })
+                buttons.first { it.contentDescription == "Finanse" }.performClick()
+                assertFalse(has(activity, "Portfel"))
+                assertFalse(has(activity, "Wybrany okres"))
+            }
+            pin()
+            scenario.onActivity { activity ->
+                assertTrue(has(activity, "Portfel"))
+                assertTrue(has(activity, "Wybrany okres"))
+            }
+        }
+    }
+
     @Test fun nativePrototypeMenuHasWorkingNavigationAndModuleRoutes() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { a ->
@@ -659,7 +677,7 @@ class AppFlowTest {
                 assertTrue(has(a,"Ten moduł jest częścią wizualnego prototypu P1–P4. Pełna obsługa wymaga osobnego wdrożenia. Dostępne działania poniżej korzystają z prawdziwych danych WorkMeter."))
                 click(a,"◷  Historia pracy i kalendarz")
                 assertTrue(has(a,"Mój czas"))
-                val nav=all(a).filterIsInstance<Button>().firstOrNull { it.contentDescription=="Dzisiaj" }
+                val nav=all(a).filterIsInstance<Button>().firstOrNull { it.contentDescription=="Start" }
                 assertNotNull("Home tab should remain available on report screens",nav)
                 nav!!.performClick()
                 assertTrue(has(a,"WorkMeter"))
