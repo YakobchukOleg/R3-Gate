@@ -35,8 +35,10 @@ after that check. Existing JSON backups are kept.
 
 Quota exhaustion stops immediate retries. Rate limiting uses WorkManager backoff.
 The next Drive backup run clears abandoned private queue directories older than 24 hours,
-while preserving unfinished work and active writers. Byte-range resume and real-account
-testing remain pending.
+while preserving unfinished work and active writers. A resumable upload session is stored
+privately with the pending operation. Retry queries the server offset before sending
+more bytes. An expired session can be replaced using the same Drive file ID. Real-account
+testing remains pending.
 
 The settings screen can call `DriveBackups.copies` using the existing Drive authorization
 token. The adapter lists accessible WorkMeter ZIP archives and checks the selected file

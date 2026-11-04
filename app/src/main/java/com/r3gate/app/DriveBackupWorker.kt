@@ -81,7 +81,13 @@ class DriveBackupWorker(context:Context,params:WorkerParameters):Worker(context,
                 check(queue.edit().putString(key, operation.toString()).commit())
                 parent to driveId
             }
-            upload.upload(driveId, parent, archive, ::checkActive)
+            upload.upload(driveId, parent, archive, operation.optString("session").takeIf(String::isNotBlank),
+                saveSession = { session ->
+                    checkActive()
+                    if (session == null) operation.remove("session") else operation.put("session", session)
+                    check(queue.edit().putString(key, operation.toString()).commit())
+                }, checkActive = ::checkActive)
+            operation.remove("session")
             checkActive()
             val whenSaved=java.text.SimpleDateFormat("dd-MM-yyyy HH:mm",java.util.Locale.US).format(java.util.Date())
             check(prefs.edit().putString("lastDriveBackup", whenSaved)
