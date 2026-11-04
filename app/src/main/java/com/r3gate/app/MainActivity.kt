@@ -582,6 +582,10 @@ class MainActivity : Activity() {
             }
         }
         section("SZYBKIE DZIAŁANIA")
+        root.addView(action("Zrób zdjęcie") { openHomeRecord("links"); camera() },
+            LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(10) })
+        actionRow("Dodaj notatkę" to { openHomeRecord("notes") },
+            "Dodaj materiał" to { openHomeRecord("materials") })
         actionRow("📷  ZDJĘCIA" to { openScreen("list:links:") },
             "📦  MATERIAŁY" to { openScreen("list:materials:") })
         actionRow("📝  NOTATKI" to { openScreen("notes") },
@@ -589,6 +593,19 @@ class MainActivity : Activity() {
         section("PRZEGLĄD")
         actionRow("◷  MÓJ CZAS" to { report() }, "▥  GRAFIKI" to { charts() })
         root.addView(action("☷  WIĘCEJ · MENU P1–P4") { menu() },LinearLayout.LayoutParams(-1,dp(50)))
+    }
+
+    private fun openHomeRecord(kind: String) {
+        val day = data()
+        val shift = active(day)
+        val objectId = shift?.optString("objectId").orEmpty()
+        val state = WorkMeterHomeState.from(shift != null, shift?.optString("kind").orEmpty(), objectId)
+        val defaultObject = if (state == WorkMeterHomeState.ON_SITE && !prefs.contains("draft_" + kind)) {
+            rows(day, "objects").singleOrNull { it.optString("id") == objectId }
+                ?.takeUnless { it.optBoolean("archived") }
+                ?.optString("id").orEmpty()
+        } else ""
+        newForm(kind, objectId = defaultObject)
     }
 
     // Native WorkMeter 4.0 menu inspired by the user's P1–P4 interactive prototype.

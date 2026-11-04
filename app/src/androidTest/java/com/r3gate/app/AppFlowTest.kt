@@ -180,6 +180,31 @@ class AppFlowTest {
             .put("objectId","object-test").put("object","KOP-01").put("kind","Obiekt").put("stages",JSONArray()))
         store(d)
     }
+    @Test fun homeQuickNoteUsesTheCurrentObject() {
+        seedActive()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                click(activity, "Dodaj notatkę")
+                assertTrue(all(activity).filterIsInstance<Button>()
+                    .any { it.text.toString().startsWith("Obiekt: KOP-01") })
+            }
+        }
+    }
+
+    @Test fun homeQuickNotePreservesAnExistingUnassignedDraft() {
+        seedActive()
+        instrumentation.targetContext.getSharedPreferences("r3_gate", 0).edit()
+            .putString("draft_notes", JSONObject().put("text", "Szkic").put("objectId", "").toString())
+            .commit()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                click(activity, "Dodaj notatkę")
+                assertTrue(has(activity, "Obiekt: Bez obiektu"))
+                assertTrue(has(activity, "Szkic"))
+            }
+        }
+    }
+
     @Test fun travelCancellationCreationAndArrival() {
         seedActive()
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
