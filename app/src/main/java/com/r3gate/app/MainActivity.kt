@@ -1654,9 +1654,11 @@ class MainActivity : Activity() {
     }
     private fun editShift(id:String) {
         val d=data()
-        val s=rows(d,"shifts").find { it.optString("id")==id } ?: return
-        var start=Instant.ofEpochMilli(s.optLong("start")).atZone(ZoneId.systemDefault()).toLocalDateTime()
-        var end=Instant.ofEpochMilli(s.optLong("end")).atZone(ZoneId.systemDefault()).toLocalDateTime()
+        val s=rows(d,"shifts").singleOrNull { it.optString("id")==id } ?: return
+        val zone=ZoneId.systemDefault()
+        val original=WorkShiftIntegrity.Interval(s.optLong("start"),s.optLong("end"))
+        var start=Instant.ofEpochMilli(original.start).atZone(zone).toLocalDateTime()
+        var end=Instant.ofEpochMilli(original.end).atZone(zone).toLocalDateTime()
         val layout=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(dp(16),0,dp(16),0) }
         val dateStart=Button(this)
         val dateEnd=Button(this)
@@ -1677,17 +1679,34 @@ class MainActivity : Activity() {
             .setNegativeButton("Anuluj",null).setPositiveButton("Zapisz",null).create()
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val st=start.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-                val en=end.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                val st=WorkShiftIntegrity.resolveEditTime(start,zone,original.start)
+                val en=WorkShiftIntegrity.resolveEditTime(end,zone,original.end)
+                if(st==null || en==null) {
+                    toast("Wybrana godzina nie istnieje w tej strefie czasowej")
+                    return@setOnClickListener
+                }
                 if(en<=st) { toast("Koniec musi być po rozpoczęciu"); return@setOnClickListener }
-                val otherShifts=rows(data(),"shifts").filter { it.optString("id")!=id }
+                val current=data()
+                val saved=rows(current,"shifts")
+                val row=saved.singleOrNull { it.optString("id")==id } ?: return@setOnClickListener
+                if(row.optLong("start")!=original.start || row.optLong("end")!=original.end) {
+                    toast("Zmiana została zaktualizowana. Otwórz edycję ponownie")
+                    return@setOnClickListener
+                }
+                val proposed=WorkShiftIntegrity.Interval(st,en)
+                val otherShifts=saved.filter { it.optString("id")!=id }
                     .map { WorkShiftIntegrity.Interval(it.optLong("start"),it.optLong("end")) }
-                if(!WorkShiftIntegrity.canSave(WorkShiftIntegrity.Interval(st,en),otherShifts)) {
+                    .toMutableList()
+                active(current)?.let { otherShifts.add(WorkShiftIntegrity.Interval(it.optLong("start",-1L),Long.MAX_VALUE)) }
+                if(!WorkShiftIntegrity.canSave(proposed,otherShifts)) {
                     toast("Zmiana nakłada się na inną zmianę lub historia zawiera nieprawidłowe daty")
                     return@setOnClickListener
                 }
-                val current=data()
-                val row=rows(current,"shifts").find { it.optString("id")==id } ?: return@setOnClickListener
+                val stages=rows(row,"stages").map { WorkShiftIntegrity.Interval(it.optLong("start"),it.optLong("end")) }
+                if(!WorkShiftIntegrity.preservesRecordedStages(original,proposed,stages)) {
+                    toast("Nowy zakres pominąłby część zapisanego etapu")
+                    return@setOnClickListener
+                }
                 arr(row,"edits").put(JSONObject().put("at",System.currentTimeMillis()).put("start",row.optLong("start")).put("end",row.optLong("end")))
                 row.put("start",st).put("end",en); save(current,"EDIT_SHIFT",id); dialog.dismiss(); report()
             }
