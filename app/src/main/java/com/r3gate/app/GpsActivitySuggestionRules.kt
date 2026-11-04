@@ -7,8 +7,13 @@ object GpsActivitySuggestionRules {
     data class Suggestion(val kind:Kind,val placeId:String?,val atMs:Long)
     const val MAX_ARRIVAL_STOP_MS=5*60_000L
     const val MAX_HINT_AGE_MS=20*60_000L
-    fun latest(events:List<Event>,placeKinds:Map<String,Kind>,nowMs:Long):Suggestion? {
-        if(nowMs<=0) return null
+    fun workSuggestionsAllowed(stage: String?): Boolean = stage != null && stage != "Prywatnie"
+
+    fun latest(
+        events: List<Event>, placeKinds: Map<String,Kind>, nowMs: Long,
+        workSuggestionsAllowed: Boolean = true
+    ): Suggestion? {
+        if (!workSuggestionsAllowed || nowMs<=0) return null
         var arrival:Event?=null
         var stopped:Event?=null
         var hint:Suggestion?=null
