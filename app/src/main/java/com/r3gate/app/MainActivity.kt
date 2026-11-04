@@ -141,6 +141,10 @@ class MainActivity : Activity() {
         if(!uploadReference.isNullOrBlank()) { pendingUpload=uploadReference; authorizeDrive(); return }
         when(action) {
             "photos" -> newForm("links",sendAfterSave=true)
+            "camera" -> {
+                newForm("links")
+                camera()
+            }
             "start" -> confirmPin { startShift() }
             "stop" -> confirmPin { stopShift() }
             "switch" -> confirmAction("Zmienić obiekt?") { switchObject() }

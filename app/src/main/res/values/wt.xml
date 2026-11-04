@@ -1,4 +1,5 @@
 <resources>
+    <string name="widget_camera">Zrób zdjęcie</string>
     <string name="widget_description">WorkMeter — czas pracy i szybkie sterowanie</string>
     <style name="WTTheme" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">@font/clash_grotesk</item><item name="android:colorAccent">#32866E</item>
