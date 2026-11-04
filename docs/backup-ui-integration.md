@@ -23,3 +23,15 @@ The local scheduler is independent of Drive authentication and uses unique WorkM
 | UI / themes | Integration contract only | Three-theme and accessibility QA pending |
 
 `LocalBackups` is the entry point for UI integration. Use `status` and `copies` for the screen, `updateSchedule` for changes, and `export` for saving a verified local ZIP to a SAF document. `prepareRestore` and `prepareImport` return a session with a preview. Keep the session until explicit confirmation or cancellation and invoke its `commit` or `discard` accordingly. These operations perform disk I/O and should run off the UI thread. A dated export filename is available from `BackupFilePicker.suggestName`.
+
+## Drive upload
+
+The existing manual and daily workers now create a verified ZIP in private storage before
+uploading. WorkManager waits for connectivity. Once a Drive ID is allocated, the worker
+persists it with the account, destination and archive filename. Retries use those same
+bytes and the same create-only ID. A conflict is accepted only after Drive confirms the
+expected file metadata and transport checksum. The user-facing success status is written
+after that check. Existing JSON backups are kept.
+
+Cloud browsing and import, cancellation cleanup, quota-specific messages, byte-range
+resume for large archives and real-account testing remain pending.

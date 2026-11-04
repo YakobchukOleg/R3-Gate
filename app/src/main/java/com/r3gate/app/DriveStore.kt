@@ -44,3 +44,5 @@ internal class DriveStore {
     companion object { val folderLock=Any() }
 }
 
+
+internal class DriveHttpException(val status: Int) : java.io.IOException("Drive HTTP $status")
