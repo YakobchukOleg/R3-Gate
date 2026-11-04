@@ -469,6 +469,18 @@ class AppFlowTest {
         }
     }
 
+    @Test fun incorrectStartPinDoesNotOpenObjectPickerOrStartTracking() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { click(it, "🟢 ROZPOCZNIJ PRACĘ") }
+            pin("0000")
+            assertFalse(stored().has("active"))
+            val prefs = instrumentation.targetContext.getSharedPreferences("r3_gate", 0)
+            assertFalse(prefs.getBoolean("gps_enabled", false))
+            androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.withHint("Szukaj miasta"))
+                .check(androidx.test.espresso.assertion.ViewAssertions.doesNotExist())
+        }
+    }
+
     @Test fun objectSearchByCityAndStyledPopup() {
         val d=stored()
         d.getJSONArray("objects").put(JSONObject().put("id","lodz").put("TAG","LOD-02").put("city","Łódź").put("Adres","1"))

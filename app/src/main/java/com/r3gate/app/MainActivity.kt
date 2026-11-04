@@ -56,7 +56,7 @@ class MainActivity : Activity() {
     private var formKind = ""
     private var formReturn = "home"
     private var startAfterObjectSave = false
-    private var cancelStartLocation: (() -> Unit)? = null
+    private var cancelStartAttempt: (() -> Unit)? = null
     private var draft = JSONObject()
     private var quickPhotoUpload=false
     private var cameraPath: String? = null
@@ -141,7 +141,7 @@ class MainActivity : Activity() {
         if(::root.isInitialized && screen=="home") home()
     }
     override fun onPause() { prefs.unregisterOnSharedPreferenceChangeListener(uploadChanges); ticker.removeCallbacks(refreshUploads); ticker.removeCallbacks(tick); super.onPause() }
-    override fun onStop() { cancelStartLocation?.invoke(); walletUnlocked=false; super.onStop() }
+    override fun onStop() { cancelStartAttempt?.invoke(); walletUnlocked=false; super.onStop() }
     override fun onRestart() {
         super.onRestart()
         // Keep the existing view (including its scroll position) when returning
@@ -157,11 +157,15 @@ class MainActivity : Activity() {
             } else { toast("PIN musi mieć 4–8 cyfr"); setupPin() }
         }.show()
     }
-    private fun confirmPin(action: () -> Unit) {
+    private fun confirmPin(onAbort: () -> Unit = {}, action: () -> Unit) {
         val field=EditText(ContextThemeWrapper(this,dialogStyle)).apply { inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD; hint="PIN" }
-        AlertDialog.Builder(this,dialogStyle).setTitle("Potwierdź PIN").setView(field).setNegativeButton("Anuluj",null).setPositiveButton("Potwierdź") { _, _ ->
-            if (hash(prefs.getString("salt","")+field.text.toString()) == prefs.getString("pin","")) action() else toast("Nieprawidłowy PIN")
-        }.show()
+        AlertDialog.Builder(this,dialogStyle).setTitle("Potwierdź PIN").setView(field)
+            .setOnCancelListener { onAbort() }
+            .setNegativeButton("Anuluj") { _, _ -> onAbort() }
+            .setPositiveButton("Potwierdź") { _, _ ->
+                if (hash(prefs.getString("salt","")+field.text.toString()) == prefs.getString("pin","")) action()
+                else { onAbort(); toast("Nieprawidłowy PIN") }
+            }.show()
     }
     private fun confirmAction(message:String="Wykonać tę czynność?",action:()->Unit) {
         AlertDialog.Builder(this,dialogStyle).setTitle("Potwierdzenie").setMessage(message)
@@ -189,7 +193,7 @@ class MainActivity : Activity() {
                 newForm("links")
                 camera()
             }
-            "start" -> confirmPin { startShift() }
+            "start" -> startShift()
             "stop" -> confirmPin { stopShift() }
             "switch" -> confirmAction("Zmienić obiekt?") { switchObject() }
             "travel" -> toggleTravel()
@@ -429,15 +433,54 @@ class MainActivity : Activity() {
 
     private fun startShift() {
         if (active(data()) != null) { toast("Dzień pracy już rozpoczęty"); return }
-        findStartLocation { suggested ->
-            if (suggested == null) {
-                searchStartObject()
-            } else {
-                AlertDialog.Builder(this, dialogStyle).setTitle("Czy jesteś na tym obiekcie?")
-                    .setMessage(objectName(suggested))
-                    .setPositiveButton("Tak, rozpocznij dzień") { _, _ -> startOnObject(suggested) }
-                    .setNegativeButton("Nie, wyszukaj obiekt") { _, _ -> searchStartObject() }
-                    .show()
+        cancelStartAttempt?.invoke()
+        var waiting: AlertDialog? = null
+        var stopLocation: (() -> Unit)? = null
+        var fixReceived = false
+        var pinAccepted = false
+        var aborted = false
+        var suggestion: JSONObject? = null
+        var receivedAt = 0L
+        fun cancel() {
+            aborted = true
+            cancelStartAttempt = null
+            stopLocation?.invoke()
+            waiting?.dismiss()
+        }
+        fun showResult() {
+            if (aborted || !pinAccepted || !fixReceived) return
+            val suggested = suggestion.takeIf { android.os.SystemClock.elapsedRealtime() - receivedAt <= 30_000L }
+            cancel()
+            if (suggested == null) searchStartObject()
+            else AlertDialog.Builder(this, dialogStyle).setTitle("Czy jesteś na tym obiekcie?")
+                .setMessage(objectName(suggested))
+                .setPositiveButton("Tak, rozpocznij dzień") { _, _ -> startOnObject(suggested) }
+                .setNegativeButton("Nie, wyszukaj obiekt") { _, _ -> searchStartObject() }
+                .show()
+        }
+        cancelStartAttempt = ::cancel
+        stopLocation = findStartLocation { suggested ->
+            if (!aborted) {
+                suggestion = suggested
+                receivedAt = android.os.SystemClock.elapsedRealtime()
+                fixReceived = true
+                showResult()
+            }
+        }
+        confirmPin(onAbort = ::cancel) {
+            if (!aborted) {
+                pinAccepted = true
+                if (fixReceived) showResult()
+                else {
+                    val dialog = AlertDialog.Builder(this, dialogStyle).setMessage("Sprawdzanie lokalizacji…")
+                        .setOnCancelListener { cancel() }
+                        .setNegativeButton("Wyszukaj ręcznie") { _, _ ->
+                            cancel()
+                            searchStartObject()
+                        }.create()
+                    waiting = dialog
+                    dialog.show()
+                }
             }
         }
     }
@@ -448,7 +491,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun findStartLocation(onResult: (JSONObject?) -> Unit) {
+    private fun findStartLocation(onResult: (JSONObject?) -> Unit): (() -> Unit)? {
         val places = selectableObjects().mapNotNull { obj ->
             val id = obj.optString("id")
             val stored = prefs.getString("gps_object_" + id, null) ?: return@mapNotNull null
@@ -463,39 +506,34 @@ class MainActivity : Activity() {
         if (places.isEmpty() || !GpsWorkdaySession.hasConsent(prefs) ||
             checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             onResult(null)
-            return
+            return null
         }
         val manager = getSystemService(LocationManager::class.java)
-        if (manager == null) { onResult(null); return }
+        if (manager == null) { onResult(null); return null }
         val provider = try {
             listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
                 .firstOrNull { manager.isProviderEnabled(it) }
         } catch (_: RuntimeException) {
             null
         }
-        if (provider == null) { onResult(null); return }
+        if (provider == null) { onResult(null); return null }
 
         val signal = android.os.CancellationSignal()
-        val dialog = AlertDialog.Builder(this, dialogStyle).setMessage("Sprawdzanie lokalizacji…")
-            .setNegativeButton("Wyszukaj ręcznie", null).create()
-        fun cancel() {
-            cancelStartLocation = null
-            signal.cancel()
-            dialog.dismiss()
+        val timeout = Runnable {
+            if (!signal.isCanceled) {
+                signal.cancel()
+                onResult(null)
+            }
         }
         fun finish(fix: Location?) {
             if (signal.isCanceled) return
-            cancel()
+            ticker.removeCallbacks(timeout)
+            signal.cancel()
             val point = fix?.let { GpsWorkRules.Point(it.latitude, it.longitude, it.accuracy.toDouble(), it.time) }
             val id = WorkdayObjectSearch.suggestedId(point, places, System.currentTimeMillis())
             onResult(selectableObjects().firstOrNull { it.optString("id") == id })
         }
-        cancelStartLocation?.invoke()
-        cancelStartLocation = ::cancel
-        dialog.setOnCancelListener { cancel() }
-        dialog.show()
-        dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener { finish(null) }
-        ticker.postDelayed({ finish(null) }, 4_000)
+        ticker.postDelayed(timeout, 12_000)
         try {
             androidx.core.location.LocationManagerCompat.getCurrentLocation(manager, provider, signal, androidx.core.content.ContextCompat.getMainExecutor(this)) { fix ->
                 finish(fix)
@@ -503,6 +541,7 @@ class MainActivity : Activity() {
         } catch (_: RuntimeException) {
             finish(null)
         }
+        return { ticker.removeCallbacks(timeout); signal.cancel() }
     }
 
     private fun startOnObject(obj: JSONObject) {
@@ -971,7 +1010,7 @@ class MainActivity : Activity() {
 
         root.addView(action(state.actionLabel, WorkMeterButtonRole.PRIMARY) {
             when (state) {
-                WorkMeterHomeState.CLOSED -> confirmPin { startShift() }
+                WorkMeterHomeState.CLOSED -> startShift()
                 WorkMeterHomeState.ON_SITE, WorkMeterHomeState.TRAVEL -> toggleTravel()
                 WorkMeterHomeState.SHOPPING -> toggleShopping()
                 WorkMeterHomeState.PERSONAL -> togglePrivateTime()
@@ -1725,6 +1764,7 @@ class MainActivity : Activity() {
         button("Wygląd widżetu") { widgetSettings() }
         button("Język aplikacji") { language() }
         label("GPS i lokalizacja")
+        label("Po naciśnięciu Rozpocznij dzień aplikacja jednorazowo sprawdza lokalizację, jeśli GPS jest dozwolony. Śledzenie w tle działa tylko podczas otwartego dnia.")
         if(prefs.getBoolean("gps_resume_pending",false)) button("GPS · wznowienie po restarcie") { gpsScreen() }
         button(if(GpsWorkdaySession.hasConsent(prefs)) "GPS WorkMeter: DOZWOLONY W PRACY — wyłącz" else "GPS WorkMeter: WYŁĄCZONY — włącz") {
             toggleGpsConsent()
