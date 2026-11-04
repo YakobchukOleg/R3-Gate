@@ -40,11 +40,14 @@ class ObjectDetailsPanel(
         })
         state.location?.let { addView(text("⌖ $it", muted, 13f)) }
         state.organization?.let { addView(text("◈ $it", muted, 13f)) }
-        val actions = LinearLayout(context).apply { orientation = HORIZONTAL }
-        actions.addView(action("Edytuj obiekt", onEdit), LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f).apply {
+        val actions = LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            isBaselineAligned = false
+        }
+        actions.addView(action("Edytuj obiekt", onEdit), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f).apply {
             marginEnd = dp(4)
         })
-        actions.addView(action("Otwórz w Google Maps", onMaps), LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
+        actions.addView(action("Otwórz w Google Maps", onMaps), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         addView(actions, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(8)
         })
@@ -54,7 +57,10 @@ class ObjectDetailsPanel(
 
         val tabButtons = mutableListOf<Button>()
         for (group in ObjectDetailsTabs.Tab.entries.chunked(3)) {
-            val row = LinearLayout(context).apply { orientation = HORIZONTAL }
+            val row = LinearLayout(context).apply {
+                orientation = HORIZONTAL
+                isBaselineAligned = false
+            }
             group.forEach { tab ->
                 val button = action(tab.label) {
                     tabButtons.forEachIndexed { index, view ->
@@ -66,7 +72,7 @@ class ObjectDetailsPanel(
                     styleTab(this, tab == ObjectDetailsTabs.Tab.TODAY)
                 }
                 tabButtons.add(button)
-                row.addView(button, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f).apply {
+                row.addView(button, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f).apply {
                     marginEnd = dp(4)
                 })
             }

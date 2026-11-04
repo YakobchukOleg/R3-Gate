@@ -151,6 +151,26 @@ class ObjectListPanelInstrumentedTest {
         views(activity).filterIsInstance<Button>().single { it.text.toString() == "Otwórz ${label.lowercase()}" }.performClick()
     }
 
+    @Test fun multilineMapButtonFitsTheObjectActionRow() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                openActiveDetails(activity)
+                val panel = views(activity).filterIsInstance<ObjectDetailsPanel>().single()
+                val width = (260 * activity.resources.displayMetrics.density).toInt()
+                panel.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+                panel.layout(0, 0, width, panel.measuredHeight)
+                val buttons = views(activity).filterIsInstance<Button>()
+                val edit = buttons.single { it.text == "Edytuj obiekt" }
+                val maps = buttons.single { it.text == "Otwórz w Google Maps" }
+                assertTrue(maps.lineCount > 1)
+                assertEquals(edit.top, maps.top)
+                assertEquals(edit.bottom, maps.bottom)
+                assertTrue(maps.bottom <= (maps.parent as View).height)
+            }
+        }
+    }
+
     @Test fun nativeDetailsShowsMetadataAndEmptyHistory() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
