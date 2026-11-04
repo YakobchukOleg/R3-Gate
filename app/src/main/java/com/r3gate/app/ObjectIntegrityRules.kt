@@ -22,7 +22,7 @@ object ObjectIntegrityRules {
         id.isNotBlank() && existing.none { it.id == id }
 
     fun canAssign(objectId: String, objects: Collection<ObjectRef>): Boolean =
-        objects.any { it.id == objectId && !it.archived }
+        objectId.isNotBlank() && objects.singleOrNull { it.id == objectId }?.archived == false
 
     /**
      * Legacy records can retain their original association even when their object
@@ -69,5 +69,5 @@ object ObjectIntegrityRules {
 
     /** Historical records make hard deletion unsafe; archive instead. */
     fun canHardDelete(objectId: String, objects: Collection<ObjectRef>, references: References): Boolean =
-        objects.any { it.id == objectId } && references.countFor(objectId) == 0
+        objectId.isNotBlank() && objects.count { it.id == objectId } == 1 && references.countFor(objectId) == 0
 }
