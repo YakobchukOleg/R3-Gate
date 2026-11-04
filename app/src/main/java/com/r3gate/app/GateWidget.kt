@@ -4,7 +4,9 @@ import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
 import android.content.*
+import android.os.Build
 import android.os.SystemClock
+import android.util.SizeF
 import android.view.View
 import android.widget.RemoteViews
 import org.json.JSONObject
@@ -24,19 +26,27 @@ class GateWidget : AppWidgetProvider() {
             ids.forEach { update(context,mgr,it) }
         }
         private fun update(context:Context,mgr:AppWidgetManager,id:Int) {
-            mgr.updateAppWidget(id,render(context,mgr.getAppWidgetOptions(id)))
+            val views = if (Build.VERSION.SDK_INT >= 31) {
+                RemoteViews(WidgetLayoutProfile.entries.associate { profile ->
+                    SizeF(profile.minWidthDp.toFloat(), profile.minHeightDp.toFloat()) to render(context, profile)
+                })
+            } else {
+                val options = mgr.getAppWidgetOptions(id)
+                val profile = WidgetLayoutProfile.forBounds(
+                    options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 250),
+                    options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 160)
+                )
+                render(context, profile)
+            }
+            mgr.updateAppWidget(id, views)
         }
-        internal fun render(context:Context,options:android.os.Bundle=android.os.Bundle()):RemoteViews {
+        internal fun render(context: Context, profile: WidgetLayoutProfile = WidgetLayoutProfile.STANDARD): RemoteViews {
             val prefs=context.getSharedPreferences("r3_gate",Context.MODE_PRIVATE)
             val d=try { JSONObject(prefs.getString("data","{}")!!) } catch (_:Exception) { JSONObject() }
             val a=d.optJSONObject("active"); val arr=d.optJSONArray("shifts")
             val last=if(arr!=null && arr.length()>0) arr.optJSONObject(arr.length()-1) else null
             val shown=a?:last
             val start=shown?.optLong("start")?:0L; val end=shown?.optLong("end")?:0L
-            val profile = WidgetLayoutProfile.forBounds(
-                options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 250),
-                options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 160)
-            )
             val mini = profile == WidgetLayoutProfile.MINI
             val wide = profile == WidgetLayoutProfile.STANDARD || profile == WidgetLayoutProfile.EXPANDED
             val expanded = profile == WidgetLayoutProfile.EXPANDED
@@ -54,16 +64,29 @@ class GateWidget : AppWidgetProvider() {
             v.setViewVisibility(R.id.wprimary, if (mini) View.GONE else View.VISIBLE)
             v.setViewVisibility(R.id.wdetails, if (expanded) View.VISIBLE else View.GONE)
             v.setViewVisibility(R.id.wtitle, if (wide) View.VISIBLE else View.GONE)
-            v.setViewVisibility(R.id.wactions, if (expanded && a != null && !personal) View.VISIBLE else View.GONE)
+            v.setViewVisibility(R.id.wactions, if (wide && a != null && !personal) View.VISIBLE else View.GONE)
             v.setViewVisibility(R.id.wend, if (a == null) View.VISIBLE else View.GONE)
-            v.setTextViewText(R.id.wswitch, if (expanded) "ZMIEŃ OBIEKT" else "OBIEKT ↔")
+            v.setTextViewText(R.id.wswitch, if (wide) "ZMIEŃ OBIEKT" else "OBIEKT ↔")
             if (mini) v.setTextViewTextSize(R.id.wduration, android.util.TypedValue.COMPLEX_UNIT_SP, 19f)
             v.setTextViewText(R.id.wtitle,"WorkMeter")
             v.setTextViewText(R.id.wshopping,if(a?.optString("kind")=="Zakupy") "ZAKOŃCZ ZAKUPY" else "ZAKUPY")
-            v.setViewVisibility(R.id.wshopping,if(a!=null && expanded) android.view.View.VISIBLE else android.view.View.GONE)
+            v.setViewVisibility(R.id.wshopping,if(a!=null && wide) android.view.View.VISIBLE else android.view.View.GONE)
             v.setViewVisibility(R.id.wstage,if(travel && expanded) android.view.View.VISIBLE else android.view.View.GONE)
             if(travel) v.setChronometer(R.id.wstage,SystemClock.elapsedRealtime()-(System.currentTimeMillis()-a!!.optLong("stageStart")),"W drodze: %s",true)
-            v.setTextViewText(R.id.wstatus,if(personal) "● PRYWATNIE" else if(a!=null) "● ONLINE" else "● OFFLINE")
+            val status = if (wide) {
+                if (personal) "● PRYWATNIE" else if (a != null) "● ONLINE" else "● OFFLINE"
+            } else when {
+                a == null -> "Dzień zamknięty"
+                travel -> "Przejazd"
+                personal -> "Prywatnie"
+                a.optString("kind") == "Zakupy" -> "Zakupy"
+                a.optString("objectId").isNotBlank() -> "Na obiekcie"
+                else -> "Brak przypisanego etapu"
+            }
+            v.setTextViewText(R.id.wstatus, status)
+            if (!wide && (a == null || travel || personal || a.optString("kind") == "Zakupy")) {
+                v.setViewVisibility(R.id.wobject, View.GONE)
+            }
             v.setTextColor(R.id.wstatus,if(personal) 0xFFFFC88F.toInt() else if(a!=null) 0xFF6EE0AD.toInt() else 0xFFD1DDE0.toInt())
             v.setTextViewText(R.id.wstart,"Rozpoczęcie: "+if(start>0) time.format(Date(start)) else "—")
             v.setTextViewText(R.id.wend,"Zakończenie: "+if(a!=null || end<=0) "— Offline" else time.format(Date(end)))
