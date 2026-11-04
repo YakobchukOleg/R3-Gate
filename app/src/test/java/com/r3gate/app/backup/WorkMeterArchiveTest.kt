@@ -112,21 +112,21 @@ class WorkMeterArchiveTest {
     }
 
     @Test fun rejectsInvalidUtf8Manifest() {
-        val bad = "WORKMETER-ARCHIVE/1\\n".toByteArray() + byteArrayOf(0xc3.toByte(), 0x28)
+        val bad = "WORKMETER-ARCHIVE/1\n".toByteArray() + byteArrayOf(0xc3.toByte(), 0x28)
         fails { WorkMeterArchive.inspect(ByteArrayInputStream(customManifest(bad))) }
     }
 
     @Test fun rejectsInvalidUtf8ManifestPath() {
         val path = java.util.Base64.getUrlEncoder().withoutPadding()
             .encodeToString(byteArrayOf(0xc3.toByte(), 0x28))
-        val manifest = "WORKMETER-ARCHIVE/1\\n" + path + "\\t1\\t" + "0".repeat(64) + "\\n"
+        val manifest = "WORKMETER-ARCHIVE/1\n" + path + "\t1\t" + "0".repeat(64) + "\n"
         fails { WorkMeterArchive.inspect(ByteArrayInputStream(customManifest(manifest.toByteArray()))) }
     }
 
     @Test fun nonNumericManifestSizeUsesValidationError() {
         val path = java.util.Base64.getUrlEncoder().withoutPadding()
             .encodeToString("data.json".toByteArray())
-        val manifest = "WORKMETER-ARCHIVE/1\\n" + path + "\\tNaN\\t" + "0".repeat(64) + "\\n"
+        val manifest = "WORKMETER-ARCHIVE/1\n" + path + "\tNaN\t" + "0".repeat(64) + "\n"
         fails { WorkMeterArchive.inspect(ByteArrayInputStream(customManifest(manifest.toByteArray()))) }
     }
 
@@ -136,12 +136,12 @@ class WorkMeterArchiveTest {
     }
 
     @Test fun rejectsExtraBlankManifestRows() {
-        val bytes = customManifest("WORKMETER-ARCHIVE/1\\n\\n".toByteArray())
+        val bytes = customManifest("WORKMETER-ARCHIVE/1\n\n".toByteArray())
         fails { WorkMeterArchive.inspect(ByteArrayInputStream(bytes)) }
     }
 
     @Test fun canonicalEmptyManifestRemainsCompatible() {
-        val bytes = customManifest("WORKMETER-ARCHIVE/1\\n".toByteArray())
+        val bytes = customManifest("WORKMETER-ARCHIVE/1\n".toByteArray())
         assertTrue(WorkMeterArchive.inspect(ByteArrayInputStream(bytes)).files.isEmpty())
     }
 
