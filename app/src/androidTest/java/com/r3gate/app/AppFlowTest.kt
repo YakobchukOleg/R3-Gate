@@ -37,13 +37,13 @@ class AppFlowTest {
         // The visual Home dashboard adds icons and spacing; keep navigation tests
         // explicit about the rendered labels rather than disabling assertions.
         val display=when(text) {
-            "🟢 ROZPOCZNIJ PRACĘ" -> "▶  ROZPOCZNIJ PRACĘ"
+            "🟢 ROZPOCZNIJ PRACĘ" -> "Rozpocznij dzień"
             "🔴 ZAKOŃCZ PRACĘ" -> "■  ZAKOŃCZ PRACĘ"
             "🔄 ZMIEŃ OBIEKT" -> "↔  ZMIEŃ OBIEKT"
-            "🚗 PRZEJAZD" -> "🚗  PRZEJAZD"
-            "DOTARŁEM" -> "✓  DOTARŁEM"
+            "🚗 PRZEJAZD" -> "Rozpocznij przejazd"
+            "DOTARŁEM" -> "Potwierdź przyjazd"
             "ZAKUPY" -> "🛍  ZAKUPY"
-            "ZAKOŃCZ ZAKUPY" -> "✓  ZAKOŃCZ ZAKUPY"
+            "ZAKOŃCZ ZAKUPY" -> "Zakończ zakupy"
             "ZDJĘCIA" -> "📷  ZDJĘCIA"
             "MATERIAŁY" -> "📦  MATERIAŁY"
             "NOTATKI" -> "📝  NOTATKI"
@@ -180,6 +180,31 @@ class AppFlowTest {
             .put("objectId","object-test").put("object","KOP-01").put("kind","Obiekt").put("stages",JSONArray()))
         store(d)
     }
+    @Test fun homeQuickNoteUsesTheCurrentObject() {
+        seedActive()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                click(activity, "Dodaj notatkę")
+                assertTrue(all(activity).filterIsInstance<Button>()
+                    .any { it.text.toString().startsWith("Obiekt: KOP-01") })
+            }
+        }
+    }
+
+    @Test fun homeQuickNotePreservesAnExistingUnassignedDraft() {
+        seedActive()
+        instrumentation.targetContext.getSharedPreferences("r3_gate", 0).edit()
+            .putString("draft_notes", JSONObject().put("text", "Szkic").put("objectId", "").toString())
+            .commit()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                click(activity, "Dodaj notatkę")
+                assertTrue(has(activity, "Obiekt: Bez obiektu"))
+                assertTrue(has(activity, "Szkic"))
+            }
+        }
+    }
+
     @Test fun travelCancellationCreationAndArrival() {
         seedActive()
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
@@ -351,9 +376,13 @@ class AppFlowTest {
                 click(a,"O aplikacji"); assertTrue(has(a,"Wersja: 2.3")); a.onBackPressed()
                 click(a,"Portfel / rozliczenia (PIN)")
                 assertFalse(has(a,"Portfel"))
+                assertFalse(has(a,"Wybrany okres"))
+                assertFalse(has(a,"Naliczone: 240,00 zł"))
             }
             pin()
             scenario.onActivity { a ->
+                assertTrue(has(a,"Wybrany okres"))
+                assertTrue(has(a,"Cała historia"))
                 assertTrue(has(a,"Naliczone: 240,00 zł")); click(a,"+ Dodaj wypłatę")
                 all(a).filterIsInstance<EditText>().first { it.hint=="Kwota (zł)" }.setText("100")
                 click(a,"Zapisz"); click(a,"+ Dodaj wypłatę")
@@ -383,6 +412,26 @@ class AppFlowTest {
             }
         }
     }
+    @Test fun widgetAppearanceIsIsolatedAndSurvivesIdRemapping() {
+        val context = instrumentation.targetContext
+        val store = WidgetAppearanceStore(context)
+        val first = WidgetAppearance(theme = WorkMeterTheme.NORDIC_BLUE, transparency = 40, showGps = false)
+        val second = WidgetAppearance(theme = WorkMeterTheme.GRAPHITE_DARK, transparency = 100, showObject = false)
+        val ids = intArrayOf(70001, 70002, 70003)
+        try {
+            store.save(ids[0], first)
+            store.save(ids[1], second)
+            assertEquals(first, WidgetAppearanceStore(context).read(ids[0]))
+            assertEquals(second, store.read(ids[1]))
+            store.restore(intArrayOf(ids[0]), intArrayOf(ids[2]))
+            assertEquals(first, store.read(ids[2]))
+            assertEquals(WidgetAppearance(), store.read(ids[0]))
+            assertEquals(second, store.read(ids[1]))
+        } finally {
+            store.delete(ids)
+        }
+    }
+
     @Test fun widgetTransparencyAffectsOnlyBackgroundAndSettingsRemainReachable() {
         seedActive()
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
@@ -395,6 +444,9 @@ class AppFlowTest {
                 all(a).filterIsInstance<android.widget.SeekBar>().first().progress=100
                 val widget=GateWidget.render(a).apply(a,android.widget.FrameLayout(a))
                 assertEquals(0,widget.findViewById<android.widget.ImageView>(R.id.wbackground).imageAlpha)
+                val timer = widget.findViewById<android.widget.Chronometer>(R.id.wduration)
+                assertEquals(android.graphics.Color.BLACK, timer.shadowColor)
+                assertTrue(timer.shadowRadius > 0f)
                 assertEquals(1f,widget.findViewById<TextView>(R.id.wduration).alpha,0f)
                 assertEquals(255,widget.findViewById<Button>(R.id.wstopbutton).background.alpha)
             }
@@ -595,6 +647,49 @@ class AppFlowTest {
         }
     }
 
+    @Test fun settingsKeepScrollPositionAfterBackgroundingAndRecreation() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            var expectedScroll = 0
+            scenario.onActivity { activity -> settings(activity) }
+            instrumentation.waitForIdleSync()
+            scenario.onActivity { activity ->
+                val scroll = all(activity).filterIsInstance<android.widget.ScrollView>().first()
+                scroll.scrollTo(0, 240)
+                expectedScroll = scroll.scrollY
+                assertTrue(expectedScroll > 0)
+            }
+            scenario.moveToState(androidx.lifecycle.Lifecycle.State.CREATED)
+            scenario.moveToState(androidx.lifecycle.Lifecycle.State.RESUMED)
+            instrumentation.waitForIdleSync()
+            scenario.onActivity { activity ->
+                assertEquals(expectedScroll, all(activity).filterIsInstance<android.widget.ScrollView>().first().scrollY)
+            }
+            scenario.recreate()
+            instrumentation.waitForIdleSync()
+            scenario.onActivity { activity ->
+                assertEquals(expectedScroll, all(activity).filterIsInstance<android.widget.ScrollView>().first().scrollY)
+            }
+        }
+    }
+
+    @Test fun bottomNavigationOpensFinanceOnlyAfterPin() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val buttons = all(activity).filterIsInstance<Button>()
+                val tabs = listOf("Start", "Obiekty", "Mój czas", "Finanse", "Więcej")
+                assertEquals(tabs, buttons.map { it.contentDescription?.toString() }.filter { it in tabs })
+                buttons.first { it.contentDescription == "Finanse" }.performClick()
+                assertFalse(has(activity, "Portfel"))
+                assertFalse(has(activity, "Wybrany okres"))
+            }
+            pin()
+            scenario.onActivity { activity ->
+                assertTrue(has(activity, "Portfel"))
+                assertTrue(has(activity, "Wybrany okres"))
+            }
+        }
+    }
+
     @Test fun nativePrototypeMenuHasWorkingNavigationAndModuleRoutes() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { a ->
@@ -610,7 +705,7 @@ class AppFlowTest {
                 assertTrue(has(a,"Ten moduł jest częścią wizualnego prototypu P1–P4. Pełna obsługa wymaga osobnego wdrożenia. Dostępne działania poniżej korzystają z prawdziwych danych WorkMeter."))
                 click(a,"◷  Historia pracy i kalendarz")
                 assertTrue(has(a,"Mój czas"))
-                val nav=all(a).filterIsInstance<Button>().firstOrNull { it.contentDescription=="Dzisiaj" }
+                val nav=all(a).filterIsInstance<Button>().firstOrNull { it.contentDescription=="Start" }
                 assertNotNull("Home tab should remain available on report screens",nav)
                 nav!!.performClick()
                 assertTrue(has(a,"WorkMeter"))

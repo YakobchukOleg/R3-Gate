@@ -21,6 +21,7 @@ import com.google.android.gms.auth.api.identity.Identity
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
 import com.google.android.gms.common.api.Scope
 import androidx.core.content.FileProvider
+import androidx.core.view.doOnLayout
 import android.appwidget.AppWidgetManager
 import android.content.*
 import android.os.*
@@ -48,6 +49,8 @@ class MainActivity : Activity() {
     private val ticker = Handler(Looper.getMainLooper())
     private var screen = "home"
     private var currentSection = "Obiekty"
+    private var objectFilters: ObjectFilterUiState.State? = null
+    private var objectSearch = ""
     private val expandedFilters = mutableSetOf<String>()
     private var formKind = ""
     private var formReturn = "home"
@@ -96,6 +99,10 @@ class MainActivity : Activity() {
         DriveBackupWorker.schedule(this)
         expandedFilters.addAll(savedInstanceState?.getStringArrayList("expandedFilters") ?: emptyList())
         currentSection=savedInstanceState?.getString("currentSection") ?: "Obiekty"
+        savedInstanceState?.getBundle("objectFilters")?.let { filters ->
+            objectFilters = ObjectFilterUiState.State(filters.getBoolean("archived"), filters.getBoolean("grouped", true), filters.getString("city"))
+            objectSearch = filters.getString("query").orEmpty()
+        }
         walletDraft = JSONObject(savedInstanceState?.getString("walletDraft") ?: "{}")
         quickPhotoUpload=savedInstanceState?.getBoolean("quickPhotoUpload") ?: false
         cameraPath = savedInstanceState?.getString("cameraPath")
@@ -139,21 +146,21 @@ class MainActivity : Activity() {
     }
     private fun hash(s: String): String = MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).joinToString("") { "%02x".format(it) }
     private fun setupPin() {
-        val field = EditText(ContextThemeWrapper(this,R.style.WorkMeterDialogTheme)).apply { hint="PIN (4–8 cyfr)"; inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD }
-        AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Ustaw PIN").setMessage("Kod chroni rozpoczęcie i zakończenie pracy.").setView(field).setCancelable(false).setPositiveButton("Zapisz") { _, _ ->
+        val field = EditText(ContextThemeWrapper(this,dialogStyle)).apply { hint="PIN (4–8 cyfr)"; inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD }
+        AlertDialog.Builder(this,dialogStyle).setTitle("Ustaw PIN").setMessage("Kod chroni rozpoczęcie i zakończenie pracy.").setView(field).setCancelable(false).setPositiveButton("Zapisz") { _, _ ->
             val p=field.text.toString(); if (p.length in 4..8) {
                 val salt=UUID.randomUUID().toString(); prefs.edit().putString("salt",salt).putString("pin",hash(salt+p)).apply(); home()
             } else { toast("PIN musi mieć 4–8 cyfr"); setupPin() }
         }.show()
     }
     private fun confirmPin(action: () -> Unit) {
-        val field=EditText(ContextThemeWrapper(this,R.style.WorkMeterDialogTheme)).apply { inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD; hint="PIN" }
-        AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Potwierdź PIN").setView(field).setNegativeButton("Anuluj",null).setPositiveButton("Potwierdź") { _, _ ->
+        val field=EditText(ContextThemeWrapper(this,dialogStyle)).apply { inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD; hint="PIN" }
+        AlertDialog.Builder(this,dialogStyle).setTitle("Potwierdź PIN").setView(field).setNegativeButton("Anuluj",null).setPositiveButton("Potwierdź") { _, _ ->
             if (hash(prefs.getString("salt","")+field.text.toString()) == prefs.getString("pin","")) action() else toast("Nieprawidłowy PIN")
         }.show()
     }
     private fun confirmAction(message:String="Wykonać tę czynność?",action:()->Unit) {
-        AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Potwierdzenie").setMessage(message)
+        AlertDialog.Builder(this,dialogStyle).setTitle("Potwierdzenie").setMessage(message)
             .setNegativeButton("Nie",null).setPositiveButton("Tak") { _,_ -> action() }.show()
     }
     override fun onNewIntent(intent: Intent) {
@@ -174,6 +181,10 @@ class MainActivity : Activity() {
         if(!uploadReference.isNullOrBlank()) { pendingUpload=uploadReference; authorizeDrive(); return }
         when(action) {
             "photos" -> newForm("links",sendAfterSave=true)
+            "camera" -> {
+                newForm("links")
+                camera()
+            }
             "start" -> confirmPin { startShift() }
             "stop" -> confirmPin { stopShift() }
             "switch" -> confirmAction("Zmienić obiekt?") { switchObject() }
@@ -585,70 +596,80 @@ class MainActivity : Activity() {
         }
     }
     private fun toast(s:String)=Toast.makeText(this,s,Toast.LENGTH_LONG).show()
+    private val appearance get() = WorkMeterAppearance.theme(this)
+    private val palette get() = appearance.palette
+    private val dialogStyle get() = WorkMeterAppearance.dialogStyle(appearance)
+
     private fun dp(n:Int) = (n * resources.displayMetrics.density).toInt()
     private fun background(color:Int): GradientDrawable = GradientDrawable().apply {
         setColor(color); cornerRadius = dp(8).toFloat()
     }
     private fun base(title:String) {
         homeVisible=false
-        val frame=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setBackgroundColor(Color.BLACK) }
+        val frame=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setBackgroundColor(palette.header) }
         val top=View(this); frame.addView(top,LinearLayout.LayoutParams(-1,0))
-        val header=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; gravity=Gravity.CENTER_VERTICAL; setPadding(dp(16),0,dp(8),0); setBackgroundColor(0xFF37474F.toInt()) }
-        header.addView(TextView(this).apply { text=title; textSize=27f; gravity=Gravity.CENTER_VERTICAL; setTextColor(Color.WHITE); setTypeface(resources.getFont(R.font.clash_grotesk),android.graphics.Typeface.BOLD) },LinearLayout.LayoutParams(0,dp(56),1f).apply { gravity=Gravity.CENTER_VERTICAL })
+        val header=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; gravity=Gravity.CENTER_VERTICAL; setPadding(dp(16),0,dp(8),0); setBackgroundColor(palette.header) }
+        header.addView(TextView(this).apply { text=title; textSize=27f; minimumHeight=dp(56); gravity=Gravity.CENTER_VERTICAL; setTextColor(palette.onHeader); setTypeface(resources.getFont(R.font.clash_grotesk),android.graphics.Typeface.BOLD) },LinearLayout.LayoutParams(0,-2,1f).apply { gravity=Gravity.CENTER_VERTICAL })
         if(title=="WorkMeter") header.addView(TextView(this).apply {
             text="SOLO"
             textSize=11f
-            setTextColor(0xFFAFE3CE.toInt())
+            setTextColor(palette.onPrimary)
             setPadding(dp(7),dp(5),dp(7),dp(5))
-            background=background(0xFF28443F.toInt())
+            background=background(palette.primary)
         },LinearLayout.LayoutParams(-2,-2).apply { rightMargin=dp(7) })
         if(title=="WorkMeter") header.addView(Button(this).apply {
-            text="⚙"; textSize=27f; contentDescription="Ustawienia"; setTextColor(Color.WHITE)
+            text="⚙"; textSize=27f; contentDescription="Ustawienia"; setTextColor(palette.onHeader)
             background=android.graphics.drawable.ColorDrawable(Color.TRANSPARENT); backgroundTintList=null; setPadding(0,0,0,0)
             setOnClickListener { settings() }
         },LinearLayout.LayoutParams(dp(48),dp(48)))
-        frame.addView(header,LinearLayout.LayoutParams(-1,dp(56)))
-        val scroll=ScrollView(this).apply { setBackgroundColor(Color.WHITE); isFillViewport=true }
+        frame.addView(header,LinearLayout.LayoutParams(-1,-2))
+        val scroll=ScrollView(this).apply { setBackgroundColor(palette.background); isFillViewport=true }
         root=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(dp(16),dp(12),dp(16),dp(24)); isFocusableInTouchMode=true; descendantFocusability=ViewGroup.FOCUS_BEFORE_DESCENDANTS }
         scroll.addView(root,FrameLayout.LayoutParams(-1,-2))
         frame.addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
-        // Persistent six-item navigation mirrors the supplied WorkMeter 4.0 prototype.
-        // It lives outside the screen-specific content, so forms and history remain intact.
         val navigation=LinearLayout(this).apply {
             orientation=LinearLayout.HORIZONTAL
             gravity=Gravity.CENTER_VERTICAL
             setPadding(dp(3),dp(4),dp(3),dp(3))
-            setBackgroundColor(Color.WHITE)
+            setBackgroundColor(palette.background)
             elevation=dp(4).toFloat()
         }
-        val destinations=listOf(
-            Triple("⌂","Dzisiaj","home"),
-            Triple("◷","Mój czas","report"),
-            Triple("▦","Obiekty","objects"),
-            Triple("▧","Zdjęcia","list:links:"),
-            Triple("▤","Materiały","list:materials:"),
-            Triple("☷","Więcej","menu")
-        )
-        destinations.forEach { (symbol,name,target) ->
+        for (destination in WorkMeterDestination.entries) {
             navigation.addView(Button(this).apply {
-                text="$symbol\n$name"
-                contentDescription=name
-                textSize=10f
-                isAllCaps=false
-                minHeight=dp(52); minimumHeight=dp(52)
-                setPadding(0,0,0,0)
-                setTextColor(if(screen==target || (target=="menu" && screen.startsWith("menu"))) 0xFF32916F.toInt() else 0xFF667E87.toInt())
-                background=android.graphics.drawable.ColorDrawable(Color.TRANSPARENT)
-                backgroundTintList=null
-                setOnClickListener {
-                    when(target) {
-                        "report" -> report()
-                        else -> openScreen(target)
+                text = "${destination.icon}\n${destination.label}"
+                contentDescription = destination.label
+                textSize = 11f
+                isAllCaps = false
+                minimumHeight = dp(52)
+                minHeight = dp(52)
+                setPadding(dp(2), dp(6), dp(2), dp(6))
+                background = android.graphics.drawable.ColorDrawable(Color.TRANSPARENT)
+                backgroundTintList = null
+                post {
+                    val displayedScreen = when {
+                        screen == "form" -> formReturn
+                        screen.startsWith("detail:") -> detailParent
+                        else -> screen
                     }
+                    isSelected = destination == WorkMeterDestination.forScreen(displayedScreen)
+                    setTextColor(if (isSelected) palette.accentText else palette.secondaryText)
+                    setTypeface(null, if (isSelected) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
                 }
-            },LinearLayout.LayoutParams(0,dp(55),1f))
+                setOnClickListener {
+                    val navigate: () -> Unit = {
+                        when (destination) {
+                            WorkMeterDestination.START -> home()
+                            WorkMeterDestination.OBJECTS -> openScreen("objects")
+                            WorkMeterDestination.TIME -> report()
+                            WorkMeterDestination.FINANCE -> confirmPin { walletUnlocked = true; wallet() }
+                            WorkMeterDestination.MORE -> menu()
+                        }
+                    }
+                    if (screen == "form") leaveForm(navigate = navigate) else navigate()
+                }
+            }, LinearLayout.LayoutParams(0, -2, 1f))
         }
-        frame.addView(navigation,LinearLayout.LayoutParams(-1,dp(62)))
+        frame.addView(navigation, LinearLayout.LayoutParams(-1, -2))
         val bottom=View(this); frame.addView(bottom,LinearLayout.LayoutParams(-1,0))
         frame.setOnApplyWindowInsetsListener { _,insets ->
             val topInset:Int; val bottomInset:Int
@@ -671,18 +692,17 @@ class MainActivity : Activity() {
         it.groupValues[3]+"-"+it.groupValues[2]+"-"+it.groupValues[1]
     }
     private fun label(s:String) { root.addView(TextView(this).apply {
-        text=displayLegacyDates(s); textSize=16f; setTextColor(0xFF37474F.toInt()); setPadding(dp(2),dp(8),dp(2),dp(8))
+        text=displayLegacyDates(s); textSize=16f; setTextColor(palette.textPrimary); setPadding(dp(2),dp(8),dp(2),dp(8))
     }) }
     private fun makeButton(s:String, f:()->Unit):Button {
         val accent=s.contains("ZAKOŃCZ") || s.startsWith("Usuń") || ((s.startsWith("🚗") || s=="DOTARŁEM") && active(data())?.optString("kind")=="Przejazd")
         val primary=s=="Zapisz" || s.contains("ROZPOCZNIJ") || s.startsWith("Wyślij zdjęcia")
-        val fill=when { accent -> 0xFFFF5C5C.toInt(); primary -> 0xFF37474F.toInt(); else -> 0xFFECEFF1.toInt() }
-        return Button(this).apply {
-            text=s; textSize=14f; isAllCaps=false; minHeight=dp(28); minimumHeight=dp(28)
-            setTextColor(if(accent || primary) Color.WHITE else 0xFF37474F.toInt())
-            background=background(fill); backgroundTintList=null; elevation=0f
-            setPadding(dp(12),dp(6),dp(12),dp(6)); setOnClickListener { f() }
+        val role = when {
+            accent -> WorkMeterButtonRole.DESTRUCTIVE
+            primary -> WorkMeterButtonRole.PRIMARY
+            else -> WorkMeterButtonRole.SECONDARY
         }
+        return workMeterButton(this, s, role, f)
     }
     private fun button(s:String, f:()->Unit) {
         root.addView(makeButton(s,f),LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(8) })
@@ -690,7 +710,7 @@ class MainActivity : Activity() {
     private fun tiles(items:List<Pair<String,()->Unit>>) {
         items.chunked(2).forEach { pair ->
             val row=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
-            pair.forEachIndexed { i,item -> row.addView(makeButton(item.first,item.second).apply { minHeight=dp(45); minimumHeight=dp(45) },LinearLayout.LayoutParams(0,-2,1f).apply { if(i==0) rightMargin=dp(8) }) }
+            pair.forEachIndexed { i,item -> row.addView(makeButton(item.first,item.second),LinearLayout.LayoutParams(0,-2,1f).apply { if(i==0) rightMargin=dp(8) }) }
             if(pair.size==1) row.addView(View(this),LinearLayout.LayoutParams(0,1,1f))
             root.addView(row,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(8) })
         }
@@ -732,13 +752,7 @@ class MainActivity : Activity() {
             screen == "payment" || screen=="expenses" -> wallet()
             screen=="car" || screen.startsWith("materialGroup:") -> openScreen("list:materials:")
             screen=="queue" -> openScreen("list:links:")
-            screen == "form" -> {
-                AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setMessage("Zachować szkic i wrócić?")
-                    .setNegativeButton("Zostań",null).setPositiveButton("Wróć") { _, _ ->
-                        prefs.edit().putString("draft_$formKind",draft.toString()).apply()
-                        openScreen(formReturn)
-                    }.show()
-            }
+            screen == "form" -> leaveForm(back = true) { openScreen(formReturn) }
             screen.startsWith("detail:") -> openScreen(detailParent)
             screen.startsWith("shift:") -> report()
             screen.startsWith("object:") -> openScreen("objects")
@@ -747,6 +761,14 @@ class MainActivity : Activity() {
             screen == "notesActive" || screen == "notesLog" -> openScreen("notes")
             else -> home()
         }
+    }
+    private fun leaveForm(back: Boolean = false, navigate: () -> Unit) {
+        val message = if (back) "Zachować szkic i wrócić?" else "Zachować szkic i przejść dalej?"
+        AlertDialog.Builder(this, dialogStyle).setMessage(message)
+            .setNegativeButton("Zostań", null).setPositiveButton(if (back) "Wróć" else "Zachowaj") { _, _ ->
+                prefs.edit().putString("draft_$formKind", draft.toString()).apply()
+                navigate()
+            }.show()
     }
     @Deprecated("Legacy back dispatcher")
     override fun onBackPressed() { back() }
@@ -757,6 +779,14 @@ class MainActivity : Activity() {
         out.putString("currentSection",currentSection)
         out.putInt("screenScrollY",(root.parent as? ScrollView)?.scrollY ?: 0)
         out.putStringArrayList("expandedFilters",ArrayList(expandedFilters))
+        objectFilters?.let { filters ->
+            out.putBundle("objectFilters", Bundle().apply {
+                putBoolean("archived", filters.archived)
+                putBoolean("grouped", filters.grouped)
+                putString("city", filters.city)
+                putString("query", objectSearch)
+            })
+        }
         out.putString("draft",draft.toString()); out.putString("cameraPath",cameraPath); out.putString("pendingUpload",pendingUpload)
         super.onSaveInstanceState(out)
     }
@@ -793,12 +823,11 @@ class MainActivity : Activity() {
         screen="home"; homeVisible=true
         val d=data(); val a=active(d)
         val recent=rows(d,"shifts").lastOrNull(); val shown=a?:recent
-        val slate=0xFF304953.toInt()
-        val muted=0xFF6D7C84.toInt()
-        val coral=0xFFFF5C5C.toInt()
-        val surface=0xFFF4F7F8.toInt()
-        val privateMode=a?.optString("kind")=="Prywatnie"
-        root.setBackgroundColor(Color.WHITE)
+        val slate=palette.header
+        val now = System.currentTimeMillis()
+        val state = WorkMeterHomeState.from(a != null, a?.optString("kind").orEmpty(), a?.optString("objectId").orEmpty())
+        val privateMode = state == WorkMeterHomeState.PERSONAL
+        root.setBackgroundColor(palette.background)
         root.setPadding(dp(16),dp(16),dp(16),dp(28))
 
         fun rounded(color:Int,radius:Int=18):GradientDrawable = GradientDrawable().apply {
@@ -811,22 +840,16 @@ class MainActivity : Activity() {
                 includeFontPadding=false
             }
         fun section(title:String) {
-            root.addView(text(title,14f,slate,true),LinearLayout.LayoutParams(-1,-2).apply {
+            root.addView(text(title,14f,palette.textPrimary,true),LinearLayout.LayoutParams(-1,-2).apply {
                 topMargin=dp(20); bottomMargin=dp(10)
             })
         }
-        fun action(label:String,primary:Boolean=false,onClick:()->Unit):Button =
-            makeButton(label,onClick).apply {
-                textSize=13f; minHeight=dp(48); minimumHeight=dp(48)
-                setTextColor(if(primary) Color.WHITE else slate)
-                background=rounded(if(primary) slate else surface,14)
-                setPadding(dp(8),dp(10),dp(8),dp(10))
-                isAllCaps=false
-            }
+        fun action(label: String, role: WorkMeterButtonRole = WorkMeterButtonRole.SECONDARY, onClick: () -> Unit): Button =
+            workMeterButton(this, label, role, onClick)
         fun actionRow(first:Pair<String,()->Unit>,second:Pair<String,()->Unit>) {
             val row=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
-            row.addView(action(first.first,onClick=first.second),LinearLayout.LayoutParams(0,dp(52),1f).apply { rightMargin=dp(5) })
-            row.addView(action(second.first,onClick=second.second),LinearLayout.LayoutParams(0,dp(52),1f).apply { leftMargin=dp(5) })
+            row.addView(action(first.first,onClick=first.second),LinearLayout.LayoutParams(0,-2,1f).apply { rightMargin=dp(5) })
+            row.addView(action(second.first,onClick=second.second),LinearLayout.LayoutParams(0,-2,1f).apply { leftMargin=dp(5) })
             root.addView(row,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
         }
         val hero=LinearLayout(this).apply {
@@ -836,14 +859,13 @@ class MainActivity : Activity() {
             elevation=dp(2).toFloat()
         }
         val header=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL }
-        header.addView(text("TWÓJ DZIEŃ",12f,0xFFD4E0E4.toInt(),true),LinearLayout.LayoutParams(0,-2,1f))
-        val status=when { privateMode -> "● PRYWATNIE";a!=null -> "● ONLINE";else -> "● OFFLINE" }
-        val statusColor=when { privateMode -> 0xFFFFC88F.toInt();a!=null -> 0xFF6EE0AD.toInt();else -> 0xFFD3DBDF.toInt() }
-        header.addView(text(status,12f,statusColor,true))
+        header.addView(text("TWÓJ DZIEŃ",12f,palette.onHeader,true),LinearLayout.LayoutParams(0,-2,1f))
+        val status=when { privateMode -> "PRYWATNIE";a!=null -> "DZIEŃ OTWARTY";else -> "DZIEŃ ZAMKNIĘTY" }
+        header.addView(text(status,12f,palette.onHeader,true))
         hero.addView(header)
         hero.addView(text(shown?.let {
             duration(workedMillis(it))
-        } ?: "00:00",44f,Color.WHITE,true),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(14) })
+        } ?: "00:00",44f,palette.onHeader,true),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(14) })
         hero.addView(text(
             when {
                 privateMode -> "Czas prywatny"
@@ -852,45 +874,63 @@ class MainActivity : Activity() {
                 a.optString("kind")=="Zakupy" -> "Zakupy"
                 a.optString("kind")=="Biuro" -> "Biuro · "+a.optString("object")
                 else -> a.optString("object").ifBlank { "Bez przypisanego obiektu" }
-            },16f,Color.WHITE,true),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(5) })
+            },16f,palette.onHeader,true),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(5) })
         hero.addView(text(
             "Rozpoczęcie: "+(shown?.let { fmt.format(Date(it.optLong("start"))) } ?: "—"),
-            12f,0xFFD5E1E5.toInt()),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(7) })
+            12f,palette.onHeader),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(7) })
         if(a==null && recent!=null) hero.addView(text(
             "Zakończenie: "+fmt.format(Date(recent.optLong("end"))),
-            12f,0xFFD5E1E5.toInt()),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(2) })
-        if(a?.optString("kind")=="Przejazd") hero.addView(text(
-            "Czas przejazdu: "+duration(System.currentTimeMillis()-a.optLong("stageStart")),
-            13f,0xFFFFC5BD.toInt(),true),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(9) })
+            12f,palette.onHeader),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(2) })
+        if (a != null) hero.addView(text(
+            "Czas etapu: " + duration(WorkMeterHomeState.stageElapsed(now, a.optLong("start"), a.optLong("stageStart"))),
+            13f,palette.onHeader,true),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(9) })
+        val gpsLabel = GpsServiceStatusUi.read(this)
+        hero.addView(text(gpsLabel, 13f, palette.onHeader), LinearLayout.LayoutParams(-1, -2).apply {
+            topMargin = dp(8)
+        })
         root.addView(hero,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(14) })
 
-        if(a==null) {
-            root.addView(action("▶  ROZPOCZNIJ PRACĘ",true) { confirmPin { startShift() } },
-                LinearLayout.LayoutParams(-1,dp(52)))
-        } else {
-            root.addView(action("■  ZAKOŃCZ PRACĘ",true) { confirmPin { stopShift() } }.apply {
-                background=rounded(coral,14)
-            },LinearLayout.LayoutParams(-1,dp(52)).apply { bottomMargin=dp(10) })
+        root.addView(action(state.actionLabel, WorkMeterButtonRole.PRIMARY) {
+            when (state) {
+                WorkMeterHomeState.CLOSED -> confirmPin { startShift() }
+                WorkMeterHomeState.ON_SITE, WorkMeterHomeState.TRAVEL -> toggleTravel()
+                WorkMeterHomeState.SHOPPING -> toggleShopping()
+                WorkMeterHomeState.PERSONAL -> togglePrivateTime()
+                WorkMeterHomeState.UNASSIGNED -> switchObject()
+            }
+        }, LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
+
+        if (a != null) {
+            root.addView(action("■  ZAKOŃCZ PRACĘ", WorkMeterButtonRole.DESTRUCTIVE) { confirmPin { stopShift() } },
+                LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
             pendingGpsStageEventId(d,System.currentTimeMillis())?.let { eventId ->
                 root.addView(action("📍  GPS · POTWIERDŹ ZMIANĘ ETAPU") {
                     reviewGpsStageProposal(eventId)
                 },LinearLayout.LayoutParams(-1,dp(48)).apply { bottomMargin=dp(10) })
             }
-            root.addView(action(if(privateMode) "▶  WZNÓW PRACĘ" else "⏸  PRYWATNIE") {
+            if (!privateMode) root.addView(action("⏸  PRYWATNIE") {
                 togglePrivateTime()
             },LinearLayout.LayoutParams(-1,dp(48)).apply { bottomMargin=dp(10) })
-            if(!privateMode) {
-                actionRow("↔  ZMIEŃ OBIEKT" to { confirmAction("Zmienić obiekt?") { switchObject() } },
-                    (if(a.optString("kind")=="Przejazd") "✓  DOTARŁEM" else "🚗  PRZEJAZD") to { toggleTravel() })
-                actionRow((if(a.optString("kind")=="Zakupy") "✓  ZAKOŃCZ ZAKUPY" else "🛍  ZAKUPY") to { toggleShopping() },
-                    "↗  TRASA DO OBIEKTU" to { chooseObject(false) { obj ->
-                        if(obj!=null) openLink("https://www.google.com/maps/dir/?api=1&destination="+
-                            URLEncoder.encode(obj.optString("city")+" "+obj.optString("Adres"),"UTF-8"))
-                    } })
-                if(a.optString("kind")=="Zakupy") {
-                    root.addView(action("Dane zakupów / paragony") { shoppingRecord(a.optString("shoppingRecordId")) },
-                        LinearLayout.LayoutParams(-1,dp(48)))
+            if (state != WorkMeterHomeState.PERSONAL) {
+                val switch = "↔  ZMIEŃ OBIEKT" to { confirmAction("Zmienić obiekt?") { switchObject() } }
+                val travel = "Rozpocznij przejazd" to { toggleTravel() }
+                val shopping = "🛍  ZAKUPY" to { toggleShopping() }
+                when (state) {
+                    WorkMeterHomeState.ON_SITE, WorkMeterHomeState.TRAVEL -> actionRow(switch, shopping)
+                    WorkMeterHomeState.SHOPPING -> actionRow(switch, travel)
+                    WorkMeterHomeState.UNASSIGNED -> actionRow(travel, shopping)
+                    else -> Unit
                 }
+                root.addView(action("↗  TRASA DO OBIEKTU") {
+                    chooseObject(false) { obj ->
+                        if (obj != null) openLink("https://www.google.com/maps/dir/?api=1&destination=" +
+                            URLEncoder.encode(obj.optString("city") + " " + obj.optString("Adres"), "UTF-8"))
+                    }
+                }, LinearLayout.LayoutParams(-1, -2))
+            }
+            if(a.optString("kind")=="Zakupy") {
+                root.addView(action("Dane zakupów / paragony") { shoppingRecord(a.optString("shoppingRecordId")) },
+                    LinearLayout.LayoutParams(-1,dp(48)))
             }
         }
         // This is an optional manual action, never an automatic shift transition.
@@ -909,10 +949,14 @@ class MainActivity : Activity() {
         }.apply {
             isEnabled=arrivalReady
             alpha=if(arrivalReady) 1f else 0.55f
-            background=rounded(if(arrivalReady) 0xFF257E61.toInt() else surface,14)
-            setTextColor(if(arrivalReady) Color.WHITE else muted)
+            background=rounded(if(arrivalReady) palette.primary else palette.surface,14)
+            setTextColor(if(arrivalReady) palette.onPrimary else palette.secondaryText)
         },LinearLayout.LayoutParams(-1,dp(52)).apply { bottomMargin=dp(10) })
         section("SZYBKIE DZIAŁANIA")
+        root.addView(action("Zrób zdjęcie") { openHomeRecord("links"); camera() },
+            LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(10) })
+        actionRow("Dodaj notatkę" to { openHomeRecord("notes") },
+            "Dodaj materiał" to { openHomeRecord("materials") })
         actionRow("📷  ZDJĘCIA" to { openScreen("list:links:") },
             "📦  MATERIAŁY" to { openScreen("list:materials:") })
         actionRow("📝  NOTATKI" to { openScreen("notes") },
@@ -920,6 +964,19 @@ class MainActivity : Activity() {
         section("PRZEGLĄD")
         actionRow("◷  MÓJ CZAS" to { report() }, "▥  GRAFIKI" to { charts() })
         root.addView(action("☷  WIĘCEJ · MENU P1–P4") { menu() },LinearLayout.LayoutParams(-1,dp(50)))
+    }
+
+    private fun openHomeRecord(kind: String) {
+        val day = data()
+        val shift = active(day)
+        val objectId = shift?.optString("objectId").orEmpty()
+        val state = WorkMeterHomeState.from(shift != null, shift?.optString("kind").orEmpty(), objectId)
+        val defaultObject = if (state == WorkMeterHomeState.ON_SITE && !prefs.contains("draft_" + kind)) {
+            rows(day, "objects").singleOrNull { it.optString("id") == objectId }
+                ?.takeUnless { it.optBoolean("archived") }
+                ?.optString("id").orEmpty()
+        } else ""
+        newForm(kind, objectId = defaultObject)
     }
 
     // Native WorkMeter 4.0 menu inspired by the user's P1–P4 interactive prototype.
@@ -949,16 +1006,16 @@ class MainActivity : Activity() {
     private fun menu() {
         screen="menu"
         base("Menu WorkMeter")
-        root.setBackgroundColor(0xFFF4F7F8.toInt())
+        root.setBackgroundColor(palette.background)
         nav()
         val banner=TextView(this).apply {
             text="WORKMETER · SOLO\nWSZYSTKIE FUNKCJE · P1–P4"
             textSize=13f
-            setTextColor(0xFF2E725D.toInt())
+            setTextColor(palette.onHeader)
             setTypeface(null,android.graphics.Typeface.BOLD)
             setPadding(dp(14),dp(12),dp(14),dp(12))
             background=GradientDrawable().apply {
-                setColor(0xFFE1F2EB.toInt())
+                setColor(palette.header)
                 cornerRadius=dp(13).toFloat()
             }
         }
@@ -970,6 +1027,7 @@ class MainActivity : Activity() {
             "▦  Obiekty" to { objects() },
             "▧  Zdjęcia" to { openScreen("list:links:") },
             "▤  Materiały" to { openScreen("list:materials:") },
+            "📝  Notatki" to { openScreen("notes") },
             "◔  Grafiki" to { charts() },
             "🔐  Portfel" to { confirmPin { walletUnlocked=true;wallet() } },
             "⚙  Ustawienia" to { settings() }
@@ -984,12 +1042,12 @@ class MainActivity : Activity() {
                     textSize=13f
                     gravity=Gravity.CENTER_VERTICAL or Gravity.START
                     minHeight=dp(62); minimumHeight=dp(62)
-                    setTextColor(0xFF344953.toInt())
+                    setTextColor(palette.textPrimary)
                     setPadding(dp(14),dp(10),dp(12),dp(10))
                     background=GradientDrawable().apply {
-                        setColor(Color.WHITE)
+                        setColor(palette.surface)
                         cornerRadius=dp(13).toFloat()
-                        setStroke(dp(1),0xFFE2E9EC.toInt())
+                        setStroke(dp(1),palette.border)
                     }
                 },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(7) })
             }
@@ -1450,7 +1508,7 @@ class MainActivity : Activity() {
                             val category=prefs.getString(categoryKey,"UNKNOWN")
                             if(category=="UNKNOWN") {
                                 button("Potwierdź kategorię tej podróży") {
-                                    AlertDialog.Builder(this,R.style.WorkMeterDialogTheme)
+                                    AlertDialog.Builder(this,dialogStyle)
                                         .setTitle("Zakupy materiałów?")
                                         .setMessage("Przejazd: "+
                                             fmt.format(Date(matched.startMs))+
@@ -1514,7 +1572,7 @@ class MainActivity : Activity() {
         val stopMinutes=prefs.getInt("gps_stop_minutes",10)
         button("Próg postoju: "+stopMinutes+" min — zmień") {
             val options=intArrayOf(5,10,15,30)
-            AlertDialog.Builder(this,R.style.WorkMeterDialogTheme)
+            AlertDialog.Builder(this,dialogStyle)
                 .setTitle("Próg postoju")
                 .setSingleChoiceItems(arrayOf("5 min","10 min","15 min","30 min"),options.indexOf(stopMinutes)) { dialog,index ->
                     prefs.edit().putInt("gps_stop_minutes",options[index]).apply()
@@ -1562,7 +1620,7 @@ class MainActivity : Activity() {
 
     private fun settings() {
         base("Ustawienia"); screen="settings"; nav()
-        root.setBackgroundColor(0xFFF4F7F8.toInt())
+        root.setBackgroundColor(palette.background)
         label("WSZYSTKIE USTAWIENIA · SOLO")
         label("Z poziomu głównego dostępne są ustawienia wszystkich działów.")
         // Backward-compatible entry points retained for existing flows and tests.
@@ -1573,6 +1631,18 @@ class MainActivity : Activity() {
         button("Google Disk") { driveSettings() }
         button("Centrum kopii / eksport / import") { logs() }
         label("Widżet i interfejs")
+        button("Motyw aplikacji · "+appearance.title) {
+            val themes=WorkMeterTheme.entries
+            AlertDialog.Builder(this,dialogStyle).setTitle("Motyw aplikacji")
+                .setSingleChoiceItems(themes.map { it.title }.toTypedArray(),appearance.ordinal) { dialog,index ->
+                    val previousScroll = (root.parent as? ScrollView)?.scrollY ?: 0
+                    prefs.edit().putString(WorkMeterTheme.PREF_KEY,themes[index].key).apply()
+                    GateWidget.refresh(this)
+                    dialog.dismiss()
+                    settings()
+                    (root.parent as? ScrollView)?.let { scroll -> scroll.doOnLayout { scroll.scrollTo(0, previousScroll) } }
+                }.setNegativeButton("Anuluj",null).show()
+        }
         button("Wygląd widżetu") { widgetSettings() }
         button("Język aplikacji") { language() }
         label("GPS i lokalizacja")
@@ -1593,7 +1663,7 @@ class MainActivity : Activity() {
     private fun sectionSettings(section:String) {
         currentSection=section
         base("Ustawienia · $section"); screen="sectionSettings"; nav()
-        root.setBackgroundColor(0xFFF4F7F8.toInt())
+        root.setBackgroundColor(palette.background)
         when(section) {
             "Mój czas" -> {
                 label("Czas pracy i raporty")
@@ -1640,11 +1710,29 @@ class MainActivity : Activity() {
     }
     private fun widgetSettings() {
         base("Wygląd widżetu"); screen="widgetSettings"; nav()
-        label("Przezroczystość tła widżetu")
-        val value=TextView(this).apply { setTextColor(0xFF37474F.toInt()); text=prefs.getInt("widgetTransparency",0).toString()+"%" }
+        val widgetManager = AppWidgetManager.getInstance(this)
+        val widgetIds = widgetManager.getAppWidgetIds(ComponentName(this, GateWidget::class.java)).sorted()
+        if (widgetIds.isNotEmpty()) {
+            label("Zainstalowane widżety")
+            val appearanceStore = WidgetAppearanceStore(this)
+            widgetIds.forEach { id ->
+                val appearance = appearanceStore.read(id)
+                val theme = appearance.theme?.title ?: getString(R.string.widget_follow_app)
+                val options = widgetManager.getAppWidgetOptions(id)
+                val width = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH)
+                val height = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT)
+                val profile = WidgetLayoutProfile.forBounds(width, height).displayName
+                button(getString(R.string.widget_configure_instance, id, profile, theme)) {
+                    startActivity(Intent(this, WidgetAppearanceActivity::class.java)
+                        .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id))
+                }
+            }
+        }
+        label("Domyślna przezroczystość tła widżetu")
+        val value=TextView(this).apply { setTextColor(palette.textPrimary); text=prefs.getInt("widgetTransparency",0).toString()+"%" }
         root.addView(value)
         val previewFrame=FrameLayout(this).apply { setBackgroundColor(0xFF90A4AE.toInt()); setPadding(dp(8),dp(8),dp(8),dp(8)) }
-        val preview=GateWidget.render(this).apply(this,previewFrame)
+        val preview=GateWidget.render(this, interactive = false).apply(this,previewFrame)
         val slider=SeekBar(this).apply { max=100; progress=prefs.getInt("widgetTransparency",0); contentDescription="Przezroczystość tła widżetu" }
         slider.setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(bar:SeekBar?,progress:Int,fromUser:Boolean) {
@@ -1691,12 +1779,14 @@ class MainActivity : Activity() {
         if(to.isBefore(from)) { label("Data do nie może być wcześniejsza niż Data od."); return }
         val d=data(); val config=walletConfig(d); val shifts=walletShifts(d); val payments=walletPayments(d)
         val summary=WalletRules.summary(shifts,payments,from,to)
+        label("Wybrany okres")
         label((if(summary.conflictingRateMillis==0L) "Naliczone: " else "Naliczone bez spornego czasu: ")+money(summary.earned))
         if(summary.conflictingRateMillis>0L) label("Różne stawki w tym samym czasie: "+duration(summary.conflictingRateMillis)+". Sprawdź zmiany w Mój czas.")
         label("Otrzymano — gotówka: "+money(summary.cash))
         label("Otrzymano — karta: "+money(summary.card))
         if(summary.overlapping==0 && summary.conflictingRateMillis==0L) label((if(summary.due>=0) "Do wypłaty: " else "Nadpłata: ")+money(kotlin.math.abs(summary.due)))
         else if(summary.overlapping>0) label("Saldo okresu niepełne: "+summary.overlapping+" wypłat obejmuje szerszy okres. Poszerz daty lub popraw przypisanie wypłaty.")
+        label("Cała historia")
         val historyEarnings=WalletRules.calculateEarnings(shifts)
         val global=historyEarnings.cents+config.optLong("openingCents")-payments.sumOf { it.cents }
         if(historyEarnings.conflictingRateMillis==0L)
@@ -1724,12 +1814,37 @@ class MainActivity : Activity() {
             label("Za okres: "+dateText(payment.optString("periodFrom"))+" – "+dateText(payment.optString("periodTo")))
         }
     }
+    private fun financeCard(title: String, vararg values: String) {
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            background = background(palette.surface).apply { setStroke(dp(1), palette.border) }
+        }
+        card.addView(TextView(this).apply {
+            text = title
+            textSize = 14f
+            setTextColor(palette.secondaryText)
+            androidx.core.view.ViewCompat.setAccessibilityHeading(this, true)
+        })
+        values.forEachIndexed { index, value ->
+            val emphasized = index == values.lastIndex
+            card.addView(TextView(this).apply {
+                text = value
+                textSize = if (emphasized) 18f else 16f
+                setTextColor(palette.textPrimary)
+                setPadding(0, dp(8), 0, 0)
+                if (emphasized) setTypeface(typeface, android.graphics.Typeface.BOLD)
+            })
+        }
+        root.addView(card, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(10) })
+    }
+
     private fun expenseList() {
         if(!walletUnlocked) { settings(); confirmPin { walletUnlocked=true; expenseList() }; return }
         base("Zakupy do zwrotu"); screen="expenses"; nav()
         label("Zakupy opłacone z własnych pieniędzy. Zwroty są rozliczane oddzielnie od wynagrodzenia.")
         val list=rows(data(),"expenses").sortedByDescending { recordDate(it) }
-        label("Do zwrotu: "+money(list.sumOf { (it.optLong("cents")-it.optLong("reimbursedCents")).coerceAtLeast(0) }))
+        financeCard("Podsumowanie zakupów", "Do zwrotu: " + money(list.sumOf { (it.optLong("cents") - it.optLong("reimbursedCents")).coerceAtLeast(0) }))
         button("+ Dodaj zakup za własne pieniądze") { newForm("expenses") }
         for(item in list) button(dateText(recordDate(item))+" · "+money(item.optLong("cents"))+" · "+if(item.optLong("reimbursedCents")>=item.optLong("cents")) "Zwrócono" else "Do zwrotu") {
             recordDetails("expenses",item.optString("id"),"expenses")
@@ -1737,9 +1852,9 @@ class MainActivity : Activity() {
     }
     private fun walletInput(caption:String,key:String,numeric:Boolean=false) {
         label(caption)
-        root.addView(EditText(ContextThemeWrapper(this,R.style.WorkMeterDialogTheme)).apply {
-            hint=caption; setText(walletDraft.optString(key)); setTextColor(0xFF37474F.toInt()); setHintTextColor(0xFF78909C.toInt())
-            background=background(0xFFECEFF1.toInt()); setPadding(dp(10),dp(6),dp(10),dp(6))
+        root.addView(EditText(ContextThemeWrapper(this,dialogStyle)).apply {
+            hint=caption; setText(walletDraft.optString(key)); setTextColor(palette.textPrimary); setHintTextColor(palette.secondaryText)
+            background=background(palette.surface).apply { setStroke(dp(1),palette.border) }; setPadding(dp(10),dp(6),dp(10),dp(6))
             inputType=if(numeric) InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL else InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
             addTextChangedListener(object:TextWatcher {
                 override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int) {}
@@ -1756,7 +1871,7 @@ class MainActivity : Activity() {
         }
         walletInput("Kwota (zł)","amount",true)
         button("Sposób: "+if(walletDraft.optString("method")=="cash") "Gotówka" else "Karta") {
-            AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Sposób wypłaty").setItems(arrayOf("Gotówka","Karta")) { _,index -> walletDraft.put("method",if(index==0) "cash" else "card"); paymentForm() }.show()
+            AlertDialog.Builder(this,dialogStyle).setTitle("Sposób wypłaty").setItems(arrayOf("Gotówka","Karta")) { _,index -> walletDraft.put("method",if(index==0) "cash" else "card"); paymentForm() }.show()
         }
         walletInput("Notatka (opcjonalnie)","note")
         button("Zapisz") {
@@ -1772,14 +1887,14 @@ class MainActivity : Activity() {
         }
         val id=walletDraft.optString("id")
         if(rows(data(),"payments").any { it.optString("id")==id }) button("Usuń wypłatę (PIN)") {
-            confirmPin { AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setMessage("Usunąć tę wypłatę z rozliczenia?").setNegativeButton("Anuluj",null).setPositiveButton("Usuń") { _, _ ->
+            confirmPin { AlertDialog.Builder(this,dialogStyle).setMessage("Usunąć tę wypłatę z rozliczenia?").setNegativeButton("Anuluj",null).setPositiveButton("Usuń") { _, _ ->
                 val d=data(); val next=JSONArray(); rows(d,"payments").filter { it.optString("id")!=id }.forEach { next.put(it) }; d.put("payments",next); save(d,"PAYMENT_DELETE",id); wallet()
             }.show() }
         }
     }
     private fun rateDialog(existing:Boolean) {
-        val input=EditText(ContextThemeWrapper(this,R.style.WorkMeterDialogTheme)).apply { hint="Stawka zł/h"; setText(defaultRate().toPlainString()); inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL }
-        val dialog=AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle(if(existing) "Stawka za wybrany okres" else "Stawka dla nowych zmian")
+        val input=EditText(ContextThemeWrapper(this,dialogStyle)).apply { hint="Stawka zł/h"; setText(defaultRate().toPlainString()); inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL }
+        val dialog=AlertDialog.Builder(this,dialogStyle).setTitle(if(existing) "Stawka za wybrany okres" else "Stawka dla nowych zmian")
             .setMessage(if(existing) "Zmienisz stawkę zakończonych zmian rozpoczynających się w wybranym okresie." else "Zmiana dotyczy tylko nowych dni pracy. Starsze zmiany zachowają swoje stawki.")
             .setView(input).setNegativeButton("Anuluj",null).setPositiveButton("Zapisz",null).create()
         dialog.setOnShowListener { dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
@@ -1792,8 +1907,8 @@ class MainActivity : Activity() {
         } }; dialog.show()
     }
     private fun openingDialog() {
-        val field=EditText(ContextThemeWrapper(this,R.style.WorkMeterDialogTheme)).apply { hint="Saldo początkowe zł"; setText(BigDecimal.valueOf(walletConfig(data()).optLong("openingCents"),2).toPlainString()); inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED }
-        val dialog=AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Saldo sprzed zapisanej historii").setMessage("Dodatnia kwota: zaległa wypłata. Ujemna: wcześniejsza nadpłata. Uwzględniana tylko w saldzie całej historii.").setView(field).setNegativeButton("Anuluj",null).setPositiveButton("Zapisz",null).create()
+        val field=EditText(ContextThemeWrapper(this,dialogStyle)).apply { hint="Saldo początkowe zł"; setText(BigDecimal.valueOf(walletConfig(data()).optLong("openingCents"),2).toPlainString()); inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED }
+        val dialog=AlertDialog.Builder(this,dialogStyle).setTitle("Saldo sprzed zapisanej historii").setMessage("Dodatnia kwota: zaległa wypłata. Ujemna: wcześniejsza nadpłata. Uwzględniana tylko w saldzie całej historii.").setView(field).setNegativeButton("Anuluj",null).setPositiveButton("Zapisz",null).create()
         dialog.setOnShowListener { dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
             val amount=WalletRules.money(field.text.toString(),true)
             if(amount==null) { field.error="Nieprawidłowa kwota"; return@setOnClickListener }
@@ -1823,7 +1938,7 @@ class MainActivity : Activity() {
             val key="gps_trip_category_"+trip.startMs
             val current=categories.find { it.first.name==prefs.getString(key,"UNKNOWN") }?.second ?: "Nieustalony"
             button(fmt.format(Date(trip.startMs))+" · "+duration(trip.endMs-trip.startMs)+" · "+current) {
-                AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Rodzaj przejazdu")
+                AlertDialog.Builder(this,dialogStyle).setTitle("Rodzaj przejazdu")
                     .setItems(categories.map { it.second }.toTypedArray()) { _,index ->
                         prefs.edit().putString(key,categories[index].first.name).apply()
                         gpsTripCategories()
@@ -1937,7 +2052,7 @@ class MainActivity : Activity() {
             val parent=root
             val card=LinearLayout(this).apply {
                 orientation=LinearLayout.VERTICAL; setPadding(dp(12),dp(10),dp(12),dp(6))
-                background=background(0xFFF5F7F8.toInt()).apply { setStroke(dp(1),0xFFCFD8DC.toInt()) }
+                background=background(palette.surface).apply { setStroke(dp(1), palette.border) }
             }
             parent.addView(card,LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(8); bottomMargin=dp(12) })
             root=card
@@ -2209,7 +2324,7 @@ class MainActivity : Activity() {
         timeStart.setOnClickListener { TimePickerDialog(this,{ _,h,m -> start=start.withHour(h).withMinute(m); refresh() },start.hour,start.minute,true).show() }
         timeEnd.setOnClickListener { TimePickerDialog(this,{ _,h,m -> end=end.withHour(h).withMinute(m); refresh() },end.hour,end.minute,true).show() }
         listOf(dateStart,dateEnd,timeStart,timeEnd).forEach { layout.addView(it) }; refresh()
-        val dialog=AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Edytuj zmianę").setView(layout)
+        val dialog=AlertDialog.Builder(this,dialogStyle).setTitle("Edytuj zmianę").setView(layout)
             .setNegativeButton("Anuluj",null).setPositiveButton("Zapisz",null).create()
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
@@ -2400,10 +2515,10 @@ class MainActivity : Activity() {
         val options=savedObjects.filter { it.optString("id") in selectableIds }
         val layout=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(dp(20),dp(8),dp(20),dp(8)) }
         val searchRow=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; gravity=Gravity.CENTER_VERTICAL }
-        val query=EditText(ContextThemeWrapper(this,R.style.WorkMeterDialogTheme)).apply { hint="Szukaj miasta"; setSingleLine(); inputType=InputType.TYPE_CLASS_TEXT; imeOptions=android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH }
+        val query=EditText(ContextThemeWrapper(this,dialogStyle)).apply { hint="Szukaj miasta"; setSingleLine(); inputType=InputType.TYPE_CLASS_TEXT; imeOptions=android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH }
         searchRow.addView(query,LinearLayout.LayoutParams(0,dp(48),1f))
         val results=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL }
-        val dialog=AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle(if(arrival) "Dokąd przyjechałeś?" else "Wybierz obiekt")
+        val dialog=AlertDialog.Builder(this,dialogStyle).setTitle(if(arrival) "Dokąd przyjechałeś?" else "Wybierz obiekt")
             .setView(layout).setNegativeButton(if(arrival) "Anuluj — przejazd trwa" else "Anuluj",null).create()
         fun renderResults() {
             results.removeAllViews()
@@ -2413,9 +2528,9 @@ class MainActivity : Activity() {
                 if(current==null) { toast("Obiekt nie jest już dostępny"); dialog.dismiss() }
                 else { dialog.dismiss(); selected(current) }
             },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(6) })
-            if(matches.isEmpty()) results.addView(TextView(this).apply { text="Brak obiektów dla tego miasta"; setTextColor(0xFF37474F.toInt()); setPadding(0,dp(12),0,dp(12)) })
+            if(matches.isEmpty()) results.addView(TextView(this).apply { text="Brak obiektów dla tego miasta"; setTextColor(palette.textPrimary); setPadding(0,dp(12),0,dp(12)) })
         }
-        searchRow.addView(makeButton("⌕") { renderResults(); (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(query.windowToken,0) }.apply { contentDescription="Szukaj"; textSize=24f; background=background(0xFF37474F.toInt()); setTextColor(Color.WHITE) },LinearLayout.LayoutParams(dp(48),dp(48)))
+        searchRow.addView(makeButton("⌕") { renderResults(); (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(query.windowToken,0) }.apply { contentDescription="Szukaj"; textSize=24f; background=background(palette.primary); setTextColor(palette.onPrimary) },LinearLayout.LayoutParams(dp(48),dp(48)))
         query.setOnEditorActionListener { _,action,_ -> if(action==android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) { renderResults(); true } else false }
         query.addTextChangedListener(object:TextWatcher { override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int) {} ; override fun onTextChanged(s:CharSequence?,start:Int,before:Int,count:Int) { renderResults() }; override fun afterTextChanged(s:Editable?) {} })
         layout.addView(searchRow)
@@ -2477,30 +2592,42 @@ class MainActivity : Activity() {
         }
     }
     private fun objects() {
-        base("Obiekty"); screen="objects"; nav()
-        val all=rows(data(),"objects")
-        val showArchived=prefs.getBoolean("archived_objects",false)
-        button(if(showArchived) "Pokaż aktywne" else "Archiwum obiektów") {
-            prefs.edit().putBoolean("archived_objects",!showArchived).apply(); objects()
+        screen="objects"
+        base("Obiekty")
+        nav()
+        val items=rows(data(),"objects").map { obj ->
+            ObjectListUiModel.Item(
+                id=obj.optString("id"),
+                tag=obj.optString("TAG"),
+                organization=obj.optString("organization",obj.optString("Opis")),
+                city=obj.optString("city"),
+                address=obj.optString("Adres"),
+                archived=obj.optBoolean("archived"),
+                name=obj.optString("name",obj.optString("Opis"))
+            )
         }
-        button("+ Dodaj obiekt") { newForm("objects") }
-        for(o in all.filter { it.optBoolean("archived")==showArchived }.sortedBy { objectName(it) }) {
-            button(objectName(o)) { openScreen("object:"+o.optString("id")) }
-        }
-        if(all.isEmpty()) label("Dodaj pierwszy obiekt, aby przypisywać pracę, materiały i zdjęcia.")
+        val panel=ObjectListPanel(
+            this,
+            onOpenObject={ id -> openScreen("object:"+id) },
+            onAddObject={ newForm("objects") },
+            initialFilter = objectFilters ?: ObjectFilterUiState.State(archived = prefs.getBoolean("archived_objects", false)),
+            initialQuery = objectSearch,
+            onFilterChanged = { filters, query ->
+                objectFilters = filters
+                objectSearch = query
+                if (prefs.getBoolean("archived_objects", false) != filters.archived) {
+                    prefs.edit().putBoolean("archived_objects", filters.archived).apply()
+                }
+            }
+        )
+        root.addView(panel,LinearLayout.LayoutParams(-1,-2))
+        panel.submitObjects(items)
     }
     private fun objectDetails(id:String) {
         val obj=objectById(id) ?: run { objects(); return }
         base(obj.optString("TAG")); screen="object:"+id; nav()
         val period=JSONObject()
-        label(objectName(obj)); label(obj.optString("notes",obj.optString("Opis")))
         label("Typ miejsca: "+placeType(obj).label)
-        button("Edytuj obiekt") { newForm("objects",id) }
-        button("Otwórz w Google Maps") {
-            val link=obj.optString("maps")
-            openLink(if(link.isNotBlank()) link else "https://www.google.com/maps/search/?api=1&query="+URLEncoder.encode(obj.optString("city")+" "+obj.optString("Adres"),"UTF-8"))
-        }
-        label("Czas na obiekcie")
         val totals=sortedMapOf<String,Long>()
         val shifts=rows(data(),"shifts")+listOfNotNull(active(data()))
         var unassigned=0
@@ -2517,12 +2644,39 @@ class MainActivity : Activity() {
                 }
             }
         }
-        label("Razem: "+duration(totals.values.sum()))
-        for((day,ms) in totals.toSortedMap(reverseOrder())) label(dateText(day)+" · "+duration(ms))
-        if(unassigned>0) label("Starsze zmiany bez etapów nie są przypisywane automatycznie do obiektu.")
-        button("Materiały") { openScreen("list:materials:"+id) }
-        button("Zdjęcia") { openScreen("list:links:"+id) }
-        button("Notatki obiektu") { openScreen("list:notes:"+id) }
+        val details=ObjectDetailsUiModel.Content(
+            tag=obj.optString("TAG"),
+            name=obj.optString("name",obj.optString("Opis")),
+            city=obj.optString("city"),
+            address=obj.optString("Adres"),
+            organization=obj.optString("organization"),
+            notes=obj.optString("notes",obj.optString("Opis")),
+            archived=obj.optBoolean("archived"),
+            duration=duration(totals.values.sum()),
+            days=totals.toSortedMap(reverseOrder()).map { (day,ms) ->
+                ObjectDetailsUiModel.Day(dateText(day),duration(ms))
+            },
+            hasUnassignedLegacyShifts=unassigned>0
+        )
+        val detailsPanel=ObjectDetailsPanel(
+            this,details,
+            onEdit={ newForm("objects",id) },
+            onMaps={
+                val link=obj.optString("maps")
+                openLink(if(link.isNotBlank()) link else "https://www.google.com/maps/search/?api=1&query="+URLEncoder.encode(obj.optString("city")+" "+obj.optString("Adres"),"UTF-8"))
+            },
+            onPhotos={ openScreen("list:links:"+id) },
+            onMaterials={ openScreen("list:materials:"+id) },
+            onNotes={ openScreen("list:notes:"+id) },
+            counts=ObjectDetailsTabs.Counts(
+                photos=rows(data(),"links").count { it.optString("objectId")==id },
+                materials=rows(data(),"materials").count {
+                    it.optString("objectId")==id && it.optString("storage")!="car"
+                },
+                notes=rows(data(),"notes").count { it.optString("objectId")==id }
+            )
+        )
+        root.addView(detailsPanel,LinearLayout.LayoutParams(-1,-2))
         val archiveObject = !obj.optBoolean("archived")
         button(if(archiveObject) "Usuń z listy aktywnych" else "Przywróć obiekt") {
             confirmAction {
@@ -2538,7 +2692,6 @@ class MainActivity : Activity() {
                 objects()
             }
         }
-        label("Usunięcie z listy archiwizuje obiekt. Historia pracy i wpisy pozostają dostępne.")
     }
     private fun recordList(key:String,objectId:String="",onlyActive:Boolean=false) {
         val target=screen
@@ -2575,7 +2728,16 @@ class MainActivity : Activity() {
             (!f.optBoolean("shoppingOnly") || it.optBoolean("shopping")) &&
             DomainRules.inRange(day,f.optString("from"),f.optString("to"))
         }.let { list -> if(f.optBoolean("nameSort")) list.sortedBy { it.optString("name",it.optString("text")).lowercase(Locale.ROOT) } else list.sortedByDescending { recordDate(it)+it.optString("created") } }
-        if(list.isEmpty()) label("Brak wpisów dla wybranych filtrów.")
+        val listKind=WorkRecordListUi.kind(key)
+        if(listKind!=null) {
+            val filtered=f.optString("from").isNotBlank() || f.optString("to").isNotBlank() ||
+                f.optString("objectId").isNotBlank() || f.optBoolean("shoppingOnly")
+            val header=WorkRecordListUi.header(listKind,list.size,filtered)
+            label(header.heading)
+            label(header.description)
+            label(header.countLabel)
+            if(list.isEmpty()) label(header.emptyMessage)
+        } else if(list.isEmpty()) label("Brak wpisów dla wybranych filtrów.")
         if(key=="materials") {
             val used=list.filter { it.optString("storage")!="car" }
             label("Podsumowanie materiałów dla wybranego zakresu")
@@ -2589,7 +2751,10 @@ class MainActivity : Activity() {
             for((group,items) in used.groupBy { recordDate(it) to it.optString("objectId") }) {
                 label("── "+dateText(group.first)+" ──")
                 val obj=objectById(group.second)?.let { objectName(it) } ?: "Bez obiektu"
-                button(obj+"\n"+items.joinToString("\n") { materialLine(it) }) { materialGroup(group.first,group.second) }
+                val card=WorkRecordListUi.materialsGroup(dateText(group.first),obj,items.size)
+                root.addView(WorkRecordListCard(this,card) {
+                    materialGroup(group.first,group.second)
+                },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
             }
             return
         }
@@ -2603,10 +2768,14 @@ class MainActivity : Activity() {
                 "notes" -> (if(r.optBoolean("shopping")) "🛒 " else "")+(if(r.optBoolean("done")) "✓ " else if(r.optBoolean("aktualne")) "● " else "")+r.optString("text").ifBlank { "Notatka ze zdjęciem" }.take(100)
                 else -> "Zdjęcia: "+arr(r,"photos").length()+" · "+r.optString("Link Google Drive")
             }
-            if(key=="links" && arr(r,"photos").length()>0) {
-                val status=PhotoQueue.status(this,key,r)
-                root.addView(makeButton(summary+"\n"+obj+"\n"+status.caption) { recordDetails(key,r.optString("id"),target) }.apply { background=background(status.color) },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
-            } else button(summary+"\n"+obj) { recordDetails(key,r.optString("id"),target) }
+            if(key=="links") {
+                val status=if(arr(r,"photos").length()>0) PhotoQueue.status(this,key,r).caption else ""
+                val card=WorkRecordListUi.photos(arr(r,"photos").length(),
+                    r.optString("Link Google Drive"),obj,status)
+                root.addView(WorkRecordListCard(this,card) {
+                    recordDetails(key,r.optString("id"),target)
+                },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
+            } else button(summary+"\\n"+obj) { recordDetails(key,r.optString("id"),target) }
         }
     }
     private var detailParent="home"
@@ -2626,7 +2795,7 @@ class MainActivity : Activity() {
                 if(paid) confirmAction("Cofnąć oznaczenie zwrotu? Kwota znów będzie należna.") {
                     val d=data(); val current=rows(d,key).find { it.optString("id")==id } ?: return@confirmAction
                     current.put("reimbursedCents",0).remove("reimbursedDate"); current.remove("reimbursedMethod"); save(d,"EXPENSE_REOPEN",id); recordDetails(key,id,parent)
-                } else AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Jak otrzymałeś zwrot?")
+                } else AlertDialog.Builder(this,dialogStyle).setTitle("Jak otrzymałeś zwrot?")
                     .setItems(arrayOf("Gotówka","Karta")) { _,which -> confirmAction("Potwierdzić zwrot kosztu zakupu? Nie zmienia to rozliczenia wynagrodzenia.") {
                         val d=data(); val current=rows(d,key).find { it.optString("id")==id } ?: return@confirmAction
                         current.put("reimbursedCents",current.optLong("cents")).put("reimbursedDate",fmt.format(Date())).put("reimbursedMethod",if(which==0) "Gotówka" else "Karta")
@@ -2673,28 +2842,61 @@ class MainActivity : Activity() {
         if(u.scheme!="https") { toast("Wymagany link https://"); return }
         try { startActivity(Intent(Intent.ACTION_VIEW,u)) } catch (_:Exception) { toast("Nie można otworzyć linku") }
     }
-    private fun showPhotos(r:JSONObject) {
-        for(i in 0 until arr(r,"photos").length()) {
-            val uri=arr(r,"photos").optString(i)
-            val card=FrameLayout(this).apply {
-                background=background(0xFFECEFF1.toInt()); clipToOutline=true; elevation=dp(2).toFloat()
+    private fun showPhotos(r: JSONObject) {
+        val photos = arr(r, "photos")
+        val count = photos.length()
+        if (count == 0) return
+        label(PhotoPreviewUi.summary(count))
+        val columns = PhotoPreviewUi.columns(count, resources.configuration.screenWidthDp)
+        for (start in 0 until count step columns) {
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            for (column in 0 until columns) {
+                val index = start + column
+                val view = if (index < count) photoTile(photos.optString(index), index, count, columns) else View(this)
+                row.addView(view, LinearLayout.LayoutParams(0, -2, 1f).apply {
+                    if (column > 0) marginStart = dp(8)
+                })
             }
-            val thumb=ImageView(this).apply { scaleType=ImageView.ScaleType.CENTER_CROP; contentDescription="Zdjęcie "+(i+1); adjustViewBounds=true }
-            try {
-                val bitmap=PhotoPreview.decode(this,Uri.parse(uri))
-                thumb.scaleType=ImageView.ScaleType.FIT_CENTER
-                thumb.setImageBitmap(bitmap)
-                val width=resources.displayMetrics.widthPixels-dp(32)
-                card.addView(thumb,FrameLayout.LayoutParams(-1,width*9/16))
-                thumb.setOnClickListener { openPhoto(uri) }
-                root.addView(card,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(16); topMargin=dp(4) })
-            } catch(_:Exception) {
-                val placeholder=ImageView(this).apply { setImageResource(android.R.drawable.ic_menu_gallery); contentDescription="Zdjęcie niedostępne"; setPadding(dp(32),dp(32),dp(32),dp(32)); setOnClickListener { toast("Oryginał zdjęcia nie jest dostępny na tym urządzeniu") } }
-                card.addView(placeholder,FrameLayout.LayoutParams(-1,dp(120)))
-                root.addView(card,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(16) })
-            }
+            root.addView(row, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
         }
     }
+
+    private fun photoTile(uri: String, index: Int, count: Int, columns: Int): View {
+        val bitmap = try {
+            PhotoPreview.decode(this, Uri.parse(uri))
+        } catch (_: Exception) {
+            null
+        }
+        val state = PhotoPreviewUi.state(index, count, bitmap != null)
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = background(palette.surface).apply { setStroke(dp(1), palette.border) }
+            setPadding(dp(6), dp(6), dp(6), dp(6))
+            if (bitmap != null) {
+                addView(ImageView(this@MainActivity).apply {
+                    scaleType = ImageView.ScaleType.FIT_CENTER
+                    setImageBitmap(bitmap)
+                    contentDescription = state.accessibilityLabel
+                    isFocusable = true
+                    setOnClickListener { openPhoto(uri) }
+                }, LinearLayout.LayoutParams(-1, dp(if (columns == 2) 120 else 180)))
+            } else {
+                addView(TextView(this@MainActivity).apply {
+                    text = state.message
+                    setTextColor(palette.textPrimary)
+                    gravity = Gravity.CENTER
+                    minimumHeight = dp(if (columns == 2) 120 else 180)
+                }, LinearLayout.LayoutParams(-1, -2))
+            }
+            addView(TextView(this@MainActivity).apply {
+                text = state.heading
+                textSize = 12f
+                setTextColor(palette.secondaryText)
+                setPadding(dp(4), dp(6), dp(4), dp(2))
+            })
+        }
+    }
+
     private fun newForm(key:String,id:String="",objectId:String="",sendAfterSave:Boolean=false) {
         quickPhotoUpload=sendAfterSave
         formReturn=screen; formKind=key
@@ -2712,10 +2914,10 @@ class MainActivity : Activity() {
     }
     private fun field(caption:String,key:String,multiline:Boolean=false,numeric:Boolean=false) {
         label(caption)
-        val e=EditText(ContextThemeWrapper(this,R.style.WorkMeterDialogTheme)).apply {
+        val e=EditText(ContextThemeWrapper(this,dialogStyle)).apply {
             setText(draft.optString(key)); textSize=17f; minHeight=dp(48)
             inputType=if(numeric) InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL else InputType.TYPE_CLASS_TEXT or (if(multiline) InputType.TYPE_TEXT_FLAG_MULTI_LINE else 0)
-            setSingleLine(!multiline); setPadding(dp(10),dp(8),dp(10),dp(8)); setTextColor(0xFF37474F.toInt()); setHintTextColor(0xFF78909C.toInt()); background=background(0xFFECEFF1.toInt())
+            setSingleLine(!multiline); setPadding(dp(10),dp(8),dp(10),dp(8)); setTextColor(palette.textPrimary); setHintTextColor(palette.secondaryText); background=background(palette.surface).apply { setStroke(dp(1),palette.border) }
         }
         e.addTextChangedListener(object:TextWatcher {
             override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int) {}
@@ -2769,14 +2971,23 @@ class MainActivity : Activity() {
         base(when(formKind) { "objects" -> "Obiekt"; "expenses" -> "Zakup za własne pieniądze"; "materials" -> "Zużyty materiał"; "links" -> "Dodaj zdjęcia"; else -> "Notatka" })
         screen="form"; nav()
         if(formKind=="objects") {
-            label("TAG: "+draft.optString("TAG").ifBlank { "automatycznie po zapisaniu miasta" })
-            field("Miasto","city")
-            if(draft.optString("TAG").isBlank()) field("Tag (opcjonalnie)","tagPrefix") else label("Tag (stały): "+draft.optString("TAG"))
-            field("Adres","Adres"); field("Nazwa organizacji","organization")
+            val editing=rows(data(),"objects").any { it.optString("id")==draft.optString("id") }
+            label(ObjectFormUiModel.title(editing))
+            label(ObjectFormUiModel.requiredHint())
+            label(ObjectFormUiModel.tagHint(draft.optString("TAG")))
+            val location=ObjectFormUiModel.sections[0]
+            label(location.title)
+            field(location.fields[0].caption,location.fields[0].key)
+            if(draft.optString("TAG").isBlank()) field("Tag (opcjonalnie)","tagPrefix")
+            else label(ObjectFormUiModel.tagHint(draft.optString("TAG")))
+            field(location.fields[1].caption,location.fields[1].key)
             button("Typ miejsca: "+placeType(draft).label) {
                 pickPlaceType { type -> draft.put("placeType",type.name); renderForm() }
             }
-            field("Notatki / kontakt","notes",true); field("Link Google Maps (opcjonalnie)","maps")
+            val information=ObjectFormUiModel.sections[1]
+            label(information.title)
+            for(spec in information.fields) field(spec.caption,spec.key,spec.multiline)
+            label(ObjectFormUiModel.mapHint())
             val savedGeo=prefs.getString("gps_object_"+draft.optString("id"),null)
             val pendingGeo=draft.optJSONObject("_gps_capture")
             label(when {
@@ -2785,17 +2996,30 @@ class MainActivity : Activity() {
                 else -> "📍 Lokalizacja GPS: nie przypisano (opcjonalnie)."
             })
             button("📍 Zapisz lokalizację GPS") { captureObjectGps() }
+            label(ObjectFormUiModel.footer(editing))
         } else {
+            val uiKind=WorkRecordFormUi.kind(formKind)
+            if(uiKind!=null) {
+                label(WorkRecordFormUi.title(uiKind))
+                val assignment=WorkRecordFormUi.assignment(uiKind)
+                label(assignment.title)
+                label(assignment.hint)
+            }
             button("Data: "+recordDate(draft).let { if(it.isBlank()) "Wybierz datę" else dateText(it) }) {
                 pickReportDate(try { LocalDate.parse(recordDate(draft)) } catch (_:Exception) { LocalDate.now() }) {
                     draft.put("date",it.toString()); renderForm()
                 }
             }
             if(formKind=="materials" && draft.optString("sourceId").isBlank()) button("Miejsce: "+if(draft.optString("storage")=="car") "W samochodzie" else "Na obiekcie") {
-                AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Miejsce").setItems(arrayOf("Na obiekcie","W samochodzie")) { _,i -> draft.put("storage",if(i==1) "car" else "object"); renderForm() }.show()
+                AlertDialog.Builder(this,dialogStyle).setTitle("Miejsce").setItems(arrayOf("Na obiekcie","W samochodzie")) { _,i -> draft.put("storage",if(i==1) "car" else "object"); renderForm() }.show()
             }
             button("Obiekt: "+(objectById(draft.optString("objectId"))?.let { objectName(it) } ?: if(formKind in listOf("notes","expenses")) "Bez obiektu" else "Wybierz")) {
                 chooseObject(formKind in listOf("notes","expenses") || (formKind=="materials" && draft.optString("storage")=="car")) { draft.put("objectId",it?.optString("id") ?: ""); draft.remove("Obiekt"); renderForm() }
+            }
+            if(uiKind!=null) {
+                val details=WorkRecordFormUi.details(uiKind)
+                label(details.title)
+                label(details.hint)
             }
             if(formKind=="expenses") {
                 if(!draft.has("amount") && draft.has("cents")) draft.put("amount",BigDecimal.valueOf(draft.optLong("cents"),2).toPlainString())
@@ -2807,7 +3031,7 @@ class MainActivity : Activity() {
                 button("Dodaj zdjęcia z galerii") { pickPhotos() }; button("Zrób zdjęcie") { camera() }
                 field("Ilość","quantity",numeric=true)
                 button("Jednostka: "+draft.optString("unit","szt.")) {
-                    AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Jednostka").setItems(arrayOf("szt.","m")) { _,which ->
+                    AlertDialog.Builder(this,dialogStyle).setTitle("Jednostka").setItems(arrayOf("szt.","m")) { _,which ->
                         draft.put("unit",if(which==0) "szt." else "m"); renderForm()
                     }.show()
                 }
@@ -2816,13 +3040,13 @@ class MainActivity : Activity() {
                     if(draft.optBoolean("shopping")) field("Sklep (opcjonalnie)","store")
                     field("Treść (opcjonalnie, gdy dodajesz zdjęcie)","text",true)
                     root.addView(CheckBox(this).apply {
-                        text="Zakupy / paragon"; setTextColor(0xFF37474F.toInt())
-                        buttonTintList=android.content.res.ColorStateList.valueOf(0xFFFF5C5C.toInt())
+                        text="Zakupy / paragon"; setTextColor(palette.textPrimary)
+                        buttonTintList=android.content.res.ColorStateList.valueOf(palette.accentText)
                         isChecked=draft.optBoolean("shopping")
                         setOnCheckedChangeListener { _,checked -> draft.put("shopping",checked) }
                     })
                     root.addView(CheckBox(this).apply {
-                        setTextColor(0xFF37474F.toInt()); buttonTintList=android.content.res.ColorStateList.valueOf(0xFFFF5C5C.toInt())
+                        setTextColor(palette.textPrimary); buttonTintList=android.content.res.ColorStateList.valueOf(palette.accentText)
                         text="Aktualna"; isChecked=draft.optBoolean("aktualne")
                         setOnCheckedChangeListener { _,checked -> draft.put("aktualne",checked); if(checked) draft.put("done",false) }
                     })
@@ -2830,16 +3054,18 @@ class MainActivity : Activity() {
                 button("Dodaj zdjęcia z galerii") { pickPhotos() }; button("Zrób zdjęcie") { camera() }
                 if(formKind=="links") field("Link Google Disk (opcjonalnie)","Link Google Drive")
             }
+            if(uiKind!=null) label(WorkRecordFormUi.attachments(arr(draft,"photos").length()))
             showPhotos(draft)
             if(arr(draft,"photos").length()>0) button("Usuń zdjęcie ze szkicu") {
                 val photos=arr(draft,"photos")
-                AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Wybierz zdjęcie").setItems((0 until photos.length()).map { "Zdjęcie "+(it+1) }.toTypedArray()) { _,index ->
+                AlertDialog.Builder(this,dialogStyle).setTitle("Wybierz zdjęcie").setItems((0 until photos.length()).map { "Zdjęcie "+(it+1) }.toTypedArray()) { _,index ->
                     photos.remove(index); renderForm()
                 }.show()
             }
         }
         if(formKind=="materials" && rows(data(),"materials").none { it.optString("id")==draft.optString("id") }) button("+ DODAJ MATERIAŁ") { addBatchLine() }
         button(if(quickPhotoUpload) "Zapisz i wyślij zdjęcia" else "Zapisz") { saveForm() }
+        if(formKind=="materials") label(WorkRecordFormUi.pendingBatch(rows(draft,"batch").size))
         if(formKind=="materials") for((i,row) in rows(draft,"batch").withIndex()) {
             label(materialLine(row))
             button("EDYTUJ · "+row.optString("name")) {
@@ -3120,13 +3346,26 @@ class MainActivity : Activity() {
         root.addView(TimeChart(this,result,false),LinearLayout.LayoutParams(-1,dp(230)))
         label("Suma czasu w każdej godzinie doby, ze wszystkich dni wybranego okresu.")
         filters("chartHours",caption="Szczegóły godzinowe") {
-            result.hours.forEachIndexed { hour,values -> if(values.sum()>0) label("%02d:00".format(hour)+" · "+values.mapIndexed { i,n -> TimeChart.names[i]+": "+duration(n) }.joinToString(" · ")) }
+            result.hours.forEachIndexed { hour,values -> if(values.sum()>0) label("%02d:00".format(hour)+" · "+values.mapIndexed { i,n -> TimeChartCategory.entries[i].label+": "+duration(n) }.joinToString(" · ")) }
         }
         label("Podział czasu pracy")
         root.addView(TimeChart(this,result,true),LinearLayout.LayoutParams(-1,dp(240)))
         val sum=result.workMillis
-        result.totals.forEachIndexed { i,n ->
-            root.addView(TextView(this).apply { text="● "+TimeChart.names[i]+" — "+duration(n)+" · "+"%.1f%%".format(Locale("pl"),result.sharePercent(i));textSize=16f;setTextColor(0xFF37474F.toInt());setPadding(0,dp(7),0,dp(7)) })
+        result.totals.forEachIndexed { i, elapsed ->
+            val category = TimeChartCategory.entries[i]
+            val row = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+            row.addView(View(this).apply {
+                background = background(category.color)
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }, LinearLayout.LayoutParams(dp(14), dp(14)).apply { marginEnd = dp(8) })
+            val percentage = result.sharePercent(i)
+            row.addView(TextView(this).apply {
+                text = category.label + " — " + duration(elapsed) + " · " + "%.1f%%".format(Locale("pl"), percentage)
+                textSize = 16f
+                setTextColor(palette.textPrimary)
+                setPadding(0, dp(7), 0, dp(7))
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+            root.addView(row, LinearLayout.LayoutParams(-1, -2))
         }
         if(sum==0L) label("Brak czasu pracy w wybranym okresie.")
         if(result.personalMillis>0) label("Czas prywatny: "+duration(result.personalMillis)+" · poza czasem pracy")
@@ -3146,7 +3385,7 @@ class MainActivity : Activity() {
         val a=active(data()) ?: run { toast("Najpierw rozpocznij pracę");return }
         if(a.optString("kind")=="Zakupy") {
             confirmAction("Zakończyć zakupy? Wybierz obiekt lub rozpocznij przejazd.") {
-                AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Co dalej?").setItems(arrayOf("Na obiekt","Przejazd","Bez przypisania")) { _,i ->
+                AlertDialog.Builder(this,dialogStyle).setTitle("Co dalej?").setItems(arrayOf("Na obiekt","Przejazd","Bez przypisania")) { _,i ->
                     when(i) { 0 -> switchObject();1 -> beginStage("Przejazd");else -> beginStage("Nieprzypisane") }
                 }.setNegativeButton("Anuluj",null).show()
             }
@@ -3225,8 +3464,8 @@ class MainActivity : Activity() {
     private fun materialNameField() {
         label("Nazwa materiału")
         val choices=(rows(data(),"materialCatalog")+rows(data(),"materials")).filter { it.optString("name").isNotBlank() }.distinctBy { it.optString("name").trim().lowercase(Locale.ROOT) }
-        val input=AutoCompleteTextView(ContextThemeWrapper(this,R.style.WorkMeterDialogTheme)).apply {
-            setText(draft.optString("name"));threshold=1;textSize=17f;setSingleLine();setPadding(dp(10),dp(8),dp(10),dp(8));background=background(0xFFECEFF1.toInt())
+        val input=AutoCompleteTextView(ContextThemeWrapper(this,dialogStyle)).apply {
+            setText(draft.optString("name"));threshold=1;textSize=17f;setSingleLine();setPadding(dp(10),dp(8),dp(10),dp(8));background=background(palette.surface).apply { setStroke(dp(1),palette.border) }
         }
         val names=choices.map { it.optString("name") }
         val adapter=object:ArrayAdapter<String>(this,android.R.layout.simple_dropdown_item_1line,ArrayList(names)) {
@@ -3327,7 +3566,7 @@ class MainActivity : Activity() {
             button("PRZENIEŚ NA OBIEKT · "+source.name) { transferMaterial(source.id) }
             button("Historia / edytuj · "+source.name) {
                 val rows=rows(data(),"materials").filter { it.optString("id")==source.id || it.optString("sourceId")==source.id }
-                AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Poprawienia / przeniesienia").setItems(rows.map { dateText(recordDate(it))+" · "+materialLine(it) }.toTypedArray()) { _,i -> recordDetails("materials",rows[i].optString("id"),"car") }.setNegativeButton("Zamknij",null).show()
+                AlertDialog.Builder(this,dialogStyle).setTitle("Poprawienia / przeniesienia").setItems(rows.map { dateText(recordDate(it))+" · "+materialLine(it) }.toTypedArray()) { _,i -> recordDetails("materials",rows[i].optString("id"),"car") }.setNegativeButton("Zamknij",null).show()
             }
         }
         if(entries.none { it.car }) label("Brak materiałów w samochodzie.")
