@@ -21,6 +21,7 @@ import com.google.android.gms.auth.api.identity.Identity
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
 import com.google.android.gms.common.api.Scope
 import androidx.core.content.FileProvider
+import androidx.core.view.doOnLayout
 import android.appwidget.AppWidgetManager
 import android.content.*
 import android.os.*
@@ -107,7 +108,9 @@ class MainActivity : Activity() {
             formKind = savedInstanceState.getString("formKind") ?: ""
             formReturn = savedInstanceState.getString("formReturn") ?: "home"
             draft = JSONObject(savedInstanceState.getString("draft") ?: "{}")
-            openScreen(savedInstanceState.getString("screen") ?: "home")
+            val restoredScreen = savedInstanceState.getString("screen") ?: "home"
+            openScreen(restoredScreen)
+            restoreSettingsScroll(restoredScreen, savedInstanceState.getInt("settingsScroll"))
             return
         }
         if (prefs.getString("pin", null) == null) setupPin() else handleLaunch()
@@ -115,7 +118,33 @@ class MainActivity : Activity() {
     override fun onResume() { super.onResume(); prefs.registerOnSharedPreferenceChangeListener(uploadChanges); ticker.removeCallbacks(tick); ticker.postDelayed(tick, 60000) }
     override fun onPause() { prefs.unregisterOnSharedPreferenceChangeListener(uploadChanges); ticker.removeCallbacks(refreshUploads); ticker.removeCallbacks(tick); super.onPause() }
     override fun onStop() { walletUnlocked=false; super.onStop() }
-    override fun onRestart() { super.onRestart(); if(screen=="wallet" || screen=="payment" || screen=="expenses" || screen.startsWith("detail:expenses:")) settings() else if(screen!="form") openScreen(screen) }
+    override fun onRestart() {
+        super.onRestart()
+        val previousScreen = screen
+        val scrollY = settingsScrollPosition()
+        when {
+            previousScreen in listOf("wallet", "payment", "expenses") ||
+                previousScreen.startsWith("detail:expenses:") -> settings()
+            previousScreen != "form" -> {
+                openScreen(previousScreen)
+                restoreSettingsScroll(previousScreen, scrollY)
+            }
+        }
+    }
+
+    private fun settingsScrollPosition(): Int =
+        if ((screen == "settings" || screen == "widgetSettings") && ::root.isInitialized)
+            (root.parent as? ScrollView)?.scrollY ?: 0
+        else 0
+
+    private fun restoreSettingsScroll(target: String, scrollY: Int) {
+        if (scrollY <= 0 || screen != target || (target != "settings" && target != "widgetSettings")) return
+        val scroll = root.parent as? ScrollView ?: return
+        scroll.doOnLayout {
+            if (screen == target && root.parent === scroll) scroll.scrollTo(0, scrollY)
+        }
+    }
+
     private fun hash(s: String): String = MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).joinToString("") { "%02x".format(it) }
     private fun setupPin() {
         val field = EditText(ContextThemeWrapper(this,dialogStyle)).apply { hint="PIN (4–8 cyfr)"; inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD }
@@ -475,6 +504,7 @@ class MainActivity : Activity() {
     override fun onBackPressed() { back() }
     override fun onSaveInstanceState(out: Bundle) {
         out.putString("smsParent",smsParent); out.putString("smsFrom",smsFrom?.toString()); out.putString("smsTo",smsTo?.toString()); out.putString("detailParent",detailParent); out.putString("screen",screen); out.putString("formKind",formKind); out.putString("formReturn",formReturn)
+        out.putInt("settingsScroll", settingsScrollPosition())
         out.putBoolean("quickPhotoUpload",quickPhotoUpload)
         out.putString("walletDraft",walletDraft.toString())
         out.putStringArrayList("expandedFilters",ArrayList(expandedFilters))
@@ -1164,15 +1194,12 @@ class MainActivity : Activity() {
             val themes=WorkMeterTheme.entries
             AlertDialog.Builder(this,dialogStyle).setTitle("Motyw aplikacji")
                 .setSingleChoiceItems(themes.map { it.title }.toTypedArray(),appearance.ordinal) { dialog,index ->
-                    val scroll=root.parent as? ScrollView
-                    val previousScroll=scroll?.scrollY ?: 0
+                    val previousScroll = settingsScrollPosition()
                     prefs.edit().putString(WorkMeterTheme.PREF_KEY,themes[index].key).apply()
                     GateWidget.refresh(this)
                     dialog.dismiss()
                     settings()
-                    (root.parent as? ScrollView)?.let { updated ->
-                        updated.post { updated.scrollTo(0,previousScroll) }
-                    }
+                    restoreSettingsScroll("settings", previousScroll)
                 }.setNegativeButton("Anuluj",null).show()
         }
         button("Wygląd widżetu") { widgetSettings() }
@@ -1180,9 +1207,11 @@ class MainActivity : Activity() {
         label("GPS i lokalizacja")
         if(prefs.getBoolean("gps_resume_pending",false)) button("GPS · wznowienie po restarcie") { gpsScreen() }
         button(if(prefs.getBoolean("gps_enabled",false)) "GPS WorkMeter: WŁĄCZONY — wyłącz" else "GPS WorkMeter: WYŁĄCZONY — włącz") {
+            val previousScroll = settingsScrollPosition()
             val next=!prefs.getBoolean("gps_enabled",false)
             setGpsEnabled(next)
             settings()
+            restoreSettingsScroll("settings", previousScroll)
         }
         button("Geostrefy i lokalizacja GPS") { gpsScreen() }
         button("GPS · zasady rozliczania czasu") { gpsPaySettings() }

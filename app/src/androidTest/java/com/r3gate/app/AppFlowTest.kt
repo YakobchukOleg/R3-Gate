@@ -644,6 +644,31 @@ class AppFlowTest {
         }
     }
 
+    @Test fun settingsKeepScrollPositionAfterBackgroundingAndRecreation() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            var expectedScroll = 0
+            scenario.onActivity { activity -> settings(activity) }
+            instrumentation.waitForIdleSync()
+            scenario.onActivity { activity ->
+                val scroll = all(activity).filterIsInstance<android.widget.ScrollView>().first()
+                scroll.scrollTo(0, 240)
+                expectedScroll = scroll.scrollY
+                assertTrue(expectedScroll > 0)
+            }
+            scenario.moveToState(androidx.lifecycle.Lifecycle.State.CREATED)
+            scenario.moveToState(androidx.lifecycle.Lifecycle.State.RESUMED)
+            instrumentation.waitForIdleSync()
+            scenario.onActivity { activity ->
+                assertEquals(expectedScroll, all(activity).filterIsInstance<android.widget.ScrollView>().first().scrollY)
+            }
+            scenario.recreate()
+            instrumentation.waitForIdleSync()
+            scenario.onActivity { activity ->
+                assertEquals(expectedScroll, all(activity).filterIsInstance<android.widget.ScrollView>().first().scrollY)
+            }
+        }
+    }
+
     @Test fun bottomNavigationOpensFinanceOnlyAfterPin() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
