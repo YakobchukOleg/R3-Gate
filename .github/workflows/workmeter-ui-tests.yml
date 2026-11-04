@@ -49,7 +49,7 @@ jobs:
           if-no-files-found: warn
 
   ui-device-tests:
-    if: github.event_name == 'workflow_dispatch' || github.ref_name == 'integration/workmeter-ui' || github.ref_name == 'fix/phone-feedback'
+    if: github.event_name == 'workflow_dispatch' || github.ref_name == 'integration/workmeter-ui' || github.ref_name == 'fix/phone-feedback' || github.ref_name == 'fix/solo-widget-responsive'
     name: Android instrumentation suite
     runs-on: ubuntu-24.04
     timeout-minutes: 25
