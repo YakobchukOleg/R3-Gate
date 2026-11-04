@@ -1220,11 +1220,29 @@ class MainActivity : Activity() {
     }
     private fun widgetSettings() {
         base("Wygląd widżetu"); screen="widgetSettings"; nav()
-        label("Przezroczystość tła widżetu")
+        val widgetManager = AppWidgetManager.getInstance(this)
+        val widgetIds = widgetManager.getAppWidgetIds(ComponentName(this, GateWidget::class.java)).sorted()
+        if (widgetIds.isNotEmpty()) {
+            label("Zainstalowane widżety")
+            val appearanceStore = WidgetAppearanceStore(this)
+            widgetIds.forEach { id ->
+                val appearance = appearanceStore.read(id)
+                val theme = appearance.theme?.title ?: getString(R.string.widget_follow_app)
+                val options = widgetManager.getAppWidgetOptions(id)
+                val width = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH)
+                val height = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT)
+                val profile = WidgetLayoutProfile.forBounds(width, height).displayName
+                button(getString(R.string.widget_configure_instance, id, profile, theme)) {
+                    startActivity(Intent(this, WidgetAppearanceActivity::class.java)
+                        .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id))
+                }
+            }
+        }
+        label("Domyślna przezroczystość tła widżetu")
         val value=TextView(this).apply { setTextColor(palette.textPrimary); text=prefs.getInt("widgetTransparency",0).toString()+"%" }
         root.addView(value)
         val previewFrame=FrameLayout(this).apply { setBackgroundColor(0xFF90A4AE.toInt()); setPadding(dp(8),dp(8),dp(8),dp(8)) }
-        val preview=GateWidget.render(this).apply(this,previewFrame)
+        val preview=GateWidget.render(this, interactive = false).apply(this,previewFrame)
         val slider=SeekBar(this).apply { max=100; progress=prefs.getInt("widgetTransparency",0); contentDescription="Przezroczystość tła widżetu" }
         slider.setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(bar:SeekBar?,progress:Int,fromUser:Boolean) {
