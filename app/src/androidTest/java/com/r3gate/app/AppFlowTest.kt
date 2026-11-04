@@ -376,9 +376,13 @@ class AppFlowTest {
                 click(a,"O aplikacji"); assertTrue(has(a,"Wersja: 2.3")); a.onBackPressed()
                 click(a,"Portfel / rozliczenia (PIN)")
                 assertFalse(has(a,"Portfel"))
+                assertFalse(has(a,"Wybrany okres"))
+                assertFalse(has(a,"Naliczone: 240,00 zł"))
             }
             pin()
             scenario.onActivity { a ->
+                assertTrue(has(a,"Wybrany okres"))
+                assertTrue(has(a,"Cała historia"))
                 assertTrue(has(a,"Naliczone: 240,00 zł")); click(a,"+ Dodaj wypłatę")
                 all(a).filterIsInstance<EditText>().first { it.hint=="Kwota (zł)" }.setText("100")
                 click(a,"Zapisz"); click(a,"+ Dodaj wypłatę")

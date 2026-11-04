@@ -1271,18 +1271,30 @@ class MainActivity : Activity() {
         if(to.isBefore(from)) { label("Data do nie może być wcześniejsza niż Data od."); return }
         val d=data(); val config=walletConfig(d); val shifts=walletShifts(d); val payments=walletPayments(d)
         val summary=WalletRules.summary(shifts,payments,from,to)
-        label("Naliczone: "+money(summary.earned))
-        label("Otrzymano — gotówka: "+money(summary.cash))
-        label("Otrzymano — karta: "+money(summary.card))
-        if(summary.overlapping==0) label((if(summary.due>=0) "Do wypłaty: " else "Nadpłata: ")+money(kotlin.math.abs(summary.due)))
-        else label("Saldo okresu niepełne: "+summary.overlapping+" wypłat obejmuje szerszy okres. Poszerz daty lub popraw przypisanie wypłaty.")
+        val periodBalance = if (summary.overlapping == 0) {
+            (if (summary.due >= 0) "Do wypłaty: " else "Nadpłata: ") + money(kotlin.math.abs(summary.due))
+        } else {
+            "Saldo okresu niepełne: " + summary.overlapping +
+                " wypłat obejmuje szerszy okres. Poszerz daty lub popraw przypisanie wypłaty."
+        }
+        financeCard(
+            "Wybrany okres",
+            "Naliczone: " + money(summary.earned),
+            "Otrzymano — gotówka: " + money(summary.cash),
+            "Otrzymano — karta: " + money(summary.card),
+            periodBalance
+        )
         val global=WalletRules.earned(shifts)+config.optLong("openingCents")-payments.sumOf { it.cents }
-        label((if(global>=0) "Łącznie do wypłaty (cała historia): " else "Łączna nadpłata (cała historia): ")+money(kotlin.math.abs(global)))
-        label("Naliczanie obejmuje zakończone zmiany, także przejazdy i zakupy. Otwarty dzień zostanie rozliczony po zakończeniu.")
         val expenses=rows(d,"expenses")
         val expensesDue=expenses.sumOf { (it.optLong("cents")-it.optLong("reimbursedCents")).coerceAtLeast(0) }
-        label("Zakupy firmowe do zwrotu (cała historia): "+money(expensesDue))
-        label((if(global+expensesDue>=0) "Razem do rozliczenia (wynagrodzenie i zakupy): " else "Łączna nadpłata (wynagrodzenie i zakupy): ")+money(kotlin.math.abs(global+expensesDue)))
+        financeCard(
+            "Cała historia",
+            (if(global>=0) "Łącznie do wypłaty (cała historia): " else "Łączna nadpłata (cała historia): ") + money(kotlin.math.abs(global)),
+            "Zakupy firmowe do zwrotu (cała historia): " + money(expensesDue),
+            (if(global+expensesDue>=0) "Razem do rozliczenia (wynagrodzenie i zakupy): " else "Łączna nadpłata (wynagrodzenie i zakupy): ") +
+                money(kotlin.math.abs(global+expensesDue))
+        )
+        label("Naliczanie obejmuje zakończone zmiany, także przejazdy i zakupy. Otwarty dzień zostanie rozliczony po zakończeniu.")
         button("Zakupy za własne pieniądze / paragony") { expenseList() }
         button("+ Dodaj wypłatę") { walletDraft=JSONObject().put("id",UUID.randomUUID().toString()).put("date",LocalDate.now().toString()).put("periodFrom",from.toString()).put("periodTo",to.toString()).put("method","cash"); paymentForm() }
         filters("walletRates",caption="Stawka i saldo początkowe") {
@@ -1300,12 +1312,37 @@ class MainActivity : Activity() {
             label("Za okres: "+dateText(payment.optString("periodFrom"))+" – "+dateText(payment.optString("periodTo")))
         }
     }
+    private fun financeCard(title: String, vararg values: String) {
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            background = background(palette.surface).apply { setStroke(dp(1), palette.border) }
+        }
+        card.addView(TextView(this).apply {
+            text = title
+            textSize = 14f
+            setTextColor(palette.secondaryText)
+            androidx.core.view.ViewCompat.setAccessibilityHeading(this, true)
+        })
+        values.forEachIndexed { index, value ->
+            val emphasized = index == values.lastIndex
+            card.addView(TextView(this).apply {
+                text = value
+                textSize = if (emphasized) 18f else 16f
+                setTextColor(palette.textPrimary)
+                setPadding(0, dp(8), 0, 0)
+                if (emphasized) setTypeface(typeface, android.graphics.Typeface.BOLD)
+            })
+        }
+        root.addView(card, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(10) })
+    }
+
     private fun expenseList() {
         if(!walletUnlocked) { settings(); confirmPin { walletUnlocked=true; expenseList() }; return }
         base("Zakupy do zwrotu"); screen="expenses"; nav()
         label("Zakupy opłacone z własnych pieniędzy. Zwroty są rozliczane oddzielnie od wynagrodzenia.")
         val list=rows(data(),"expenses").sortedByDescending { recordDate(it) }
-        label("Do zwrotu: "+money(list.sumOf { (it.optLong("cents")-it.optLong("reimbursedCents")).coerceAtLeast(0) }))
+        financeCard("Podsumowanie zakupów", "Do zwrotu: " + money(list.sumOf { (it.optLong("cents") - it.optLong("reimbursedCents")).coerceAtLeast(0) }))
         button("+ Dodaj zakup za własne pieniądze") { newForm("expenses") }
         for(item in list) button(dateText(recordDate(item))+" · "+money(item.optLong("cents"))+" · "+if(item.optLong("reimbursedCents")>=item.optLong("cents")) "Zwrócono" else "Do zwrotu") {
             recordDetails("expenses",item.optString("id"),"expenses")
