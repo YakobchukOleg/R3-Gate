@@ -33,6 +33,9 @@
             android:layout_width="match_parent" android:layout_height="wrap_content"
             android:text="Gotowy do pracy" android:textColor="#F0F4F5"
             android:textSize="12sp" android:maxLines="1" android:ellipsize="end"/>
+        <TextView android:id="@+id/wgps" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:maxLines="1" android:ellipsize="end"
+            android:textColor="#FFFFFF" android:textSize="12sp" android:visibility="gone"/>
         <LinearLayout android:id="@+id/wdetails" android:layout_width="match_parent" android:layout_height="wrap_content"
             android:orientation="horizontal" android:layout_marginTop="1dp">
             <TextView android:id="@+id/wstart" android:fontFamily="@font/clash_grotesk"

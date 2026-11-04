@@ -18,6 +18,14 @@ class GateWidget : AppWidgetProvider() {
     override fun onAppWidgetOptionsChanged(context:Context,manager:AppWidgetManager,id:Int,options:android.os.Bundle) {
         update(context,manager,id)
     }
+    override fun onDeleted(context: Context, appWidgetIds: IntArray) {
+        WidgetAppearanceStore(context).delete(appWidgetIds)
+    }
+
+    override fun onRestored(context: Context, oldWidgetIds: IntArray, newWidgetIds: IntArray) {
+        WidgetAppearanceStore(context).restore(oldWidgetIds, newWidgetIds)
+    }
+
     companion object {
         private val time=SimpleDateFormat("dd-MM-yyyy HH:mm",Locale.US)
         fun refresh(context:Context) {
@@ -25,10 +33,11 @@ class GateWidget : AppWidgetProvider() {
             val ids=mgr.getAppWidgetIds(ComponentName(context,GateWidget::class.java))
             ids.forEach { update(context,mgr,it) }
         }
-        private fun update(context:Context,mgr:AppWidgetManager,id:Int) {
+        internal fun update(context: Context, mgr: AppWidgetManager, id: Int) {
+            val appearance = WidgetAppearanceStore(context).read(id)
             val views = if (Build.VERSION.SDK_INT >= 31) {
                 RemoteViews(WidgetLayoutProfile.entries.associate { profile ->
-                    SizeF(profile.minWidthDp.toFloat(), profile.minHeightDp.toFloat()) to render(context, profile)
+                    SizeF(profile.minWidthDp.toFloat(), profile.minHeightDp.toFloat()) to render(context, profile, appearance)
                 })
             } else {
                 val options = mgr.getAppWidgetOptions(id)
@@ -36,11 +45,16 @@ class GateWidget : AppWidgetProvider() {
                     options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 250),
                     options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 160)
                 )
-                render(context, profile)
+                render(context, profile, appearance)
             }
             mgr.updateAppWidget(id, views)
         }
-        internal fun render(context: Context, profile: WidgetLayoutProfile = WidgetLayoutProfile.STANDARD): RemoteViews {
+        internal fun render(
+            context: Context,
+            profile: WidgetLayoutProfile = WidgetLayoutProfile.STANDARD,
+            appearance: WidgetAppearance = WidgetAppearance(),
+            interactive: Boolean = true
+        ): RemoteViews {
             val prefs=context.getSharedPreferences("r3_gate",Context.MODE_PRIVATE)
             val d=try { JSONObject(prefs.getString("data","{}")!!) } catch (_:Exception) { JSONObject() }
             val a=d.optJSONObject("active"); val arr=d.optJSONArray("shifts")
@@ -51,7 +65,9 @@ class GateWidget : AppWidgetProvider() {
             val wide = profile == WidgetLayoutProfile.STANDARD || profile == WidgetLayoutProfile.EXPANDED
             val expanded = profile == WidgetLayoutProfile.EXPANDED
             val v=RemoteViews(context.packageName,R.layout.widget)
-            v.setInt(R.id.wbackground,"setImageAlpha",255*(100-prefs.getInt("widgetTransparency",0).coerceIn(0,100))/100)
+            val theme = appearance.theme ?: WorkMeterAppearance.theme(context)
+            v.setInt(R.id.wbackground, "setColorFilter", theme.palette.header)
+            v.setInt(R.id.wbackground, "setImageAlpha", appearance.backgroundAlpha(prefs.getInt("widgetTransparency", 0)))
             val travel=a?.optString("kind")=="Przejazd"
             val personal=a?.optString("kind")=="Prywatnie"
             v.setTextViewText(R.id.wobject,when { a==null -> "Gotowy do pracy"; travel -> "W drodze"; personal -> "Czas prywatny"; a.optString("kind")=="Zakupy" -> "Zakupy"; else -> a.optString("object").substringBefore(" · ") })
@@ -61,10 +77,16 @@ class GateWidget : AppWidgetProvider() {
             v.setViewVisibility(R.id.wstartbutton,if(a==null) android.view.View.VISIBLE else android.view.View.GONE)
             v.setViewVisibility(R.id.wstopbutton,if(a!=null) android.view.View.VISIBLE else android.view.View.GONE)
             v.setViewVisibility(R.id.wcamera, if (wide) View.VISIBLE else View.GONE)
-            v.setViewVisibility(R.id.wprimary, if (mini) View.GONE else View.VISIBLE)
+            v.setViewVisibility(R.id.wprimary, if (mini || !appearance.showActions) View.GONE else View.VISIBLE)
             v.setViewVisibility(R.id.wdetails, if (expanded) View.VISIBLE else View.GONE)
+            if (expanded && appearance.showGps) {
+                v.setViewVisibility(R.id.wgps, View.VISIBLE)
+                v.setTextViewText(R.id.wgps, GpsServiceStatusUi.label(GpsServiceStatusUi.read(context, System.currentTimeMillis())))
+            } else {
+                v.setViewVisibility(R.id.wgps, View.GONE)
+            }
             v.setViewVisibility(R.id.wtitle, if (wide) View.VISIBLE else View.GONE)
-            v.setViewVisibility(R.id.wactions, if (wide && a != null && !personal) View.VISIBLE else View.GONE)
+            v.setViewVisibility(R.id.wactions, if (appearance.showActions && wide && a != null && !personal) View.VISIBLE else View.GONE)
             v.setViewVisibility(R.id.wend, if (a == null) View.VISIBLE else View.GONE)
             v.setTextViewText(R.id.wswitch, if (wide) "ZMIEŃ OBIEKT" else "OBIEKT ↔")
             if (mini) v.setTextViewTextSize(R.id.wduration, android.util.TypedValue.COMPLEX_UNIT_SP, 19f)
@@ -84,7 +106,7 @@ class GateWidget : AppWidgetProvider() {
                 else -> "Brak przypisanego etapu"
             }
             v.setTextViewText(R.id.wstatus, status)
-            if (!wide && (a == null || travel || personal || a.optString("kind") == "Zakupy")) {
+            if (!appearance.showObject || (!wide && (a == null || travel || personal || a.optString("kind") == "Zakupy"))) {
                 v.setViewVisibility(R.id.wobject, View.GONE)
             }
             v.setTextColor(R.id.wstatus,if(personal) 0xFFFFC88F.toInt() else if(a!=null) 0xFF6EE0AD.toInt() else 0xFFD1DDE0.toInt())
@@ -114,6 +136,7 @@ class GateWidget : AppWidgetProvider() {
                     v.setChronometer(R.id.wduration,SystemClock.elapsedRealtime()-ms,null,false)
                 }
             } else v.setChronometer(R.id.wduration,SystemClock.elapsedRealtime(),null,false)
+            if (!interactive) return v
             for((view,action,code) in listOf(Triple(R.id.wstartbutton,"start",1),Triple(R.id.wstopbutton,"stop",2),Triple(R.id.wswitch,"switch",3),Triple(R.id.wtravel,"travel",4),Triple(R.id.wshopping,"shopping",5),Triple(R.id.wcamera,"camera",6))) {
                 val intent=Intent(context,MainActivity::class.java).apply { putExtra("widget_action",action); flags=Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP }
                 val pi=PendingIntent.getActivity(context,code,intent,PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)

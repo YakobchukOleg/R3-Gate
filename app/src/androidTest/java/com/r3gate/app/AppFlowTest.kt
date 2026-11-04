@@ -408,6 +408,26 @@ class AppFlowTest {
             }
         }
     }
+    @Test fun widgetAppearanceIsIsolatedAndSurvivesIdRemapping() {
+        val context = instrumentation.targetContext
+        val store = WidgetAppearanceStore(context)
+        val first = WidgetAppearance(theme = WorkMeterTheme.NORDIC_BLUE, transparency = 40, showGps = false)
+        val second = WidgetAppearance(theme = WorkMeterTheme.GRAPHITE_DARK, transparency = 100, showObject = false)
+        val ids = intArrayOf(70001, 70002, 70003)
+        try {
+            store.save(ids[0], first)
+            store.save(ids[1], second)
+            assertEquals(first, WidgetAppearanceStore(context).read(ids[0]))
+            assertEquals(second, store.read(ids[1]))
+            store.restore(intArrayOf(ids[0]), intArrayOf(ids[2]))
+            assertEquals(first, store.read(ids[2]))
+            assertEquals(WidgetAppearance(), store.read(ids[0]))
+            assertEquals(second, store.read(ids[1]))
+        } finally {
+            store.delete(ids)
+        }
+    }
+
     @Test fun widgetTransparencyAffectsOnlyBackgroundAndSettingsRemainReachable() {
         seedActive()
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->

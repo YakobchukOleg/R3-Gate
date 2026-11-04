@@ -535,13 +535,7 @@ class MainActivity : Activity() {
         if (a != null) hero.addView(text(
             "Czas etapu: " + duration(WorkMeterHomeState.stageElapsed(now, a.optLong("start"), a.optLong("stageStart"))),
             13f,palette.onHeader,true),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(9) })
-        val gpsLabel = when (gpsServiceStatus(now)) {
-            GpsServiceStatusRules.Status.OFF -> "GPS: wyłączony"
-            GpsServiceStatusRules.Status.PERMISSION_REQUIRED -> "GPS: brak pozwolenia"
-            GpsServiceStatusRules.Status.RESUME_AFTER_REBOOT -> "GPS: wymaga wznowienia"
-            GpsServiceStatusRules.Status.NO_RECENT_FIX -> "GPS: brak aktualnego pomiaru"
-            GpsServiceStatusRules.Status.RECENT_FIX -> "GPS: aktualny pomiar"
-        }
+        val gpsLabel = GpsServiceStatusUi.label(GpsServiceStatusUi.read(this, now))
         hero.addView(text(gpsLabel, 13f, palette.onHeader), LinearLayout.LayoutParams(-1, -2).apply {
             topMargin = dp(8)
         })
@@ -893,18 +887,6 @@ class MainActivity : Activity() {
         button("GPS · wróć") { gpsScreen() }
     }
 
-    private fun gpsServiceStatus(now: Long): GpsServiceStatusRules.Status {
-        val permission = checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-            checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        val lastFix = try {
-            JSONObject(prefs.getString("gps_last_fix", "{}") ?: "{}").optLong("time")
-        } catch (_: org.json.JSONException) {
-            0L
-        }
-        return GpsServiceStatusRules.status(prefs.getBoolean("gps_enabled", false), permission,
-            prefs.getBoolean("gps_resume_pending", false), lastFix, now)
-    }
-
     private fun gpsScreen() {
         base("GPS · WorkMeter"); screen="gps"; nav()
         label("GPS aktywny działa w tle z widocznym powiadomieniem. Wyłącz GPS, aby zakończyć rejestrację.")
@@ -934,7 +916,7 @@ class MainActivity : Activity() {
             button("Zezwól na GPS") { requestPermissions(arrayOf(android.Manifest.permission.ACCESS_COARSE_LOCATION,android.Manifest.permission.ACCESS_FINE_LOCATION),307) }
             return
         }
-        val status = gpsServiceStatus(System.currentTimeMillis())
+        val status = GpsServiceStatusUi.read(this, System.currentTimeMillis())
         label(when(status) {
             GpsServiceStatusRules.Status.NO_RECENT_FIX ->
                 "Brak aktualnego pomiaru GPS. Może to oznaczać słaby sygnał lub zatrzymanie usługi."
@@ -1163,6 +1145,7 @@ class MainActivity : Activity() {
                     val scroll=root.parent as? ScrollView
                     val previousScroll=scroll?.scrollY ?: 0
                     prefs.edit().putString(WorkMeterTheme.PREF_KEY,themes[index].key).apply()
+                    GateWidget.refresh(this)
                     dialog.dismiss()
                     settings()
                     (root.parent as? ScrollView)?.let { updated ->
