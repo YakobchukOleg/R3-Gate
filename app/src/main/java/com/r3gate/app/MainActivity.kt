@@ -475,8 +475,9 @@ class MainActivity : Activity() {
         val d=data(); val a=active(d)
         val recent=rows(d,"shifts").lastOrNull(); val shown=a?:recent
         val slate=palette.header
-        val muted=palette.secondaryText
-        val privateMode=a?.optString("kind")=="Prywatnie"
+        val now = System.currentTimeMillis()
+        val state = WorkMeterHomeState.from(a != null, a?.optString("kind").orEmpty(), a?.optString("objectId").orEmpty())
+        val privateMode = state == WorkMeterHomeState.PERSONAL
         root.setBackgroundColor(palette.background)
         root.setPadding(dp(16),dp(16),dp(16),dp(28))
 
@@ -510,12 +511,12 @@ class MainActivity : Activity() {
         }
         val header=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL }
         header.addView(text("TWÓJ DZIEŃ",12f,0xFFD4E0E4.toInt(),true),LinearLayout.LayoutParams(0,-2,1f))
-        val status=when { privateMode -> "● PRYWATNIE";a!=null -> "● ONLINE";else -> "● OFFLINE" }
+        val status=when { privateMode -> "PRYWATNIE";a!=null -> "DZIEŃ OTWARTY";else -> "DZIEŃ ZAMKNIĘTY" }
         val statusColor=when { privateMode -> 0xFFFFC88F.toInt();a!=null -> 0xFF6EE0AD.toInt();else -> 0xFFD3DBDF.toInt() }
         header.addView(text(status,12f,statusColor,true))
         hero.addView(header)
         hero.addView(text(shown?.let {
-            duration((if(a!=null) System.currentTimeMillis() else it.optLong("end"))-it.optLong("start"))
+            duration((if(a!=null) now else it.optLong("end"))-it.optLong("start"))
         } ?: "00:00",44f,Color.WHITE,true),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(14) })
         hero.addView(text(
             when {
@@ -523,7 +524,7 @@ class MainActivity : Activity() {
                 a==null -> "Gotowy do rozpoczęcia pracy"
                 a.optString("kind")=="Przejazd" -> "W drodze"
                 a.optString("kind")=="Zakupy" -> "Zakupy"
-                else -> a.optString("object").ifBlank { "Bez przypisanego obiektu" }
+                else -> a.optString("object").takeIf { state == WorkMeterHomeState.ON_SITE && it.isNotBlank() } ?: "Nie przypisano obiektu"
             },16f,Color.WHITE,true),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(5) })
         hero.addView(text(
             "Rozpoczęcie: "+(shown?.let { fmt.format(Date(it.optLong("start"))) } ?: "—"),
@@ -531,27 +532,50 @@ class MainActivity : Activity() {
         if(a==null && recent!=null) hero.addView(text(
             "Zakończenie: "+fmt.format(Date(recent.optLong("end"))),
             12f,0xFFD5E1E5.toInt()),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(2) })
-        if(a?.optString("kind")=="Przejazd") hero.addView(text(
-            "Czas przejazdu: "+duration(System.currentTimeMillis()-a.optLong("stageStart")),
-            13f,0xFFFFC5BD.toInt(),true),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(9) })
+        if (a != null) hero.addView(text(
+            "Czas etapu: " + duration(WorkMeterHomeState.stageElapsed(now, a.optLong("start"), a.optLong("stageStart"))),
+            13f,palette.onHeader,true),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(9) })
+        val gpsLabel = when (gpsServiceStatus(now)) {
+            GpsServiceStatusRules.Status.OFF -> "GPS: wyłączony"
+            GpsServiceStatusRules.Status.PERMISSION_REQUIRED -> "GPS: brak pozwolenia"
+            GpsServiceStatusRules.Status.RESUME_AFTER_REBOOT -> "GPS: wymaga wznowienia"
+            GpsServiceStatusRules.Status.NO_RECENT_FIX -> "GPS: brak aktualnego pomiaru"
+            GpsServiceStatusRules.Status.RECENT_FIX -> "GPS: aktualny pomiar"
+        }
+        hero.addView(text(gpsLabel, 13f, palette.onHeader), LinearLayout.LayoutParams(-1, -2).apply {
+            topMargin = dp(8)
+        })
         root.addView(hero,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(14) })
 
-        if(a==null) {
-            root.addView(action("▶  ROZPOCZNIJ PRACĘ", WorkMeterButtonRole.PRIMARY) { confirmPin { startShift() } },
-                LinearLayout.LayoutParams(-1,-2))
-        } else {
-            root.addView(action("■  ZAKOŃCZ PRACĘ", WorkMeterButtonRole.DESTRUCTIVE) { confirmPin { stopShift() } },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
-            if(privateMode) {
-                root.addView(text("Tryb prywatny — wróć do pracy z menu po zakończeniu przerwy.",13f,muted),
-                    LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
+        root.addView(action(state.actionLabel, WorkMeterButtonRole.PRIMARY) {
+            when (state) {
+                WorkMeterHomeState.CLOSED -> confirmPin { startShift() }
+                WorkMeterHomeState.ON_SITE, WorkMeterHomeState.TRAVEL -> toggleTravel()
+                WorkMeterHomeState.SHOPPING -> toggleShopping()
+                WorkMeterHomeState.PERSONAL, WorkMeterHomeState.UNASSIGNED -> switchObject()
             }
-            actionRow("↔  ZMIEŃ OBIEKT" to { confirmAction("Zmienić obiekt?") { switchObject() } },
-                (if(a.optString("kind")=="Przejazd") "✓  DOTARŁEM" else "🚗  PRZEJAZD") to { toggleTravel() })
-            actionRow((if(a.optString("kind")=="Zakupy") "✓  ZAKOŃCZ ZAKUPY" else "🛍  ZAKUPY") to { toggleShopping() },
-                "↗  TRASA DO OBIEKTU" to { chooseObject(false) { obj ->
-                    if(obj!=null) openLink("https://www.google.com/maps/dir/?api=1&destination="+
-                        URLEncoder.encode(obj.optString("city")+" "+obj.optString("Adres"),"UTF-8"))
-                } })
+        }, LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
+
+        if (a != null) {
+            root.addView(action("■  ZAKOŃCZ PRACĘ", WorkMeterButtonRole.DESTRUCTIVE) { confirmPin { stopShift() } },
+                LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
+            if (state != WorkMeterHomeState.PERSONAL) {
+                val switch = "↔  ZMIEŃ OBIEKT" to { confirmAction("Zmienić obiekt?") { switchObject() } }
+                val travel = "Rozpocznij przejazd" to { toggleTravel() }
+                val shopping = "🛍  ZAKUPY" to { toggleShopping() }
+                when (state) {
+                    WorkMeterHomeState.ON_SITE, WorkMeterHomeState.TRAVEL -> actionRow(switch, shopping)
+                    WorkMeterHomeState.SHOPPING -> actionRow(switch, travel)
+                    WorkMeterHomeState.UNASSIGNED -> actionRow(travel, shopping)
+                    else -> Unit
+                }
+                root.addView(action("↗  TRASA DO OBIEKTU") {
+                    chooseObject(false) { obj ->
+                        if (obj != null) openLink("https://www.google.com/maps/dir/?api=1&destination=" +
+                            URLEncoder.encode(obj.optString("city") + " " + obj.optString("Adres"), "UTF-8"))
+                    }
+                }, LinearLayout.LayoutParams(-1, -2))
+            }
             if(a.optString("kind")=="Zakupy") {
                 root.addView(action("Dane zakupów / paragony") { shoppingRecord(a.optString("shoppingRecordId")) },
                     LinearLayout.LayoutParams(-1,dp(48)))
@@ -852,6 +876,18 @@ class MainActivity : Activity() {
         button("GPS · wróć") { gpsScreen() }
     }
 
+    private fun gpsServiceStatus(now: Long): GpsServiceStatusRules.Status {
+        val permission = checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val lastFix = try {
+            JSONObject(prefs.getString("gps_last_fix", "{}") ?: "{}").optLong("time")
+        } catch (_: org.json.JSONException) {
+            0L
+        }
+        return GpsServiceStatusRules.status(prefs.getBoolean("gps_enabled", false), permission,
+            prefs.getBoolean("gps_resume_pending", false), lastFix, now)
+    }
+
     private fun gpsScreen() {
         base("GPS · WorkMeter"); screen="gps"; nav()
         label("GPS aktywny działa w tle z widocznym powiadomieniem. Wyłącz GPS, aby zakończyć rejestrację.")
@@ -881,9 +917,7 @@ class MainActivity : Activity() {
             button("Zezwól na GPS") { requestPermissions(arrayOf(android.Manifest.permission.ACCESS_COARSE_LOCATION,android.Manifest.permission.ACCESS_FINE_LOCATION),307) }
             return
         }
-        val lastGps=try { JSONObject(prefs.getString("gps_last_fix","{}") ?: "{}") } catch(_:Exception) { JSONObject() }
-        val status=GpsServiceStatusRules.status(enabled,permission,
-            prefs.getBoolean("gps_resume_pending",false),lastGps.optLong("time"),System.currentTimeMillis())
+        val status = gpsServiceStatus(System.currentTimeMillis())
         label(when(status) {
             GpsServiceStatusRules.Status.NO_RECENT_FIX ->
                 "Brak aktualnego pomiaru GPS. Może to oznaczać słaby sygnał lub zatrzymanie usługi."

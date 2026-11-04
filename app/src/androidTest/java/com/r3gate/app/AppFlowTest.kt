@@ -37,13 +37,13 @@ class AppFlowTest {
         // The visual Home dashboard adds icons and spacing; keep navigation tests
         // explicit about the rendered labels rather than disabling assertions.
         val display=when(text) {
-            "🟢 ROZPOCZNIJ PRACĘ" -> "▶  ROZPOCZNIJ PRACĘ"
+            "🟢 ROZPOCZNIJ PRACĘ" -> "Rozpocznij dzień"
             "🔴 ZAKOŃCZ PRACĘ" -> "■  ZAKOŃCZ PRACĘ"
             "🔄 ZMIEŃ OBIEKT" -> "↔  ZMIEŃ OBIEKT"
-            "🚗 PRZEJAZD" -> "🚗  PRZEJAZD"
-            "DOTARŁEM" -> "✓  DOTARŁEM"
+            "🚗 PRZEJAZD" -> "Rozpocznij przejazd"
+            "DOTARŁEM" -> "Potwierdź przyjazd"
             "ZAKUPY" -> "🛍  ZAKUPY"
-            "ZAKOŃCZ ZAKUPY" -> "✓  ZAKOŃCZ ZAKUPY"
+            "ZAKOŃCZ ZAKUPY" -> "Zakończ zakupy"
             "ZDJĘCIA" -> "📷  ZDJĘCIA"
             "MATERIAŁY" -> "📦  MATERIAŁY"
             "NOTATKI" -> "📝  NOTATKI"
