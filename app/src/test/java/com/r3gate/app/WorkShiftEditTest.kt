@@ -42,4 +42,25 @@ class WorkShiftEditTest {
         assertTrue(WorkShiftIntegrity.preservesRecordedStages(original,
             WorkShiftIntegrity.Interval(10L, 55L), listOf(legacy)))
     }
+
+    @Test fun stagesCanBeAddedInAnUnassignedGapAndMeetAtBoundaries() {
+        val shift=WorkShiftIntegrity.Interval(10L,60L)
+        val others=listOf(WorkShiftIntegrity.Interval(10L,20L),WorkShiftIntegrity.Interval(40L,60L))
+        assertTrue(WorkShiftIntegrity.canSaveStage(shift,WorkShiftIntegrity.Interval(20L,40L),others))
+    }
+
+    @Test fun stagesCannotOverlapOrExtendOutsideTheShift() {
+        val shift=WorkShiftIntegrity.Interval(10L,60L)
+        val others=listOf(WorkShiftIntegrity.Interval(20L,40L))
+        assertFalse(WorkShiftIntegrity.canSaveStage(shift,WorkShiftIntegrity.Interval(39L,50L),others))
+        assertFalse(WorkShiftIntegrity.canSaveStage(shift,WorkShiftIntegrity.Interval(9L,20L),others))
+        assertFalse(WorkShiftIntegrity.canSaveStage(shift,WorkShiftIntegrity.Interval(50L,61L),others))
+        assertFalse(WorkShiftIntegrity.canSaveStage(shift,WorkShiftIntegrity.Interval(41L,41L),others))
+    }
+
+    @Test fun invalidLegacyStageCanBeRepairedWithoutErasingOtherInvalidHistory() {
+        val shift=WorkShiftIntegrity.Interval(10L,60L)
+        val others=listOf(WorkShiftIntegrity.Interval(-1L,20L),WorkShiftIntegrity.Interval(50L,60L))
+        assertTrue(WorkShiftIntegrity.canSaveStage(shift,WorkShiftIntegrity.Interval(10L,50L),others))
+    }
 }

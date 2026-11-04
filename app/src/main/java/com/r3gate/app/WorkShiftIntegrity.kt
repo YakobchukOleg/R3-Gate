@@ -36,6 +36,11 @@ object WorkShiftIntegrity {
                 (proposed.start <= coveredStart && proposed.end >= coveredEnd)
         }
 
+    fun canSaveStage(shift: Interval, proposed: Interval, otherStages: Collection<Interval>): Boolean =
+        isValid(shift.start, shift.end) && isValid(proposed.start, proposed.end) &&
+            proposed.start >= shift.start && proposed.end <= shift.end &&
+            otherStages.none { isValid(it.start, it.end) && overlaps(it, proposed) }
+
     /** An invalid stage must never be used for confirmed duration totals. */
     fun stagesWithinShift(shift: Interval, stages: Collection<Interval>): Boolean {
         if (!isValid(shift.start, shift.end)) return false

@@ -1817,9 +1817,151 @@ class MainActivity : Activity() {
         if(stages.isNotEmpty() && cursor<end) label("Brak przypisanego etapu: "+fmt.format(Date(cursor))+" → "+fmt.format(Date(end))+" · "+duration(end-cursor))
         label("Zakończenie pracy: "+fmt.format(Date(end)))
         label("Łączny czas: "+duration(workedMillis(shift,start,end)))
+        button("Edytuj etapy") { selectStageEdit(id) }
+        if(rows(shift,"stageEdits").isNotEmpty()) button("Cofnij zmianę etapów") {
+            confirmAction("Przywrócić poprzednią historię etapów?") { undoStageEdit(id) }
+        }
         button("Edytuj czas") { confirmAction { editShift(id) } }
         button("Usuń zmianę") { deleteShift(id) }
     }
+    private fun stageInterval(row: JSONObject) =
+        WorkShiftIntegrity.Interval(row.optLong("start", -1L), row.optLong("end", -1L))
+
+    private fun selectStageEdit(id: String) {
+        val shift = rows(data(), "shifts").singleOrNull { it.optString("id") == id } ?: return
+        val stages = shift.optJSONArray("stages") ?: JSONArray()
+        val indices = (0 until stages.length()).filter { stages.optJSONObject(it) != null }
+        val choices = listOf("Dodaj etap") + indices.map {
+            val stage = stages.getJSONObject(it)
+            stage.optString("kind", "Obiekt") + " · " + fmt.format(Date(stage.optLong("start")))
+        }
+        AlertDialog.Builder(this, R.style.WorkMeterDialogTheme).setTitle("Etapy pracy")
+            .setItems(choices.toTypedArray()) { _, which ->
+                editRecordedStage(id, stageInterval(shift), stages.toString(), indices.getOrNull(which - 1))
+            }.setNegativeButton("Anuluj", null).show()
+    }
+
+    private fun editRecordedStage(
+        shiftId: String, bounds: WorkShiftIntegrity.Interval, snapshot: String, index: Int?
+    ) {
+        if(!WorkShiftIntegrity.isValid(bounds.start,bounds.end)) { toast("Najpierw popraw godziny zmiany"); return }
+        val stages = JSONArray(snapshot)
+        val original = index?.let { stages.optJSONObject(it) }
+        val originalKind = original?.optString("kind","Obiekt")
+        val kinds = (listOf("Obiekt", "Przejazd", "Zakupy", PrivateTimeRules.KIND, "Nieprzypisane") +
+            listOfNotNull(originalKind)).distinct()
+        val zone = ZoneId.systemDefault()
+        val startMs = original?.optLong("start", bounds.start)?.coerceIn(bounds.start,bounds.end) ?: bounds.start
+        val endMs = original?.optLong("end", bounds.end)?.coerceIn(bounds.start,bounds.end) ?: bounds.end
+        var start = Instant.ofEpochMilli(startMs).atZone(zone).toLocalDateTime()
+        var end = Instant.ofEpochMilli(endMs).atZone(zone).toLocalDateTime()
+        var objectId = original?.optString("objectId").orEmpty()
+        var objectLabel = original?.optString("object").orEmpty()
+        val layout = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(dp(16),0,dp(16),0) }
+        val category = Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, kinds)
+            setSelection(kinds.indexOf(originalKind ?: "Obiekt"))
+            contentDescription = "Rodzaj etapu"
+        }
+        val objectButton = Button(this)
+        val startDate = Button(this)
+        val startTime = Button(this)
+        val endDate = Button(this)
+        val endTime = Button(this)
+        fun refresh() {
+            objectButton.text = "Obiekt: " + objectLabel.ifBlank { "wybierz" }
+            startDate.text = "Data od: " + start.toLocalDate().format(displayDate)
+            startTime.text = "Godzina od: " + start.toLocalTime().format(DateTimeFormatter.ofPattern("HH:mm"))
+            endDate.text = "Data do: " + end.toLocalDate().format(displayDate)
+            endTime.text = "Godzina do: " + end.toLocalTime().format(DateTimeFormatter.ofPattern("HH:mm"))
+        }
+        objectButton.setOnClickListener {
+            chooseObject(false) { obj ->
+                if(obj!=null) { objectId=obj.optString("id"); objectLabel=objectName(obj); refresh() }
+            }
+        }
+        startDate.setOnClickListener { pickReportDate(start.toLocalDate()) { start=LocalDateTime.of(it,start.toLocalTime()); refresh() } }
+        endDate.setOnClickListener { pickReportDate(end.toLocalDate()) { end=LocalDateTime.of(it,end.toLocalTime()); refresh() } }
+        startTime.setOnClickListener { TimePickerDialog(this,{ _,h,m -> start=start.withHour(h).withMinute(m); refresh() },start.hour,start.minute,true).show() }
+        endTime.setOnClickListener { TimePickerDialog(this,{ _,h,m -> end=end.withHour(h).withMinute(m); refresh() },end.hour,end.minute,true).show() }
+        listOf(category, objectButton, startDate, startTime, endDate, endTime).forEach { layout.addView(it) }
+        refresh()
+        val builder = AlertDialog.Builder(this,R.style.WorkMeterDialogTheme)
+            .setTitle(if(index==null) "Dodaj etap" else "Edytuj etap")
+            .setView(ScrollView(this).apply { addView(layout) })
+            .setNegativeButton("Anuluj",null).setPositiveButton("Zapisz",null)
+        if(index!=null) builder.setNeutralButton("Usuń") { _,_ ->
+            confirmAction("Usunąć ten etap z historii zmiany?") {
+                stages.remove(index)
+                saveStageHistory(shiftId,bounds,snapshot,stages)
+            }
+        }
+        val dialog = builder.create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val from = WorkShiftIntegrity.resolveEditTime(start,zone,startMs)
+                val to = WorkShiftIntegrity.resolveEditTime(end,zone,endMs)
+                val others = (0 until stages.length()).filter { it != index }
+                    .mapNotNull { stages.optJSONObject(it)?.let(::stageInterval) }
+                if(from==null || to==null ||
+                    !WorkShiftIntegrity.canSaveStage(bounds,WorkShiftIntegrity.Interval(from,to),others)) {
+                    toast("Etap musi mieścić się w zmianie i nie może nakładać się na inne etapy")
+                    return@setOnClickListener
+                }
+                val kind = kinds[category.selectedItemPosition]
+                val previousObject = original?.takeIf { originalKind == "Obiekt" }?.optString("objectId")
+                val preservesLegacyObject = originalKind == "Obiekt" && objectId == previousObject
+                val references = rows(data(),"objects").map {
+                    ObjectIntegrityRules.ObjectRef(it.optString("id"),it.optBoolean("archived"))
+                }
+                if(kind=="Obiekt" && !preservesLegacyObject && !ObjectIntegrityRules.canAssign(objectId,references)) {
+                    toast("Wybierz aktywny obiekt")
+                    return@setOnClickListener
+                }
+                val row = if(original!=null && originalKind==kind) JSONObject(original.toString()) else JSONObject()
+                row.put("start",from).put("end",to).put("kind",kind)
+                if(kind=="Obiekt") row.put("objectId",objectId).put("object",objectLabel)
+                if(index==null) stages.put(row) else stages.put(index,row)
+                if(saveStageHistory(shiftId,bounds,snapshot,stages)) dialog.dismiss()
+            }
+        }
+        dialog.show()
+    }
+
+    private fun saveStageHistory(
+        shiftId: String, bounds: WorkShiftIntegrity.Interval, snapshot: String, stages: JSONArray
+    ): Boolean {
+        val d = data()
+        val shift = rows(d,"shifts").singleOrNull { it.optString("id")==shiftId } ?: return false
+        if(stageInterval(shift)!=bounds || (shift.optJSONArray("stages") ?: JSONArray()).toString()!=snapshot) {
+            toast("Historia etapów uległa zmianie. Otwórz edycję ponownie")
+            return false
+        }
+        arr(shift,"stageEdits").put(JSONObject().put("start",bounds.start).put("end",bounds.end)
+            .put("before",JSONArray(snapshot)).put("after",stages))
+        shift.put("stages",stages)
+        save(d,"EDIT_STAGES",shiftId)
+        shiftDetails(shiftId)
+        return true
+    }
+
+    private fun undoStageEdit(shiftId: String) {
+        val d = data()
+        val shift = rows(d,"shifts").singleOrNull { it.optString("id")==shiftId } ?: return
+        val edits = shift.optJSONArray("stageEdits") ?: return
+        val edit = edits.optJSONObject(edits.length()-1) ?: return
+        val before = edit.optJSONArray("before") ?: return
+        if(stageInterval(edit)!=stageInterval(shift) ||
+            edit.optJSONArray("after")?.toString()!=shift.optJSONArray("stages")?.toString()) {
+            toast("Zmiana lub historia etapów została zmodyfikowana")
+            return
+        }
+        edits.remove(edits.length()-1)
+        shift.put("stages",before)
+        save(d,"UNDO_EDIT_STAGES",shiftId)
+        shiftDetails(shiftId)
+    }
+
     private fun deleteShift(id:String) {
         confirmAction("Usunąć zmianę z raportu i zestawienia godzin? Materiały, zdjęcia i notatki pozostaną.") {
             val d=data(); val remaining=JSONArray()
