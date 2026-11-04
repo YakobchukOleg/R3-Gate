@@ -1506,7 +1506,7 @@ class MainActivity : Activity() {
             val parent=root
             val card=LinearLayout(this).apply {
                 orientation=LinearLayout.VERTICAL; setPadding(dp(12),dp(10),dp(12),dp(6))
-                background=background(0xFFF5F7F8.toInt()).apply { setStroke(dp(1),0xFFCFD8DC.toInt()) }
+                background=background(palette.surface).apply { setStroke(dp(1), palette.border) }
             }
             parent.addView(card,LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(8); bottomMargin=dp(12) })
             root=card
@@ -2371,20 +2371,37 @@ class MainActivity : Activity() {
             val end=sh.optLong("end",System.currentTimeMillis())
             val stages=rows(sh,"stages").toMutableList()
             if(!sh.has("end")) stages.add(JSONObject().put("start",sh.optLong("stageStart",sh.optLong("start"))).put("end",end).put("kind",sh.optString("kind","Obiekt")).put("objectId",sh.optString("objectId")))
-            TimeAnalytics.Shift(sh.optLong("start"),end,stages.map { st -> TimeAnalytics.Stage(st.optLong("start"),st.optLong("end"),when(st.optString("kind")) { "Obiekt" -> if(st.optString("objectId").isNotBlank() || st.optString("object").isNotBlank()) 0 else 3; "Zakupy" -> 1; "Przejazd" -> 2; else -> 3 }) })
+            TimeAnalytics.Shift(sh.optLong("start"), end, stages.map { stage ->
+                val hasObject = stage.optString("objectId").isNotBlank() || stage.optString("object").isNotBlank()
+                TimeAnalytics.Stage(stage.optLong("start"), stage.optLong("end"),
+                    TimeChartCategory.from(stage.optString("kind"), hasObject).ordinal)
+            })
         }
         val result=TimeAnalytics.calculate(shifts,range.first,range.second,ZoneId.systemDefault())
         label("Statystyka czasu pracy")
         root.addView(TimeChart(this,result,false),LinearLayout.LayoutParams(-1,dp(230)))
         label("Suma czasu w każdej godzinie doby, ze wszystkich dni wybranego okresu.")
         filters("chartHours",caption="Szczegóły godzinowe") {
-            result.hours.forEachIndexed { hour,values -> if(values.sum()>0) label("%02d:00".format(hour)+" · "+values.mapIndexed { i,n -> TimeChart.names[i]+": "+duration(n) }.joinToString(" · ")) }
+            result.hours.forEachIndexed { hour,values -> if(values.sum()>0) label("%02d:00".format(hour)+" · "+values.mapIndexed { i,n -> TimeChartCategory.entries[i].label+": "+duration(n) }.joinToString(" · ")) }
         }
         label("Podział czasu pracy")
         root.addView(TimeChart(this,result,true),LinearLayout.LayoutParams(-1,dp(240)))
         val sum=result.totals.sum()
-        result.totals.forEachIndexed { i,n ->
-            root.addView(TextView(this).apply { text="● "+TimeChart.names[i]+" — "+duration(n)+" · "+"%.1f%%".format(Locale("pl"),if(sum==0L) 0.0 else n*100.0/sum);textSize=16f;setTextColor(palette.textPrimary);setPadding(0,dp(7),0,dp(7)) })
+        result.totals.forEachIndexed { i, elapsed ->
+            val category = TimeChartCategory.entries[i]
+            val row = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+            row.addView(View(this).apply {
+                background = background(category.color)
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }, LinearLayout.LayoutParams(dp(14), dp(14)).apply { marginEnd = dp(8) })
+            val percentage = if (sum == 0L) 0.0 else elapsed * 100.0 / sum
+            row.addView(TextView(this).apply {
+                text = category.label + " — " + duration(elapsed) + " · " + "%.1f%%".format(Locale("pl"), percentage)
+                textSize = 16f
+                setTextColor(palette.textPrimary)
+                setPadding(0, dp(7), 0, dp(7))
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+            root.addView(row, LinearLayout.LayoutParams(-1, -2))
         }
         if(sum==0L) label("Brak czasu pracy w wybranym okresie.")
         label("Podział nie zmienia czasu płatnego. Cała zmiana jest czasem pracy.")

@@ -16,7 +16,7 @@ object TimeAnalytics {
     }
     // Partition each shift at every stage boundary. Overlapping legacy stages never add time twice.
     fun calculate(shifts:List<Shift>,from:LocalDate,to:LocalDate,zone:ZoneId):Result {
-        val totals=LongArray(4); val hours=Array(24){LongArray(4)}
+        val totals=LongArray(TimeChartCategory.entries.size); val hours=Array(24){LongArray(totals.size)}
         val lower=from.atStartOfDay(zone).toInstant().toEpochMilli()
         val upper=to.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
         for(sh in shifts) {
@@ -24,7 +24,7 @@ object TimeAnalytics {
             if(end<=start) continue
             val points=(listOf(start,end)+sh.stages.flatMap { listOf(it.start,it.end) }.filter { it>start && it<end }).distinct().sorted()
             for((a,b) in points.zipWithNext()) {
-                val category=sh.stages.filter { it.start<=a && it.end>=b }.maxByOrNull { it.start }?.category?.takeIf { it in 0..3 } ?: 3
+                val category=sh.stages.filter { it.start<=a && it.end>=b }.maxByOrNull { it.start }?.category?.takeIf { it in totals.indices } ?: TimeChartCategory.UNASSIGNED.ordinal
                 totals[category]+=b-a
                 var cursor=a
                 while(cursor<b) {
