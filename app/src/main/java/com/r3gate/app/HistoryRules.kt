@@ -5,6 +5,11 @@ import java.time.ZoneId
 
 object HistoryRules {
     data class Slice(val day:String,val start:Long,val end:Long)
+    fun uniqueRecordIndex(ids: List<String?>, id: String): Int? {
+        if (id.isBlank()) return null
+        return ids.indices.singleOrNull { ids[it] == id }
+    }
+
     fun slicesInRange(
         start: Long, end: Long, from: LocalDate, to: LocalDate, zone: ZoneId
     ): List<Slice> {

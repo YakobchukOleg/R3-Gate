@@ -1875,7 +1875,11 @@ class MainActivity : Activity() {
             }
             button("Wyczyść filtry") { prefs.edit().remove("reportFrom").remove("reportTo").apply(); report() }
         }
-        val shifts=rows(data(),"shifts")
+        val journal=data()
+        if(journal.optJSONObject("deletedShiftUndo")!=null) button("Przywróć usuniętą zmianę") {
+            confirmAction("Przywrócić ostatnio usuniętą zmianę?") { undoDeleteShift() }
+        }
+        val shifts=rows(journal,"shifts")
         val entries=shifts.flatMap { shift -> HistoryRules.slices(shift.optLong("start"),shift.optLong("end"),ZoneId.systemDefault()).map { shift to it } }
             .filter { DomainRules.inRange(it.second.day,from,to) }
         label("Łączny czas: "+duration(entries.sumOf { workedMillis(it.first,it.second.start,it.second.end) }))
@@ -1900,7 +1904,9 @@ class MainActivity : Activity() {
         }
     }
     private fun shiftDetails(id:String) {
-        val shift=rows(data(),"shifts").find { it.optString("id")==id } ?: run { report(); return }
+        val shift=rows(data(),"shifts").singleOrNull { id.isNotBlank() && it.optString("id")==id } ?: run {
+            toast("Nie można jednoznacznie znaleźć zmiany"); report(); return
+        }
         base("Szczegóły dnia"); screen="shift:"+id; nav()
         val start=shift.optLong("start"); val end=shift.optLong("end")
         label("Rozpoczęcie pracy: "+fmt.format(Date(start)))
@@ -2074,12 +2080,57 @@ class MainActivity : Activity() {
         shiftDetails(shiftId)
     }
 
+    private fun uniqueShiftIndex(shifts: JSONArray, id: String): Int? =
+        HistoryRules.uniqueRecordIndex((0 until shifts.length()).map {
+            shifts.optJSONObject(it)?.optString("id")
+        },id)
+
     private fun deleteShift(id:String) {
-        confirmAction("Usunąć zmianę z raportu i zestawienia godzin? Materiały, zdjęcia i notatki pozostaną.") {
-            val d=data(); val remaining=JSONArray()
-            rows(d,"shifts").filter { it.optString("id")!=id }.forEach { remaining.put(it) }
-            d.put("shifts",remaining); save(d,"DELETE_SHIFT",id); report()
+        val original = data().optJSONArray("shifts") ?: return
+        val originalIndex = uniqueShiftIndex(original,id) ?: run {
+            toast("Nie można jednoznacznie znaleźć zmiany"); return
         }
+        val expected = original.getJSONObject(originalIndex).toString()
+        confirmAction("Usunąć zmianę z raportu i zestawienia godzin? Materiały, zdjęcia i notatki pozostaną.") {
+            val d=data()
+            val shifts=d.optJSONArray("shifts") ?: return@confirmAction
+            val index=uniqueShiftIndex(shifts,id)
+            if(index==null || shifts.optJSONObject(index)?.toString()!=expected) {
+                toast("Zmiana została zmodyfikowana. Otwórz raport ponownie.")
+                return@confirmAction
+            }
+            val removed=shifts.remove(index) as JSONObject
+            d.put("deletedShiftUndo",JSONObject().put("index",index).put("shift",removed))
+            save(d,"DELETE_SHIFT",id); report()
+        }
+    }
+
+    private fun undoDeleteShift() {
+        val d=data()
+        val undo=d.optJSONObject("deletedShiftUndo") ?: return
+        val row=undo.optJSONObject("shift") ?: return
+        val id=row.optString("id")
+        val shifts=arr(d,"shifts")
+        val active=active(d)
+        if(id.isBlank() || (0 until shifts.length()).any { shifts.optJSONObject(it)?.optString("id")==id } ||
+            active?.optString("id")==id) {
+            toast("Zmiana z tym identyfikatorem już istnieje")
+            return
+        }
+        val intervals=rows(d,"shifts").map(::stageInterval).toMutableList()
+        if(active!=null) intervals.add(WorkShiftIntegrity.Interval(active.optLong("start",-1L),Long.MAX_VALUE))
+        if(!WorkShiftIntegrity.canSave(stageInterval(row),intervals)) {
+            toast("Nie można przywrócić zmiany, ponieważ jej czas koliduje z historią")
+            return
+        }
+        val index=undo.optInt("index",shifts.length()).coerceIn(0,shifts.length())
+        val restored=JSONArray()
+        for(i in 0..shifts.length()) {
+            if(i==index) restored.put(row)
+            if(i<shifts.length()) restored.put(shifts.get(i))
+        }
+        d.put("shifts",restored).remove("deletedShiftUndo")
+        save(d,"UNDO_DELETE_SHIFT",id); report()
     }
     private fun editShift(id:String) {
         val d=data()
