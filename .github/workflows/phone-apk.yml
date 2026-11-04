@@ -1,7 +1,7 @@
 name: WorkMeter SOLO phone APK
 on:
   push:
-    branches: [build/workmeter-solo-2.3.2]
+    branches: [build/workmeter-solo-2.3.3]
 permissions:
   contents: read
 jobs:
@@ -45,10 +45,10 @@ jobs:
           tools="$ANDROID_HOME/build-tools/35.0.0"
           "$tools/apksigner" verify --verbose --print-certs "$apk"
           "$tools/aapt" dump badging "$apk" | sed -n '/^package:/p; /^sdkVersion:/p; /^targetSdkVersion:/p'
-          cp "$apk" WorkMeter-SOLO-2.3.2.apk
-          sha256sum WorkMeter-SOLO-2.3.2.apk
+          cp "$apk" WorkMeter-SOLO-2.3.3.apk
+          sha256sum WorkMeter-SOLO-2.3.3.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: WorkMeter-SOLO-2.3.2
-          path: WorkMeter-SOLO-2.3.2.apk
+          name: WorkMeter-SOLO-2.3.3
+          path: WorkMeter-SOLO-2.3.3.apk
           if-no-files-found: error
