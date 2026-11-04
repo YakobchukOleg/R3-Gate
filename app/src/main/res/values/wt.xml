@@ -1,4 +1,8 @@
 <resources>
+    <style name="WorkMeterWidgetText">
+        <item name="android:shadowColor">#FF000000</item>
+        <item name="android:shadowRadius">2</item>
+    </style>
     <string name="widget_configure">Wygląd tego widżetu</string>
     <string name="widget_configure_instance">Widżet %1$d · %2$s · %3$s</string>
     <string name="widget_theme">Motyw widżetu</string>

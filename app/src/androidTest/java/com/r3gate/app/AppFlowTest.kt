@@ -444,6 +444,9 @@ class AppFlowTest {
                 all(a).filterIsInstance<android.widget.SeekBar>().first().progress=100
                 val widget=GateWidget.render(a).apply(a,android.widget.FrameLayout(a))
                 assertEquals(0,widget.findViewById<android.widget.ImageView>(R.id.wbackground).imageAlpha)
+                val timer = widget.findViewById<android.widget.Chronometer>(R.id.wduration)
+                assertEquals(android.graphics.Color.BLACK, timer.shadowColor)
+                assertTrue(timer.shadowRadius > 0f)
                 assertEquals(1f,widget.findViewById<TextView>(R.id.wduration).alpha,0f)
                 assertEquals(255,widget.findViewById<Button>(R.id.wstopbutton).background.alpha)
             }
