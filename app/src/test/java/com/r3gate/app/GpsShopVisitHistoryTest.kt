@@ -49,4 +49,13 @@ class GpsShopVisitHistoryTest {
             e("TRIP_STOP",3000),e("ARRIVAL",4000,"shop"))
         assertEquals(1,GpsShopVisitHistory.confirmedVisits(events,"shop",5000))
     }
+    @Test fun replayedArrivalAndStopAtSameTimestampCountOnlyOnce() {
+        val visit=listOf(e("ARRIVAL",61_000L,"shop"),e("TRIP_STOP",61_000L))
+        assertEquals(1,GpsShopVisitHistory.confirmedVisits(visit+visit,"shop",62_000L))
+    }
+
+    @Test fun shortStopWithoutTripStopDoesNotCount() {
+        val events=listOf(e("ARRIVAL",1_000L,"shop"),e("DEPARTURE",10_000L,"shop"))
+        assertEquals(0,GpsShopVisitHistory.confirmedVisits(events,"shop",11_000L))
+    }
 }

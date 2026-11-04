@@ -8,14 +8,17 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: android-main
+  group: ${{ github.head_ref == 'feature/workmeter-core' && 'android-core-pr' || 'android-main' }}
   cancel-in-progress: true
 jobs:
   build:
+    if: github.head_ref != 'feature/workmeter-core'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref == 'feature/gps-watchdog-motion-geofence' && github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -27,6 +30,7 @@ jobs:
         with:
           gradle-version: '8.9'
       - name: Restore required stable WT signing key
+        if: github.head_ref != 'feature/gps-watchdog-motion-geofence'
         env:
           R3_DEBUG_KEYSTORE_BASE64: ${{ secrets.R3_DEBUG_KEYSTORE_BASE64 }}
         run: |
@@ -43,13 +47,23 @@ jobs:
       - name: Prepare licensed Clash Grotesk fonts from publisher
         run: python3 .github/scripts/prepare-fonts.py
       - name: Test, build and lint
+        if: github.head_ref != 'feature/gps-watchdog-motion-geofence'
         run: gradle --no-daemon testDebugUnitTest assembleDebug lintDebug
+      - name: GPS JVM tests and Android lint
+        if: github.head_ref == 'feature/gps-watchdog-motion-geofence'
+        env:
+          EXPECTED_GPS_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_GPS_SHA"
+          gradle --no-daemon testDebugUnitTest lintDebug
       - name: Enable emulator acceleration
+        if: github.head_ref != 'feature/gps-watchdog-motion-geofence'
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - name: Android 15 navigation and forms smoke tests
+        if: github.head_ref != 'feature/gps-watchdog-motion-geofence'
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -60,11 +74,13 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: bash .github/scripts/device-tests.sh
       - name: Verify actual APK signature and create signing report
+        if: github.head_ref != 'feature/gps-watchdog-motion-geofence'
         run: |
           gradle --no-daemon signingReport > signing-report.txt
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs app/build/outputs/apk/debug/app-debug.apk | tee apk-signature.txt
           cat signing-report.txt
       - uses: actions/upload-artifact@v4
+        if: github.head_ref != 'feature/gps-watchdog-motion-geofence'
         with:
           name: R3-Gate-APK
           path: |

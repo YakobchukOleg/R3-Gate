@@ -66,4 +66,13 @@ class GpsActivitySuggestionRulesTest {
         assertNull(GpsActivitySuggestionRules.latest(listOf(e("TRIP_STOP",1000),
             e("TRIP_START",2000),e("ARRIVAL",3000,"shop")),kinds,4000))
     }
+    @Test fun privateStageAndClosedDaySuppressWorkSuggestions() {
+        val events=listOf(e("ARRIVAL",1_000L,"shop"),e("TRIP_STOP",61_000L))
+        val kinds=mapOf("shop" to GpsActivitySuggestionRules.Kind.SHOPPING)
+        for (stage in listOf(null,"Prywatnie")) {
+            val allowed=GpsActivitySuggestionRules.workSuggestionsAllowed(stage)
+            assertNull(GpsActivitySuggestionRules.latest(events,kinds,62_000L,allowed))
+        }
+        assertTrue(GpsActivitySuggestionRules.workSuggestionsAllowed("Przejazd"))
+    }
 }

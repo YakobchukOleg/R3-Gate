@@ -47,6 +47,7 @@ class MainActivity : Activity() {
     private var walletDraft = JSONObject()
     private val ticker = Handler(Looper.getMainLooper())
     private var screen = "home"
+    private var currentSection = "Obiekty"
     private val expandedFilters = mutableSetOf<String>()
     private var formKind = ""
     private var formReturn = "home"
@@ -86,16 +87,23 @@ class MainActivity : Activity() {
                 android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS)
         }
         migrate()
+        if (!GpsWorkdaySession.workdayOpen(prefs) &&
+            (prefs.getBoolean("gps_enabled",false) || prefs.getBoolean("gps_resume_pending",false))) {
+            if (GpsWorkdaySession.hasConsent(prefs)) prefs.edit().putBoolean(GpsWorkdaySession.CONSENT,true).apply()
+            setGpsEnabled(false)
+        }
         migrateWallet()
         DriveBackupWorker.schedule(this)
         expandedFilters.addAll(savedInstanceState?.getStringArrayList("expandedFilters") ?: emptyList())
+        currentSection=savedInstanceState?.getString("currentSection") ?: "Obiekty"
         walletDraft = JSONObject(savedInstanceState?.getString("walletDraft") ?: "{}")
         quickPhotoUpload=savedInstanceState?.getBoolean("quickPhotoUpload") ?: false
         cameraPath = savedInstanceState?.getString("cameraPath")
         pendingUpload = savedInstanceState?.getString("pendingUpload") ?: ""
         if (savedInstanceState != null && prefs.contains("pin") &&
             intent?.getStringExtra("widget_action")==null &&
-            intent?.getStringExtra(CoreGpsStageBridge.INTENT_EVENT)==null) {
+            intent?.getStringExtra(CoreGpsStageBridge.INTENT_EVENT)==null &&
+            intent?.getBooleanExtra("gps_resume_alert",false)!=true) {
             smsParent = savedInstanceState.getString("smsParent") ?: "settings"
             smsFrom = savedInstanceState.getString("smsFrom")?.let { LocalDate.parse(it) }
             smsTo = savedInstanceState.getString("smsTo")?.let { LocalDate.parse(it) }
@@ -104,14 +112,31 @@ class MainActivity : Activity() {
             formReturn = savedInstanceState.getString("formReturn") ?: "home"
             draft = JSONObject(savedInstanceState.getString("draft") ?: "{}")
             openScreen(savedInstanceState.getString("screen") ?: "home")
+            val previousScroll=savedInstanceState.getInt("screenScrollY",0)
+            (root.parent as? ScrollView)?.post {
+                (root.parent as? ScrollView)?.scrollTo(0,previousScroll)
+            }
             return
         }
         if (prefs.getString("pin", null) == null) setupPin() else handleLaunch()
     }
-    override fun onResume() { super.onResume(); prefs.registerOnSharedPreferenceChangeListener(uploadChanges); ticker.removeCallbacks(tick); ticker.postDelayed(tick, 60000); CoreGpsStageBridge.refresh(this) }
+    override fun onResume() {
+        super.onResume()
+        prefs.registerOnSharedPreferenceChangeListener(uploadChanges)
+        ticker.removeCallbacks(tick)
+        ticker.postDelayed(tick,60000)
+        CoreGpsStageBridge.refresh(this)
+        // Refresh the GPS arrival affordance after returning from another app.
+        if(::root.isInitialized && screen=="home") home()
+    }
     override fun onPause() { prefs.unregisterOnSharedPreferenceChangeListener(uploadChanges); ticker.removeCallbacks(refreshUploads); ticker.removeCallbacks(tick); super.onPause() }
     override fun onStop() { walletUnlocked=false; super.onStop() }
-    override fun onRestart() { super.onRestart(); if(screen=="wallet" || screen=="payment" || screen=="expenses" || screen.startsWith("detail:expenses:")) settings() else if(screen!="form") openScreen(screen) }
+    override fun onRestart() {
+        super.onRestart()
+        // Keep the existing view (including its scroll position) when returning
+        // from another app. Only lock sensitive finance screens.
+        if(GpsNavigationRestoreRules.lockOnRestart(screen)) settings()
+    }
     private fun hash(s: String): String = MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).joinToString("") { "%02x".format(it) }
     private fun setupPin() {
         val field = EditText(ContextThemeWrapper(this,R.style.WorkMeterDialogTheme)).apply { hint="PIN (4–8 cyfr)"; inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD }
@@ -137,10 +162,13 @@ class MainActivity : Activity() {
     private fun handleLaunch() {
         val action=intent?.getStringExtra("widget_action")
         intent?.removeExtra("widget_action")
+        val gpsResumeAlert=intent?.getBooleanExtra("gps_resume_alert",false)==true
+        intent?.removeExtra("gps_resume_alert")
         home()
         val gpsProposal=intent?.getStringExtra(CoreGpsStageBridge.INTENT_EVENT)
         intent?.removeExtra(CoreGpsStageBridge.INTENT_EVENT)
         if(!gpsProposal.isNullOrBlank()) { reviewGpsStageProposal(gpsProposal); return }
+        if(gpsResumeAlert) { gpsScreen(); return }
         val uploadReference=intent?.getStringExtra("upload_retry")
         intent?.removeExtra("upload_retry")
         if(!uploadReference.isNullOrBlank()) { pendingUpload=uploadReference; authorizeDrive(); return }
@@ -269,11 +297,16 @@ class MainActivity : Activity() {
     }
     private fun startOnObject(obj: JSONObject) {
         val d=data(); if (active(d)!=null) { toast("Dzień pracy już rozpoczęty"); home(); return }
-        val t=System.currentTimeMillis(); d.put("active",JSONObject().put("id",UUID.randomUUID().toString()).put("start",t).put("object",objectName(obj)).put("objectId",obj.optString("id")).put("stageStart",t).put("stages",JSONArray()).put("rate",defaultRate().toPlainString())); save(d,"START",fmt.format(Date(t))); home()
+        val t=System.currentTimeMillis(); d.put("active",JSONObject().put("id",UUID.randomUUID().toString()).put("start",t).put("object",objectName(obj)).put("objectId",obj.optString("id")).put("stageStart",t).put("stages",JSONArray()).put("rate",defaultRate().toPlainString())); save(d,"START",fmt.format(Date(t)))
+        if (GpsWorkdaySession.hasConsent(prefs)) setGpsEnabled(true)
+        home()
     }
     private fun stopShift() {
         val d=data(); val a=active(d); if(a==null) { toast("Brak rozpoczętej pracy"); home(); return }
-        val end=System.currentTimeMillis(); closeStage(a,end); a.put("end",end); arr(d,"shifts").put(a); d.remove("active"); save(d,"STOP",fmt.format(Date(end))); PhotoQueue.enqueueAll(this); home()
+        val end=System.currentTimeMillis(); closeStage(a,end); a.put("end",end); arr(d,"shifts").put(a); d.remove("active"); save(d,"STOP",fmt.format(Date(end)))
+        if (GpsWorkdaySession.hasConsent(prefs)) prefs.edit().putBoolean(GpsWorkdaySession.CONSENT,true).apply()
+        setGpsEnabled(false)
+        PhotoQueue.enqueueAll(this); home()
     }
     private fun closeStage(a:JSONObject, end:Long) {
         val st=a.optLong("stageStart",a.optLong("start"))
@@ -562,11 +595,39 @@ class MainActivity : Activity() {
         out.putString("smsParent",smsParent); out.putString("smsFrom",smsFrom?.toString()); out.putString("smsTo",smsTo?.toString()); out.putString("detailParent",detailParent); out.putString("screen",screen); out.putString("formKind",formKind); out.putString("formReturn",formReturn)
         out.putBoolean("quickPhotoUpload",quickPhotoUpload)
         out.putString("walletDraft",walletDraft.toString())
+        out.putString("currentSection",currentSection)
+        out.putInt("screenScrollY",(root.parent as? ScrollView)?.scrollY ?: 0)
         out.putStringArrayList("expandedFilters",ArrayList(expandedFilters))
         out.putString("draft",draft.toString()); out.putString("cameraPath",cameraPath); out.putString("pendingUpload",pendingUpload)
         super.onSaveInstanceState(out)
     }
     private fun duration(ms:Long):String { val m=(ms.coerceAtLeast(0)/60000); return "%02d:%02d".format(m/60,m%60) }
+    private fun gpsHomeArrivalReady(shift:JSONObject?):Boolean {
+        if(shift==null) return false
+        val arrival=try { JSONObject(prefs.getString("gps_arrival_state","{}") ?: "{}") }
+            catch(_:Exception) { return false }
+        val fix=try { JSONObject(prefs.getString("gps_last_fix","{}") ?: "{}") }
+            catch(_:Exception) { return false }
+        val confirmedId=arrival.optString("confirmed").ifBlank { null }
+        val fixTime=fix.optLong("time")
+        val point=GpsWorkRules.Point(fix.optDouble("lat",Double.NaN),
+            fix.optDouble("lon",Double.NaN),fix.optDouble("accuracy",Double.NaN),fixTime)
+        val places=rows(data(),"objects").filter { !it.optBoolean("archived") }.mapNotNull { o ->
+            val id=o.optString("id")
+            val stored=prefs.getString("gps_object_"+id,null) ?: return@mapNotNull null
+            try {
+                val geo=JSONObject(stored)
+                GpsWorkRules.Place(id,GpsWorkRules.Kind.OBJECT,
+                    geo.getDouble("lat"),geo.getDouble("lon"),geo.optDouble("radius",100.0))
+            } catch(_:Exception) { null }
+        }
+        return GpsHomeArrivalRules.canChooseObject(
+            prefs.getBoolean("gps_enabled",false),
+            prefs.getBoolean("gps_service_active",false),
+            true,confirmedId,GpsWorkRules.nearest(point,places)?.place?.id,
+            fixTime,arrival.optLong("last"),System.currentTimeMillis())
+    }
+
     /** WorkMeter Solo home dashboard: visual components only; work state stays in legacy data. */
     private fun home() {
         base("WorkMeter")
@@ -671,6 +732,25 @@ class MainActivity : Activity() {
                     LinearLayout.LayoutParams(-1,dp(48)))
             }
         }
+        // This is an optional manual action, never an automatic shift transition.
+        // Only a recent confirmed geofence matching the latest fix enables it.
+        val arrivalReady=gpsHomeArrivalReady(a)
+        root.addView(action(if(arrivalReady) "📍  GPS · WYBIERZ OBIEKT" else
+            "📍  GPS · OCZEKIWANIE NA OBIEKT") {
+            if(!gpsHomeArrivalReady(active(data()))) {
+                toast("Czekam na potwierdzoną lokalizację GPS przy obiekcie")
+                home()
+            } else if(active(data())?.optString("kind")=="Przejazd") {
+                chooseArrival()
+            } else {
+                switchObject()
+            }
+        }.apply {
+            isEnabled=arrivalReady
+            alpha=if(arrivalReady) 1f else 0.55f
+            background=rounded(if(arrivalReady) 0xFF257E61.toInt() else surface,14)
+            setTextColor(if(arrivalReady) Color.WHITE else muted)
+        },LinearLayout.LayoutParams(-1,dp(52)).apply { bottomMargin=dp(10) })
         section("SZYBKIE DZIAŁANIA")
         actionRow("📷  ZDJĘCIA" to { openScreen("list:links:") },
             "📦  MATERIAŁY" to { openScreen("list:materials:") })
@@ -850,7 +930,7 @@ class MainActivity : Activity() {
         if(!prefs.getBoolean("gps_resume_pending",false)) return
         label("GPS był aktywny przed restartem telefonu. Wznów go tylko, jeśli chcesz.")
         button("Wznów GPS po restarcie") {
-            prefs.edit().putBoolean("gps_resume_pending",false).apply()
+            prefs.edit().putBoolean(GpsWorkdaySession.CONSENT,true).putBoolean("gps_resume_pending",false).apply()
             setGpsEnabled(true)
             gpsScreen()
         }
@@ -874,11 +954,19 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun toggleGpsConsent() {
+        val allow = !GpsWorkdaySession.hasConsent(prefs)
+        prefs.edit().putBoolean(GpsWorkdaySession.CONSENT,allow).apply()
+        setGpsEnabled(allow)
+    }
+
     private fun setGpsEnabled(value:Boolean) {
+        if (value && (!GpsWorkdaySession.workdayOpen(prefs) || !GpsWorkdaySession.hasConsent(prefs))) return
         if(!value) {
             prefs.edit().putBoolean("gps_enabled",false).putBoolean("gps_resume_pending",false).apply()
             CoreGpsStageBridge.dismiss(this)
             stopService(Intent(this,GpsTrackingService::class.java))
+            GpsRecoveryMonitorWorker.cancel(this)
             return
         }
         val fine=checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED
@@ -887,7 +975,8 @@ class MainActivity : Activity() {
             requestPermissions(arrayOf(android.Manifest.permission.ACCESS_COARSE_LOCATION,android.Manifest.permission.ACCESS_FINE_LOCATION),307)
             return
         }
-        prefs.edit().putBoolean("gps_enabled",true).apply()
+        prefs.edit().putBoolean(GpsWorkdaySession.CONSENT,true).putBoolean("gps_enabled",true)
+            .putBoolean("gps_resume_pending",false).apply()
         try {
             androidx.core.content.ContextCompat.startForegroundService(
                 this,Intent(this,GpsTrackingService::class.java).setAction(GpsTrackingService.ACTION_START))
@@ -946,6 +1035,25 @@ class MainActivity : Activity() {
         label("Opóźnione odstępy: "+cadence.delayedIntervals)
         label("Przerwy w pomiarach GPS ponad 4 minuty: "+cadence.coverageInterruptions)
         label("Odstępy pomiarów nie oznaczają zmierzonego zużycia baterii.")
+        label("Dziennik diagnostyczny GPS · zapis lokalny")
+        label("Rejestruje pomiary, dokładność, odległość do obiektu, odrzucenia i decyzje o wyjeździe.")
+        button("📤 Udostępnij dziennik GPS") {
+            val report=GpsTraceJournal.report(prefs)
+            val intent=Intent(Intent.ACTION_SEND).apply {
+                type="text/plain"
+                putExtra(Intent.EXTRA_SUBJECT,"WorkMeter SOLO · dziennik GPS")
+                putExtra(Intent.EXTRA_TEXT,report)
+            }
+            startActivity(Intent.createChooser(intent,"Wyślij diagnostykę GPS"))
+        }
+        label("Ostatnie zdarzenia GPS (czas Unix ms):")
+        for(entry in GpsTraceJournal.recent(prefs)) label(entry)
+        button("Usuń dziennik diagnostyczny GPS") {
+            confirmAction("Usunąć lokalne wpisy diagnostyczne GPS? Nie usuwa historii pracy ani zapisanych obiektów.") {
+                prefs.edit().remove("gps_diagnostic_trace").apply()
+                gpsDeviceDiagnostics()
+            }
+        }
         label("Jakość pomiarów w tle: "+when(quality.level) {
             GpsSamplingHealth.Level.NO_SESSION -> "brak aktywnej sesji"
             GpsSamplingHealth.Level.WAITING_FOR_FIRST_FIX -> "oczekiwanie na pierwszy pomiar"
@@ -1007,10 +1115,16 @@ class MainActivity : Activity() {
         label("Eksperymentalne: po 5 minutach bez wykrytego ruchu GPS co 90 sekund zamiast co 30 sekund. Nie wyłącza GPS; ruch telefonu nie potwierdza przejazdu.")
 
         val enabled = prefs.getBoolean("gps_enabled",false)
-        button(if(enabled) "GPS: włączony — wyłącz" else "GPS: wyłączony — włącz") {
-            setGpsEnabled(!enabled); gpsScreen()
+        button(if(GpsWorkdaySession.hasConsent(prefs)) "GPS: dozwolony w pracy — wyłącz" else "GPS: wyłączony — włącz") {
+            toggleGpsConsent(); gpsScreen()
         }
-        if(!enabled) return
+        if(!enabled) {
+            if(GpsWorkdaySession.workdayOpen(prefs) && GpsWorkdaySession.hasConsent(prefs) &&
+                !prefs.getBoolean("gps_resume_pending",false)) {
+                button("Uruchom śledzenie GPS") { setGpsEnabled(true); gpsScreen() }
+            }
+            return
+        }
         val notificationsGranted=Build.VERSION.SDK_INT<33 ||
             checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)==PackageManager.PERMISSION_GRANTED
         if(CoreGpsNotificationPermissionRules.showPromptButton(
@@ -1028,16 +1142,14 @@ class MainActivity : Activity() {
             button("Zezwól na GPS") { requestPermissions(arrayOf(android.Manifest.permission.ACCESS_COARSE_LOCATION,android.Manifest.permission.ACCESS_FINE_LOCATION),307) }
             return
         }
-        val lastGps=try { JSONObject(prefs.getString("gps_last_fix","{}") ?: "{}") } catch(_:Exception) { JSONObject() }
-        val status=GpsServiceStatusRules.status(enabled,permission,
-            prefs.getBoolean("gps_resume_pending",false),lastGps.optLong("time"),System.currentTimeMillis())
+        val status=GpsStatusReader.read(this,pendingProposalCount=0).status
         label(when(status) {
-            GpsServiceStatusRules.Status.NO_RECENT_FIX ->
-                "Brak aktualnego pomiaru GPS. Może to oznaczać słaby sygnał lub zatrzymanie usługi."
-            GpsServiceStatusRules.Status.RECENT_FIX -> "Ostatni pomiar GPS jest aktualny."
-            GpsServiceStatusRules.Status.PERMISSION_REQUIRED -> "Brak pozwolenia na GPS."
-            GpsServiceStatusRules.Status.RESUME_AFTER_REBOOT -> "GPS wymaga wznowienia."
-            GpsServiceStatusRules.Status.OFF -> "GPS wyłączony."
+            GpsStatusContract.Status.OFF -> "GPS wyłączony."
+            GpsStatusContract.Status.ACTIVE -> "Ostatni pomiar GPS jest aktualny."
+            GpsStatusContract.Status.WAITING_FOR_FIX -> "Oczekiwanie na aktualny pomiar GPS."
+            GpsStatusContract.Status.UNAVAILABLE -> "Brak dostępnego źródła lokalizacji."
+            GpsStatusContract.Status.PERMISSION_REQUIRED -> "Wymagane pozwolenie na dokładną lokalizację."
+            GpsStatusContract.Status.ERROR -> "Sprawdź diagnostykę GPS."
         })
         button("Uruchom ponownie śledzenie GPS") {
             stopService(Intent(this,GpsTrackingService::class.java))
@@ -1093,15 +1205,18 @@ class MainActivity : Activity() {
         // Only configured work objects are recognized here; an untagged location
         // must never be silently inferred to be a material supplier.
         val worksiteKinds=mutableMapOf<String,GpsActivitySuggestionRules.Kind>()
-        val objectRows=rows(data(),"objects")
-        for(o in objectRows) {
-            val id=o.optString("id")
+        val objectsById=rows(data(),"objects").groupBy { it.optString("id") }
+        for((id,matching) in objectsById) {
+            val o=matching.singleOrNull() ?: continue
             if(id.isNotBlank() && !o.optBoolean("archived"))
                 worksiteKinds[id]=if(prefs.getString("gps_place_kind_"+id,"WORKSITE")=="SHOPPING")
                     GpsActivitySuggestionRules.Kind.SHOPPING
                 else GpsActivitySuggestionRules.Kind.WORKSITE
         }
-        val hint=GpsActivitySuggestionRules.latest(activityEvents,worksiteKinds,System.currentTimeMillis())
+        val workSuggestionsAllowed=GpsActivitySuggestionRules.workSuggestionsAllowed(
+            active(data())?.optString("kind","Obiekt"))
+        val hint=GpsActivitySuggestionRules.latest(
+            activityEvents,worksiteKinds,System.currentTimeMillis(),workSuggestionsAllowed)
         if(hint!=null) {
             when(hint.kind) {
                 GpsActivitySuggestionRules.Kind.WORKSITE ->
@@ -1144,9 +1259,15 @@ class MainActivity : Activity() {
                                                 freshEvents.add(GpsShiftEstimate.Event(
                                                     e.optString("event"),e.optLong("time")))
                                             }
+                                            val latest=data()
+                                            val shop=rows(latest,"objects").singleOrNull { it.optString("id")==shopId }
+                                            val stillEligible=GpsWorkdaySession.shouldTrack(prefs) &&
+                                                GpsActivitySuggestionRules.workSuggestionsAllowed(
+                                                    active(latest)?.optString("kind","Obiekt")) &&
+                                                shop?.optBoolean("archived")==false &&
+                                                prefs.getString("gps_place_kind_"+shopId,"WORKSITE")=="SHOPPING"
                                             if(GpsShopConfirmationRules.canConfirm(
-                                                freshEvents,matched.startMs,matched.endMs,
-                                                prefs.getString("gps_place_kind_"+shopId,"WORKSITE")=="SHOPPING",
+                                                freshEvents,matched.startMs,matched.endMs,stillEligible,
                                                 prefs.getString(categoryKey,"UNKNOWN") ?: "UNKNOWN",
                                                 System.currentTimeMillis())) {
                                                 prefs.edit().putString(categoryKey,"SHOPPING").apply()
@@ -1228,14 +1349,6 @@ class MainActivity : Activity() {
             val nearest=GpsWorkRules.nearest(point,places)
             label(if(nearest==null) "Poza zapisanymi strefami obiektów." else
                 "W strefie: "+(objectById(nearest.place.id)?.let { objectName(it) } ?: nearest.place.id))
-            label("Przypisz bieżącą lokalizację do obiektu (promień 100 m):")
-            rows(data(),"objects").filter { !it.optBoolean("archived") }.forEach { o ->
-                button("📍 "+objectName(o)) {
-                    prefs.edit().putString("gps_object_"+o.optString("id"),
-                        JSONObject().put("lat",point.latitude).put("lon",point.longitude).put("radius",100).toString()).apply()
-                    gpsScreen()
-                }
-            }
         }
     }
 
@@ -1256,9 +1369,8 @@ class MainActivity : Activity() {
         button("Język aplikacji") { language() }
         label("GPS i lokalizacja")
         if(prefs.getBoolean("gps_resume_pending",false)) button("GPS · wznowienie po restarcie") { gpsScreen() }
-        button(if(prefs.getBoolean("gps_enabled",false)) "GPS WorkMeter: WŁĄCZONY — wyłącz" else "GPS WorkMeter: WYŁĄCZONY — włącz") {
-            val next=!prefs.getBoolean("gps_enabled",false)
-            setGpsEnabled(next)
+        button(if(GpsWorkdaySession.hasConsent(prefs)) "GPS WorkMeter: DOZWOLONY W PRACY — wyłącz" else "GPS WorkMeter: WYŁĄCZONY — włącz") {
+            toggleGpsConsent()
             settings()
         }
         button("Geostrefy i lokalizacja GPS") { gpsScreen() }
@@ -1271,6 +1383,7 @@ class MainActivity : Activity() {
         button("O aplikacji") { about() }
     }
     private fun sectionSettings(section:String) {
+        currentSection=section
         base("Ustawienia · $section"); screen="sectionSettings"; nav()
         root.setBackgroundColor(0xFFF4F7F8.toInt())
         when(section) {
@@ -1282,8 +1395,8 @@ class MainActivity : Activity() {
             "Obiekty" -> {
                 label("Obiekty i lokalizacje GPS")
                 button("Lista obiektów") { openScreen("objects") }
-                button(if(prefs.getBoolean("gps_enabled",false)) "Wyłącz GPS WorkMeter" else "Włącz GPS WorkMeter") {
-                    setGpsEnabled(!prefs.getBoolean("gps_enabled",false))
+                button(if(GpsWorkdaySession.hasConsent(prefs)) "Wyłącz GPS WorkMeter" else "Włącz GPS WorkMeter") {
+                    toggleGpsConsent()
                     sectionSettings("Obiekty")
                 }
                 button("GPS i geostrefy") { gpsScreen() }
@@ -1869,6 +1982,12 @@ class MainActivity : Activity() {
             target=="menu" -> menu()
             target.startsWith("menuFeature:") -> menuFeature(target.substringAfter(":"))
             target=="settings" -> settings()
+            target=="sectionSettings" -> sectionSettings(currentSection)
+            target=="gps" -> gpsScreen()
+            target=="gpsDiagnostics" -> gpsDeviceDiagnostics()
+            target=="gpsPlaceKinds" -> gpsPlaceKinds()
+            target=="gpsPay" -> gpsPaySettings()
+            target=="gpsCategories" -> gpsTripCategories()
             target=="language" -> language()
             target=="charts" -> charts()
             target=="queue" -> uploadQueue()
@@ -2141,6 +2260,44 @@ class MainActivity : Activity() {
         })
         root.addView(e,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
     }
+    private fun captureObjectGps() {
+        if(formKind!="objects") return
+        val targetId=draft.optString("id")
+        val manager=getSystemService(LOCATION_SERVICE) as LocationManager
+        if(checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)!=PackageManager.PERMISSION_GRANTED &&
+            checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION)!=PackageManager.PERMISSION_GRANTED) {
+            toast("Zezwól aplikacji na lokalizację w ustawieniach Android")
+            return
+        }
+        try {
+            val provider=when {
+                manager.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
+                manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
+                else -> null
+            }
+            if(provider==null) { toast("Włącz lokalizację w telefonie");return }
+            toast("Pobieranie aktualnej lokalizacji GPS…")
+            manager.requestSingleUpdate(provider,object:LocationListener {
+                override fun onLocationChanged(loc:Location) {
+                    if(formKind!="objects" || draft.optString("id")!=targetId || screen!="form") return
+                    val now=System.currentTimeMillis()
+                    val capture=GpsObjectLocationRules.Capture(targetId,loc.latitude,loc.longitude,
+                        loc.accuracy.toDouble(),loc.time)
+                    if(!GpsObjectLocationRules.valid(capture,now)) {
+                        toast("Pomiar GPS niedokładny lub nieaktualny. Spróbuj ponownie.")
+                        return
+                    }
+                    draft.put("_gps_capture",JSONObject()
+                        .put("objectId",targetId).put("lat",loc.latitude).put("lon",loc.longitude)
+                        .put("accuracy",loc.accuracy.toDouble()).put("time",loc.time))
+                    prefs.edit().putString("draft_objects",draft.toString()).apply()
+                    toast("Lokalizacja pobrana. Naciśnij Zapisz, aby przypisać ją do obiektu.")
+                    renderForm()
+                }
+            },Looper.getMainLooper())
+        } catch(_:SecurityException) { toast("Brak uprawnienia do lokalizacji GPS") }
+        catch(_:RuntimeException) { toast("Nie udało się pobrać lokalizacji GPS") }
+    }
     private fun renderForm() {
         if(formKind=="expenses" && !walletUnlocked) { settings(); confirmPin { walletUnlocked=true; renderForm() }; return }
         base(when(formKind) { "objects" -> "Obiekt"; "expenses" -> "Zakup za własne pieniądze"; "materials" -> "Zużyty materiał"; "links" -> "Dodaj zdjęcia"; else -> "Notatka" })
@@ -2151,6 +2308,14 @@ class MainActivity : Activity() {
             if(draft.optString("TAG").isBlank()) field("Tag (opcjonalnie)","tagPrefix") else label("Tag (stały): "+draft.optString("TAG"))
             field("Adres","Adres"); field("Nazwa organizacji","organization")
             field("Notatki / kontakt","notes",true); field("Link Google Maps (opcjonalnie)","maps")
+            val savedGeo=prefs.getString("gps_object_"+draft.optString("id"),null)
+            val pendingGeo=draft.optJSONObject("_gps_capture")
+            label(when {
+                pendingGeo!=null -> "📍 Lokalizacja GPS pobrana — zapisze się razem z obiektem."
+                savedGeo!=null -> "📍 Lokalizacja GPS przypisana do tego obiektu."
+                else -> "📍 Lokalizacja GPS: nie przypisano (opcjonalnie)."
+            })
+            button("📍 Zapisz lokalizację GPS") { captureObjectGps() }
         } else {
             button("Data: "+recordDate(draft).let { if(it.isBlank()) "Wybierz datę" else dateText(it) }) {
                 pickReportDate(try { LocalDate.parse(recordDate(draft)) } catch (_:Exception) { LocalDate.now() }) {
@@ -2271,9 +2436,25 @@ class MainActivity : Activity() {
                 draft.optString("objectId"),previous?.optString("objectId"),objectRefs
             )) { toast("Zdjęcia wymagają aktywnego obiektu i zdjęcia lub linku"); return }
         }
+        val capturedGeo=if(formKind=="objects") draft.optJSONObject("_gps_capture") else null
+        val objectId=draft.optString("id")
+        val geoCapture=if(capturedGeo!=null) GpsObjectLocationRules.Capture(
+            capturedGeo.optString("objectId"),capturedGeo.optDouble("lat"),
+            capturedGeo.optDouble("lon"),capturedGeo.optDouble("accuracy"),
+            capturedGeo.optLong("time")) else null
+        if(geoCapture!=null && !GpsObjectLocationRules.belongsTo(geoCapture,objectId,geoCapture.fixTimeMs)) {
+            toast("Lokalizacja GPS nie pasuje do obiektu. Pobierz GPS ponownie.")
+            return
+        }
+        draft.remove("_gps_capture")
         val list=arr(d,formKind); val index=(0 until list.length()).find { list.optJSONObject(it)?.optString("id")==draft.optString("id") }
         if(index==null) list.put(draft) else list.put(index,draft)
         save(d,"SAVE_"+formKind,draft.optString("id"))
+        if(geoCapture!=null) {
+            prefs.edit().putString("gps_object_"+objectId,JSONObject()
+                .put("lat",geoCapture.latitude).put("lon",geoCapture.longitude)
+                .put("radius",GpsObjectLocationRules.RADIUS_M).toString()).commit()
+        }
         PhotoQueue.markPending(this,formKind,draft)
         val send=quickPhotoUpload && formKind=="links" && arr(draft,"photos").length()>0
         val reference=formKind+":"+draft.optString("id")

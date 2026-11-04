@@ -15,11 +15,28 @@ object GpsAdaptiveSampling {
         if(state.startedMs==0L) return state.copy(
             lastMotionMs=if(accelerationDelta>=1.5) nowMs else state.lastMotionMs,
             startedMs=nowMs)
-        if(nowMs<state.startedMs || (state.lastMotionMs>0 && nowMs<state.lastMotionMs)) return state
+        // Android wall clock can be corrected backwards while the service stays alive.
+        // Start a fresh sampling epoch rather than waiting for old future timestamps.
+        if(shouldResetAfterClockRollback(state,nowMs))
+            return State(startedMs=nowMs,
+                lastMotionMs=if(accelerationDelta>=1.5) nowMs else 0L)
+        if(nowMs<state.startedMs || nowMs<state.lastMotionMs) return state
+
         return if(accelerationDelta>=1.5) state.copy(lastMotionMs=nowMs) else state
     }
+    const val CLOCK_ROLLBACK_RESET_MS=60_000L
+    private fun rolledBack(checkpoint:Long,nowMs:Long):Boolean =
+        checkpoint>nowMs && checkpoint-nowMs>=CLOCK_ROLLBACK_RESET_MS
+    fun shouldResetAfterClockRollback(state:State,nowMs:Long):Boolean =
+        nowMs>0L && (rolledBack(state.startedMs,nowMs) ||
+            rolledBack(state.lastMotionMs,nowMs) ||
+            rolledBack(state.lastGpsTravelMs,nowMs))
+
     fun gpsTravel(state:State,nowMs:Long):State =
-        if(nowMs<=0 || (state.startedMs>0 && nowMs<state.startedMs) || nowMs<state.lastGpsTravelMs) state
+        if(nowMs<=0L) state
+        else if(shouldResetAfterClockRollback(state,nowMs))
+            State(startedMs=nowMs,lastGpsTravelMs=nowMs)
+        else if(nowMs<state.startedMs || nowMs<state.lastGpsTravelMs) state
         else state.copy(lastGpsTravelMs=nowMs)
     fun interval(state:State,nowMs:Long,enabled:Boolean):Long {
         if(!enabled || state.startedMs<=0 || nowMs<state.startedMs) return ACTIVE_INTERVAL_MS
