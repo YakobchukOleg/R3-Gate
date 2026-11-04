@@ -459,24 +459,24 @@ class MainActivity : Activity() {
         button("GENERUJ RAPORT SMS") { smsReport() }
         label("Okres: ${from.format(df)} – ${to.format(df)} (włącznie)")
         active(data())?.let { if(!localDate(it.optLong("start")).isAfter(to)) label("Uwaga: otwarta zmiana nie jest uwzględniona w raporcie ani w sumie.") }
-        val list = arr(data(), "shifts")
+        val zone=ZoneId.systemDefault()
         val pl = listOf("Poniedziałek", "Wtorek", "Środa", "Czwartek", "Piątek", "Sobota", "Niedziela")
-        val shifts = (0 until list.length()).mapNotNull { list.optJSONObject(it) }
-            .filter {
-                val date = Instant.ofEpochMilli(it.optLong("start")).atZone(ZoneId.systemDefault()).toLocalDate()
-                !date.isBefore(from) && !date.isAfter(to) && it.optLong("end") > it.optLong("start")
-            }.sortedBy { it.optLong("start") }
-        if (shifts.isEmpty()) {
+        val slices=rows(data(),"shifts").flatMap { shift ->
+            HistoryRules.slicesInRange(shift.optLong("start",-1L),shift.optLong("end"),from,to,zone)
+                .map { slice -> shift to slice }
+        }.sortedBy { it.second.start }
+        if (slices.isEmpty()) {
             label("Brak zakończonych zmian w wybranym okresie.")
             return
         }
         var sum = 0L
-        val lines = shifts.map {
-            val start = it.optLong("start")
-            val end = it.optLong("end")
-            val date = Instant.ofEpochMilli(start).atZone(ZoneId.systemDefault()).toLocalDate()
-            sum += workedMillis(it, start, end)
-            "${date.format(df)} ${pl[date.dayOfWeek.value - 1]} ${clock.format(Date(start))}–${clock.format(Date(end))}"
+        val lines = slices.map { (shift,slice) ->
+            val date=LocalDate.parse(slice.day)
+            val work=workedMillis(shift,slice.start,slice.end)
+            sum += work
+            "${date.format(df)} ${pl[date.dayOfWeek.value - 1]} " +
+                "${clock.format(Date(slice.start))}–${clock.format(Date(slice.end))}" +
+                if(work != slice.end-slice.start) " · czas pracy: "+duration(work) else ""
         }
         val minutes = sum / 60000
         val sms = lines.joinToString("\n\n") + "\n\nRazem\n${minutes / 60} godz. ${minutes % 60} min"
