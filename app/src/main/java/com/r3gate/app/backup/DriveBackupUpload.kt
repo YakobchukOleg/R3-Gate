@@ -75,7 +75,7 @@ internal class DriveBackupUpload(private val drive: DriveStore, private val toke
                 output.write(trailer)
             }
             val status = connection.responseCode
-            if (status !in 200..299) throw DriveHttpException(status)
+            if (status !in 200..299) throw DriveHttpException.from(connection)
             return JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
         } finally {
             connection.disconnect()

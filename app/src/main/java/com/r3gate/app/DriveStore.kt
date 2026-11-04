@@ -17,7 +17,7 @@ internal class DriveStore {
                 c.doOutput=true; c.setRequestProperty("Content-Type","application/json; charset=UTF-8")
                 c.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
             }
-            if(c.responseCode !in 200..299) throw DriveHttpException(c.responseCode)
+            if(c.responseCode !in 200..299) throw DriveHttpException.from(c)
             return JSONObject(c.inputStream.bufferedReader().use { it.readText() }.ifBlank { "{}" })
         } finally { c.disconnect() }
     }
@@ -45,4 +45,38 @@ internal class DriveStore {
 }
 
 
-internal class DriveHttpException(val status: Int) : java.io.IOException("Drive HTTP $status")
+internal class DriveHttpException(
+    val status: Int, val reasons: Set<String> = emptySet()
+) : java.io.IOException("Drive HTTP $status") {
+    companion object {
+        fun from(connection: HttpURLConnection): DriveHttpException {
+            val status = connection.responseCode
+            val reasons = try {
+                connection.errorStream?.use { input ->
+                    val buffer = ByteArray(8192)
+                    var length = 0
+                    while (length < buffer.size) {
+                        val count = input.read(buffer, length, buffer.size - length)
+                        if (count <= 0) break
+                        length += count
+                    }
+                    parseReasons(String(buffer, 0, length, Charsets.UTF_8))
+                }.orEmpty()
+            } catch (_: java.io.IOException) {
+                emptySet()
+            }
+            return DriveHttpException(status, reasons)
+        }
+
+        internal fun parseReasons(body: String): Set<String> {
+            val errors = try {
+                JSONObject(body).optJSONObject("error")?.optJSONArray("errors")
+            } catch (_: org.json.JSONException) {
+                null
+            } ?: return emptySet()
+            return (0 until errors.length()).mapNotNull {
+                errors.optJSONObject(it)?.optString("reason")?.takeIf(String::isNotBlank)
+            }.toSet()
+        }
+    }
+}

@@ -33,8 +33,10 @@ bytes and the same create-only ID. A conflict is accepted only after Drive confi
 expected file metadata and transport checksum. The user-facing success status is written
 after that check. Existing JSON backups are kept.
 
-Cancellation cleanup, quota-specific messages, byte-range
-resume for large archives and real-account testing remain pending.
+Quota exhaustion stops immediate retries. Rate limiting uses WorkManager backoff.
+The next Drive backup run clears abandoned private queue directories older than 24 hours,
+while preserving unfinished work and active writers. Byte-range resume and real-account
+testing remain pending.
 
 The settings screen can call `DriveBackups.copies` using the existing Drive authorization
 token. The adapter lists accessible WorkMeter ZIP archives and checks the selected file

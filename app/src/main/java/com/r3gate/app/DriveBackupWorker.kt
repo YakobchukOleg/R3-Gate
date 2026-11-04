@@ -8,27 +8,36 @@ import com.google.android.gms.common.api.Scope
 import com.google.android.gms.tasks.Tasks
 import org.json.JSONObject
 import android.net.Uri
+import com.r3gate.app.backup.DriveBackupFailure
+import com.r3gate.app.backup.DriveBackupMaintenance
 import com.r3gate.app.backup.DriveBackupUpload
 import com.r3gate.app.backup.LocalBackupStore
 import java.io.File
 import java.io.FileNotFoundException
+import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 class DriveBackupWorker(context:Context,params:WorkerParameters):Worker(context,params) {
     private val prefs=applicationContext.getSharedPreferences("r3_gate",Context.MODE_PRIVATE)
-    override fun doWork():Result {
+    override fun doWork(): Result = DriveBackupMaintenance.whileActive(id, ::runBackup)
+
+    private fun runBackup(): Result {
         val email = prefs.getString("driveEmail", "").orEmpty()
         if (email.isBlank() || !prefs.getBoolean("driveConnected", false)) return needsAccount()
         val expectedEmail = inputData.getString("backupAccount") ?: email
         if (!email.equals(expectedEmail, true)) return Result.failure()
         val queue = applicationContext.getSharedPreferences("workmeter_drive_backup_queue", Context.MODE_PRIVATE)
         val key = id.toString()
-        val directory = File(applicationContext.filesDir, "drive-backup-queue/$key")
+        val root = File(applicationContext.filesDir, "drive-backup-queue")
+        val directory = File(root, key)
         try {
             fun checkActive() {
                 if (isStopped || !prefs.getBoolean("driveConnected", false) ||
                     !email.equals(prefs.getString("driveEmail", ""), true)) throw InterruptedException()
             }
+            checkActive()
+            cleanQueue(root, queue)
             checkActive()
             val pending = queue.getString(key, null)?.let(::JSONObject)
             if (pending != null && !email.equals(pending.optString("account"), true)) return Result.failure()
@@ -85,16 +94,49 @@ class DriveBackupWorker(context:Context,params:WorkerParameters):Worker(context,
         } catch(_:InterruptedException) { return Result.retry() }
         catch(e:Exception) {
             if(isStopped) return Result.retry()
-            if (e is DriveHttpException && e.status == 401) return needsAccount()
-            if (e is FileNotFoundException || e is SecurityException || e is IllegalArgumentException ||
-                e is DriveHttpException && e.status in listOf(400, 404, 413) || runAttemptCount >= 5) {
-                prefs.edit().putString("backupStatus", "Nie można wysłać kopii ZIP. Sprawdź dane i dostęp do plików.").apply()
-                return Result.failure()
+            val failure = (e as? DriveHttpException)?.let { DriveBackupFailure.from(it) }
+            if (failure == DriveBackupFailure.ACCOUNT) return needsAccount()
+            if (failure == DriveBackupFailure.STORAGE_QUOTA) {
+                return failed("Brak miejsca w Google Drive. Zwolnij miejsce i ponów kopię.")
             }
-            prefs.edit().putString("backupStatus","Oczekiwanie na internet lub ponowienie kopii").apply()
+            if (failure == DriveBackupFailure.REJECTED || e is FileNotFoundException ||
+                e is SecurityException || e is IllegalArgumentException) {
+                return failed("Nie można wysłać kopii ZIP. Sprawdź dane i dostęp do plików.")
+            }
+            if (runAttemptCount >= 5) {
+                return failed("Nie udało się wysłać kopii ZIP po kilku próbach. Ponów kopię.")
+            }
+            val status = if (failure == DriveBackupFailure.RATE_LIMIT) {
+                "Limit żądań Google Drive. Kopia zostanie ponowiona."
+            } else "Oczekiwanie na internet lub ponowienie kopii"
+            prefs.edit().putString("backupStatus", status).apply()
             return Result.retry()
         }
     }
+
+    private fun cleanQueue(root: File, queue: android.content.SharedPreferences) {
+        val states = try {
+            WorkManager.getInstance(applicationContext).getWorkInfosByTag("driveBackup")
+                .get(3, TimeUnit.SECONDS)
+        } catch (_: TimeoutException) {
+            return
+        } catch (_: ExecutionException) {
+            return
+        }
+        val unfinished = states.filterNot { it.state.isFinished }.mapTo(mutableSetOf()) { it.id }
+        val removed = DriveBackupMaintenance.removeStaleDirectories(root, id, unfinished)
+        val editor = queue.edit()
+        removed.forEach { editor.remove(it.toString()) }
+        states.filter { it.id != id && it.state.isFinished && !File(root, it.id.toString()).exists() }
+            .forEach { editor.remove(it.id.toString()) }
+        editor.apply()
+    }
+
+    private fun failed(message: String): Result {
+        prefs.edit().putString("backupStatus", message).apply()
+        return Result.failure()
+    }
+
     private fun needsAccount():Result {
         prefs.edit().putString("backupStatus","Połącz ponownie Google Disk, aby wznowić kopię").apply()
         UploadNotifications.result(applicationContext,"backup","Kopia wymaga połączenia Google Disk — dotknij, aby wznowić",true)
