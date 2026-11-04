@@ -274,9 +274,7 @@ class ObjectListPanelInstrumentedTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 openActiveDetails(activity)
-                val materials=views(activity).filterIsInstance<Button>()
-                    .first { it.text.toString()=="Materiały" }
-                materials.performClick()
+                openObjectRecords(activity, "Materiały")
                 val add=views(activity).filterIsInstance<Button>()
                     .first { it.text.toString()=="+ Dodaj" }
                 add.performClick()
@@ -294,9 +292,7 @@ class ObjectListPanelInstrumentedTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 openActiveDetails(activity)
-                val photos=views(activity).filterIsInstance<Button>()
-                    .first { it.text.toString()=="Zdjęcia" }
-                photos.performClick()
+                openObjectRecords(activity, "Zdjęcia")
                 val add=views(activity).filterIsInstance<Button>()
                     .first { it.text.toString()=="+ Dodaj" }
                 add.performClick()
