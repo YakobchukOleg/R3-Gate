@@ -689,6 +689,7 @@ class GpsTrackingService : Service(), LocationListener {
         // Travel events are kept apart from work shifts until the user confirms billing rules.
         val previous=try { JSONObject(prefs.getString("gps_motion_point","{}") ?: "{}") } catch(_:Exception) { JSONObject() }
         val lastTime=previous.optLong("time")
+        var tripTransitionRecorded=false
         if(GpsMotionContinuityRules.contiguous(lastTime,now)) {
             val previousPoint=GpsWorkRules.Point(previous.optDouble("lat"),previous.optDouble("lon"),
                 previous.optDouble("accuracy"),lastTime)
@@ -764,6 +765,7 @@ class GpsTrackingService : Service(), LocationListener {
                     .put("accuracy",location.accuracy.toDouble()).put("time",now).toString())
                 .putLong("gps_last_source_fix_time",sourceTime)
             if(!motionEditor.commit()) return
+            tripTransitionRecorded=transition.event=="TRIP_START" || transition.event=="TRIP_STOP"
         } else if(lastTime>0 && now-lastTime>1_800_000L) {
             prefs.edit().remove("gps_trip_state").apply()
         }
@@ -785,7 +787,8 @@ class GpsTrackingService : Service(), LocationListener {
             GpsRecoveryMonitorWorker.dismissAlert(this)
             trace("GPS_RECOVERED",now,JSONObject().put("previousProblem",oldProblem))
         }
-        if(decision.event=="ARRIVAL" || decision.event=="DEPARTURE") CoreGpsStageBridge.refresh(this)
+        if(decision.event!=null || tripTransitionRecorded || recovery.recordGap ||
+            motionEvidenceGap || transition.resetMotion) CoreGpsStageBridge.refresh(this)
         if(prefs.getBoolean("gps_adaptive_sampling",false)) {
             val desired=safeSamplingInterval(now)
             if(desired!=samplingIntervalMs) {

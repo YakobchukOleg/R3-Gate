@@ -37,4 +37,23 @@ class CoreGpsObservationsTest {
         val b=row("TRIP_STOP",2000).copy(eventId="same")
         assertTrue(CoreGpsJournalAdapter.observations(listOf(a,b),500,3000).isEmpty())
     }
+
+    @Test fun arrivalAndTripStopCreateOneStableReviewOnlyVisit() {
+        val data=listOf(row("ARRIVAL",1000,"site"),row("TRIP_STOP",2000))
+        val visit=CoreGpsJournalAdapter.visitFromEvidence(data+data,setOf("site"),500,3000)!!
+        assertEquals(CoreGpsProposalInbox.Kind.OBJECT_VISIT,visit.kind)
+        assertEquals(CoreGpsProposalInbox.Confidence.MEDIUM,visit.confidence)
+        assertEquals(CoreGpsJournalAdapter.eventId("OBJECT_VISIT",2000,"site"),visit.eventId)
+        assertEquals(visit,CoreGpsJournalAdapter.visitFromEvidence(data,setOf("site"),500,3100))
+    }
+
+    @Test fun travelEvidenceAcrossAGapCannotProduceVisit() {
+        val data=listOf(row("ARRIVAL",1000,"site"),row("GPS_GAP",1500),row("TRIP_STOP",2000))
+        assertNull(CoreGpsJournalAdapter.visitFromEvidence(data,setOf("site"),500,3000))
+    }
+
+    @Test fun unknownOrArchivedDestinationCannotProduceVisit() {
+        val data=listOf(row("ARRIVAL",1000,"archived"),row("TRIP_STOP",2000))
+        assertNull(CoreGpsJournalAdapter.visitFromEvidence(data,setOf("site"),500,3000))
+    }
 }

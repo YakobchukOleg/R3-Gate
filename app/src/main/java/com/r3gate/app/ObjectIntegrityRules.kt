@@ -24,6 +24,11 @@ object ObjectIntegrityRules {
     fun canAssign(objectId: String, objects: Collection<ObjectRef>): Boolean =
         objectId.isNotBlank() && objects.singleOrNull { it.id == objectId }?.archived == false
 
+    fun assignableIds(objects: Collection<ObjectRef>): Set<String> =
+        objects.groupBy { it.id }.filter { (id, matches) ->
+            id.isNotBlank() && matches.singleOrNull()?.archived == false
+        }.keys
+
     /**
      * Legacy records can retain their original association even when their object
      * has since been archived or is missing from an old backup. Changing the

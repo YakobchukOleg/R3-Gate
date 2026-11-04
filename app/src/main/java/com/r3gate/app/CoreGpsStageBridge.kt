@@ -129,25 +129,32 @@ object CoreGpsStageBridge {
             hasPreciseTracking(context, prefs), true,
             active.optString("kind", "Obiekt"), shiftStart, stageStart, nowMs
         )
-        if (!CoreGpsSessionGate.isEligible(session)) {
+        if (!session.gpsEnabled || !GpsActivitySuggestionRules.workSuggestionsAllowed(session.shiftKind)) {
             dismiss(context)
             return
         }
+        val canOfferStage = CoreGpsSessionGate.isEligible(session)
         val objects = data.optJSONArray("objects") ?: JSONArray()
-        val activeIds = (0 until objects.length()).mapNotNull { i ->
-            objects.optJSONObject(i)?.takeIf { !it.optBoolean("archived") }
-                ?.optString("id")?.takeIf { it.isNotBlank() }
-        }.toSet()
+        val activeIds = ObjectIntegrityRules.assignableIds((0 until objects.length()).mapNotNull { i ->
+            objects.optJSONObject(i)?.let {
+                ObjectIntegrityRules.ObjectRef(it.optString("id"), it.optBoolean("archived"))
+            }
+        })
         val shift = CoreGpsStageRules.Shift(true, active.optString("kind", "Obiekt"), active.optString("objectId"))
         val raw = readJournal(context) ?: run { dismiss(context); return }
         val travel = readJournal(context, travel = true).orEmpty()
         val travelIds = travel.mapNotNull { it.eventId }.toSet()
-        val incoming = CoreGpsJournalAdapter.convert(raw,shift,activeIds,stageStart,nowMs)
-            .filter { it.eventId !in travelIds && hasContinuousCoverage(context,it.timestampMs,nowMs) }
-        val observations = CoreGpsJournalAdapter.observations(raw + travel, shiftStart, nowMs)
+        val incoming = if (canOfferStage)
+            CoreGpsJournalAdapter.convert(raw,shift,activeIds,stageStart,nowMs)
+                .filter { it.eventId !in travelIds && hasContinuousCoverage(context,it.timestampMs,nowMs) }
+        else emptyList()
+        val evidence = raw + travel
+        val observations = CoreGpsJournalAdapter.observations(evidence,shiftStart,nowMs).toMutableList()
+        val visit = CoreGpsJournalAdapter.visitFromEvidence(evidence,activeIds,shiftStart,nowMs)
+        if (visit != null && observations.none { it.eventId == visit.eventId }) observations.add(visit)
         val storage = AndroidCoreGpsProposalStorage(context)
         val updated = CoreGpsProposalStore.import(storage, incoming + observations, activeIds)
-        if (updated.state !is CoreGpsProposalStore.ReadResult.Success) {
+        if (!canOfferStage || updated.state !is CoreGpsProposalStore.ReadResult.Success) {
             // Do not leave a previously delivered notification visible when
             // the durable proposal journal is unreadable or cannot be updated.
             dismiss(context)

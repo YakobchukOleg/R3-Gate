@@ -60,4 +60,11 @@ class ObjectUiGatewayTest {
         assertEquals(selected.id, reloaded.getObject(selected.id)?.id)
         assertTrue(reloaded.validateAssociation(selected.id, selected.id, true))
     }
+
+    @Test fun gpsAndManualNewLinksExcludeDuplicateAndArchivedIds() {
+        val refs = listOf(ObjectIntegrityRules.ObjectRef("site"),
+            ObjectIntegrityRules.ObjectRef("duplicate"),ObjectIntegrityRules.ObjectRef("duplicate",true),
+            ObjectIntegrityRules.ObjectRef("old",true),ObjectIntegrityRules.ObjectRef(""))
+        assertEquals(setOf("site"),ObjectIntegrityRules.assignableIds(refs))
+    }
 }

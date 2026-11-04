@@ -54,6 +54,27 @@ object CoreGpsJournalAdapter {
             }.sortedWith(compareBy<CoreGpsProposalInbox.Event> { it.timestampMs }.thenBy { it.eventId })
     }
 
+    /** Reuse GPS's arrival/stop correlation to produce a review-only visit. */
+    fun visitFromEvidence(
+        journal: Collection<Raw>, activeIds: Set<String>, shiftStartMs: Long, nowMs: Long
+    ): CoreGpsProposalInbox.Event? {
+        if (shiftStartMs <= 0L) return null
+        val groups = journal.filter { it.timeMs in shiftStartMs..nowMs }
+            .groupBy { it.eventId ?: eventId(it.event,it.timeMs,it.objectId.orEmpty()) }
+            .values.map { it.distinct() }
+        if (groups.any { it.size != 1 || !CoreGpsJournalIntegrity.validMetadata(it.single()) }) return null
+        val entries = groups.map { it.single() }
+            .filter { it.event == "GPS_GAP" || it.confidence != CoreGpsProposalInbox.Confidence.LOW }
+        val hint = GpsActivitySuggestionRules.latest(
+            entries.map { GpsActivitySuggestionRules.Event(it.event,it.timeMs,it.objectId) },
+            activeIds.associateWith { GpsActivitySuggestionRules.Kind.WORKSITE },nowMs) ?: return null
+        val site = hint.placeId ?: return null
+        if (hint.kind != GpsActivitySuggestionRules.Kind.WORKSITE) return null
+        return CoreGpsProposalInbox.Event(eventId("OBJECT_VISIT",hint.atMs,site),
+            CoreGpsProposalInbox.Kind.OBJECT_VISIT,hint.atMs,site,
+            confidence = CoreGpsProposalInbox.Confidence.MEDIUM)
+    }
+
     fun convert(
         journal: Collection<Raw>,
         shift: CoreGpsStageRules.Shift,

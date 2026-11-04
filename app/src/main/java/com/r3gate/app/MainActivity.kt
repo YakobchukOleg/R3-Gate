@@ -181,13 +181,17 @@ class MainActivity : Activity() {
             "shopping" -> toggleShopping()
         }
     }
+    private fun activeObjectIds(d: JSONObject): Set<String> =
+        ObjectIntegrityRules.assignableIds(rows(d,"objects").map {
+            ObjectIntegrityRules.ObjectRef(it.optString("id"),it.optBoolean("archived"))
+        })
+
     /** Recovery entry point when a lock-screen notification was dismissed. */
     private fun pendingGpsStageEventId(d: JSONObject, nowMs: Long): String? {
         val running=active(d) ?: return null
         val saved=(CoreGpsProposalStore.read(AndroidCoreGpsProposalStorage(this)) as?
             CoreGpsProposalStore.ReadResult.Success)?.events ?: return null
-        val activeIds=rows(d,"objects").filter { !it.optBoolean("archived") }
-            .map { it.optString("id") }.toSet()
+        val activeIds=activeObjectIds(d)
         val shift=CoreGpsStageRules.Shift(true,running.optString("kind","Obiekt"),
             running.optString("objectId"))
         val stageStart=maxOf(running.optLong("start"),
@@ -206,8 +210,7 @@ class MainActivity : Activity() {
         val event=current.events.find { it.eventId==eventId &&
             it.decision==CoreGpsProposalInbox.Decision.PROVISIONAL } ?: return
         val d=data(); val running=active(d) ?: return
-        val activeIds=rows(d,"objects").filter { !it.optBoolean("archived") }
-            .map { it.optString("id") }.toSet()
+        val activeIds=activeObjectIds(d)
         val shift=CoreGpsStageRules.Shift(true,running.optString("kind","Obiekt"),running.optString("objectId"))
         val stageStart=maxOf(running.optLong("start"),running.optLong("stageStart",running.optLong("start")))
         if(!CoreGpsStageReviewQueue.isCurrent(eventId,current.events,shift,activeIds,
@@ -227,8 +230,7 @@ class MainActivity : Activity() {
                 CoreGpsStageBridge.dismiss(this)
             }.setNeutralButton("Później", null).setPositiveButton("Potwierdź") { _,_ ->
                 val latest=data(); val nowActive=active(latest) ?: return@setPositiveButton
-                val available=rows(latest,"objects").filter { !it.optBoolean("archived") }
-                    .map { it.optString("id") }.toSet()
+                val available=activeObjectIds(latest)
                 val currentShift=CoreGpsStageRules.Shift(true,nowActive.optString("kind","Obiekt"),
                     nowActive.optString("objectId"))
                 val latestEvents=(CoreGpsProposalStore.read(storage) as?
