@@ -6,7 +6,11 @@ object TimeAnalytics {
     data class Stage(val start:Long,val end:Long,val category:Int)
     data class Shift(val start:Long,val end:Long,val stages:List<Stage>)
     const val PERSONAL = 4
-    data class Result(val totals:LongArray,val hours:Array<LongArray>,val personalMillis:Long=0L)
+    data class Result(val totals:LongArray,val hours:Array<LongArray>,val personalMillis:Long=0L) {
+        val workMillis: Long get() = totals.sum()
+        fun sharePercent(category: Int): Double =
+            if (workMillis == 0L) 0.0 else totals[category] * 100.0 / workMillis
+    }
 
     enum class Period { TODAY, CURRENT_WEEK, PREVIOUS_WEEK, CURRENT_MONTH, PREVIOUS_MONTH, CUSTOM }
 
@@ -28,6 +32,21 @@ object TimeAnalytics {
         Period.PREVIOUS_MONTH -> previousMonth(today)
         Period.CUSTOM -> custom?.takeIf { it.first <= it.second }
     }
+
+    fun restorePeriod(value: String?): Period = when (value) {
+        "month" -> Period.PREVIOUS_MONTH
+        else -> Period.entries.firstOrNull { it.name == value } ?: Period.PREVIOUS_WEEK
+    }
+
+    fun comparisonRange(
+        period: Period, range: Pair<LocalDate, LocalDate>
+    ): Pair<LocalDate, LocalDate> =
+        if (period == Period.CURRENT_MONTH || period == Period.PREVIOUS_MONTH)
+            previousMonth(range.first)
+        else {
+            val days = java.time.temporal.ChronoUnit.DAYS.between(range.first, range.second) + 1L
+            range.first.minusDays(days) to range.first.minusDays(1L)
+        }
 
     private fun week(day: LocalDate): Pair<LocalDate, LocalDate> {
         val monday = day.minusDays((day.dayOfWeek.value - 1).toLong())

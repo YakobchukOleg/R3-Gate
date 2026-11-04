@@ -54,4 +54,29 @@ class TimeAnalyticsPeriodsTest {
         assertArrayEquals(longArrayOf(hour, 0, 0, 0), result.totals)
         assertEquals(2 * hour, result.personalMillis)
     }
+
+    @Test fun legacyChartPreferencesRestoreTheSamePeriods() {
+        assertEquals(TimeAnalytics.Period.PREVIOUS_MONTH, TimeAnalytics.restorePeriod("month"))
+        assertEquals(TimeAnalytics.Period.PREVIOUS_WEEK, TimeAnalytics.restorePeriod("week"))
+        assertEquals(TimeAnalytics.Period.CURRENT_WEEK, TimeAnalytics.restorePeriod("CURRENT_WEEK"))
+        assertEquals(TimeAnalytics.Period.PREVIOUS_WEEK, TimeAnalytics.restorePeriod(null))
+    }
+
+    @Test fun comparisonUsesThePreviousCalendarMonth() {
+        val range = LocalDate.of(2024, 3, 1) to LocalDate.of(2024, 3, 31)
+        assertEquals(LocalDate.of(2024, 2, 1) to LocalDate.of(2024, 2, 29),
+            TimeAnalytics.comparisonRange(TimeAnalytics.Period.CURRENT_MONTH, range))
+    }
+
+    @Test fun comparisonForCustomDatesIsAdjacentAndOfEqualLength() {
+        assertEquals(day.minusDays(3) to day.minusDays(1),
+            TimeAnalytics.comparisonRange(TimeAnalytics.Period.CUSTOM, day to day.plusDays(2)))
+    }
+
+    @Test fun chartSharesHandleEmptyPeriodsAndExcludePersonalTime() {
+        val hours = Array(24) { LongArray(4) }
+        assertEquals(0.0, TimeAnalytics.Result(LongArray(4), hours).sharePercent(0), 0.0)
+        val result = TimeAnalytics.Result(longArrayOf(hour, hour, 0L, 0L), hours, 5 * hour)
+        assertEquals(50.0, result.sharePercent(0), 0.0)
+    }
 }

@@ -2664,11 +2664,35 @@ class MainActivity : Activity() {
     }
     private fun charts() {
         base("Grafiki");screen="charts";nav()
-        val range=if(prefs.getString("chartPeriod","week")=="month") TimeAnalytics.previousMonth(LocalDate.now()) else TimeAnalytics.previousWeek(LocalDate.now())
+        val today=LocalDate.now()
+        val period=TimeAnalytics.restorePeriod(prefs.getString("chartPeriod",null))
+        fun datePreference(key: String): LocalDate =
+            runCatching { LocalDate.parse(prefs.getString(key, today.toString())) }.getOrDefault(today)
+        val custom=datePreference("chartFrom") to datePreference("chartTo")
+        val range=TimeAnalytics.dateRange(period,today,custom)
         filters("charts") {
-            button("Ostatni tydzień") { prefs.edit().putString("chartPeriod","week").apply();charts() }
-            button("Ostatni miesiąc") { prefs.edit().putString("chartPeriod","month").apply();charts() }
+            val periods=listOf(
+                TimeAnalytics.Period.TODAY to "Dzisiaj",
+                TimeAnalytics.Period.CURRENT_WEEK to "Bieżący tydzień",
+                TimeAnalytics.Period.PREVIOUS_WEEK to "Ostatni tydzień",
+                TimeAnalytics.Period.CURRENT_MONTH to "Bieżący miesiąc",
+                TimeAnalytics.Period.PREVIOUS_MONTH to "Ostatni miesiąc",
+                TimeAnalytics.Period.CUSTOM to "Własny okres"
+            )
+            for((choice,caption) in periods) button(caption) {
+                prefs.edit().putString("chartPeriod",choice.name).apply()
+                charts()
+            }
+            if(period==TimeAnalytics.Period.CUSTOM) {
+                button("Data od: "+dateText(custom.first.toString())) {
+                    pickReportDate(custom.first) { prefs.edit().putString("chartFrom",it.toString()).apply(); charts() }
+                }
+                button("Data do: "+dateText(custom.second.toString())) {
+                    pickReportDate(custom.second) { prefs.edit().putString("chartTo",it.toString()).apply(); charts() }
+                }
+            }
         }
+        if(range==null) { label("Data do nie może być wcześniejsza niż Data od."); return }
         label("Wybrany okres: "+dateText(range.first.toString())+" — "+dateText(range.second.toString()))
         val shifts=(rows(data(),"shifts")+listOfNotNull(active(data()))).map { sh ->
             val end=sh.optLong("end",System.currentTimeMillis())
@@ -2685,12 +2709,22 @@ class MainActivity : Activity() {
         }
         label("Podział czasu pracy")
         root.addView(TimeChart(this,result,true),LinearLayout.LayoutParams(-1,dp(240)))
-        val sum=result.totals.sum()
+        val sum=result.workMillis
         result.totals.forEachIndexed { i,n ->
-            root.addView(TextView(this).apply { text="● "+TimeChart.names[i]+" — "+duration(n)+" · "+"%.1f%%".format(Locale("pl"),if(sum==0L) 0.0 else n*100.0/sum);textSize=16f;setTextColor(0xFF37474F.toInt());setPadding(0,dp(7),0,dp(7)) })
+            root.addView(TextView(this).apply { text="● "+TimeChart.names[i]+" — "+duration(n)+" · "+"%.1f%%".format(Locale("pl"),result.sharePercent(i));textSize=16f;setTextColor(0xFF37474F.toInt());setPadding(0,dp(7),0,dp(7)) })
         }
         if(sum==0L) label("Brak czasu pracy w wybranym okresie.")
         if(result.personalMillis>0) label("Czas prywatny: "+duration(result.personalMillis)+" · poza czasem pracy")
+        filters("chartComparison",caption="Porównanie okresów") {
+            val previous=TimeAnalytics.comparisonRange(period,range)
+            val comparison=TimeAnalytics.calculate(shifts,previous.first,previous.second,ZoneId.systemDefault())
+            label("Poprzedni okres: "+dateText(previous.first.toString())+" — "+dateText(previous.second.toString()))
+            label("Czas pracy: "+duration(sum)+" · wcześniej: "+duration(comparison.workMillis))
+            result.totals.forEachIndexed { category, millis ->
+                label(TimeChart.names[category]+": "+duration(millis)+" · wcześniej: "+
+                    duration(comparison.totals[category]))
+            }
+        }
     }
     private fun toggleShopping() {
         if(active(data())?.optString("kind")==PrivateTimeRules.KIND) { toast("Najpierw wznów pracę"); return }
