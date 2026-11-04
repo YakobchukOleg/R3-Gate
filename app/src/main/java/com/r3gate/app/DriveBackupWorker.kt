@@ -69,6 +69,7 @@ class DriveBackupWorker(context:Context,params:WorkerParameters):Worker(context,
                 .put("backupCreatedAt",java.time.Instant.now().toString())
         }
         fun schedule(context:Context) {
+            com.r3gate.app.backup.LocalBackupWorker.schedule(context)
             val p=context.getSharedPreferences("r3_gate",Context.MODE_PRIVATE)
             if(!p.getBoolean("driveConnected",false) || p.getString("driveEmail","").isNullOrBlank() || !p.getBoolean("dailyBackupEnabled",true)) return
             val request=PeriodicWorkRequestBuilder<DriveBackupWorker>(1,TimeUnit.DAYS)
