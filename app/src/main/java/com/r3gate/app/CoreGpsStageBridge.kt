@@ -74,15 +74,17 @@ object CoreGpsStageBridge {
      * The producer journal is one integrity boundary: a broken row must never
      * be skipped while a different row authorizes a work-stage transition.
      */
-    private fun readJournal(context: Context): List<CoreGpsJournalAdapter.Raw>? {
+    private fun readJournal(context: Context, travel: Boolean = false): List<CoreGpsJournalAdapter.Raw>? {
         val prefs = context.getSharedPreferences("r3_gate", Context.MODE_PRIVATE)
-        val journal = try { JSONArray(prefs.getString("gps_events", "[]") ?: "[]") }
+        val key = if (travel) "gps_trip_events" else "gps_events"
+        val journal = try { JSONArray(prefs.getString(key, "[]") ?: "[]") }
             catch (_: Exception) { return null }
         val rows = ArrayList<CoreGpsJournalAdapter.Raw>(journal.length())
         for (i in 0 until journal.length()) {
             val item = journal.optJSONObject(i) ?: return null
             val event = item.opt("event") as? String ?: return null
-            val objectId = item.opt("objectId") as? String ?: return null
+            val objectId = if (travel && !item.has("objectId")) null else
+                item.opt("objectId") as? String ?: return null
             val eventId = when {
                 !item.has("eventId") || item.isNull("eventId") -> null
                 else -> item.opt("eventId") as? String ?: return null
@@ -90,7 +92,7 @@ object CoreGpsStageBridge {
             val time = CoreGpsJournalIntegrity.exactTime(item.opt("time") as? Number)
                 ?: return null
             val metadata = if (listOf("timestampMs", "source", "confirmation", "confidence",
-                    "evidenceStartMs", "evidenceEndMs").any(item::has)) {
+                    "evidenceStartMs", "evidenceEndMs", "tripId").any(item::has)) {
                 val timestamp = CoreGpsJournalIntegrity.exactTime(item.opt("timestampMs") as? Number)
                     ?: return null
                 val source = item.opt("source") as? String ?: return null
@@ -102,11 +104,12 @@ object CoreGpsStageBridge {
                     CoreGpsJournalIntegrity.exactTime(item.opt("evidenceStartMs") as? Number) ?: return null else null
                 val end = if (item.has("evidenceEndMs"))
                     CoreGpsJournalIntegrity.exactTime(item.opt("evidenceEndMs") as? Number) ?: return null else null
-                CoreGpsJournalAdapter.Metadata(timestamp, source, confirmation, confidence, start, end)
+                val tripId = if (item.has("tripId")) item.opt("tripId") as? String ?: return null else null
+                CoreGpsJournalAdapter.Metadata(timestamp, source, confirmation, confidence, start, end, tripId)
             } else null
             rows.add(CoreGpsJournalAdapter.Raw(event, time, objectId, eventId, metadata))
         }
-        return CoreGpsJournalIntegrity.validated(rows)
+        return if (travel) rows else CoreGpsJournalIntegrity.validated(rows)
     }
 
     /** Never approve a restored proposal without matching current producer evidence. */
@@ -137,10 +140,13 @@ object CoreGpsStageBridge {
         }.toSet()
         val shift = CoreGpsStageRules.Shift(true, active.optString("kind", "Obiekt"), active.optString("objectId"))
         val raw = readJournal(context) ?: run { dismiss(context); return }
+        val travel = readJournal(context, travel = true).orEmpty()
+        val travelIds = travel.mapNotNull { it.eventId }.toSet()
         val incoming = CoreGpsJournalAdapter.convert(raw,shift,activeIds,stageStart,nowMs)
-            .filter { hasContinuousCoverage(context,it.timestampMs,nowMs) }
+            .filter { it.eventId !in travelIds && hasContinuousCoverage(context,it.timestampMs,nowMs) }
+        val observations = CoreGpsJournalAdapter.observations(raw + travel, shiftStart, nowMs)
         val storage = AndroidCoreGpsProposalStorage(context)
-        val updated = CoreGpsProposalStore.import(storage, incoming, activeIds)
+        val updated = CoreGpsProposalStore.import(storage, incoming + observations, activeIds)
         if (updated.state !is CoreGpsProposalStore.ReadResult.Success) {
             // Do not leave a previously delivered notification visible when
             // the durable proposal journal is unreadable or cannot be updated.

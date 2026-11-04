@@ -9,7 +9,7 @@ object CoreGpsJournalIntegrity {
     fun validated(rows: Collection<CoreGpsJournalAdapter.Raw?>): List<CoreGpsJournalAdapter.Raw>? {
         val clean = ArrayList<CoreGpsJournalAdapter.Raw>()
         for (row in rows) {
-            if (row == null || row.event !in setOf("ARRIVAL", "DEPARTURE") ||
+            if (row == null || row.event !in setOf("ARRIVAL", "DEPARTURE", "OBJECT_VISIT") ||
                 row.timeMs <= 0L || row.objectId.isNullOrBlank() ||
                 row.eventId?.isBlank() == true || !validMetadata(row)) return null
             clean.add(row)
@@ -22,7 +22,7 @@ object CoreGpsJournalIntegrity {
         val start = metadata.evidenceStartMs
         val end = metadata.evidenceEndMs
         return metadata.timestampMs == row.timeMs && metadata.source == "gps-v1" &&
-            metadata.confirmation == "PROVISIONAL" &&
+            metadata.confirmation == "PROVISIONAL" && metadata.tripId?.isBlank() != true &&
             ((start == null && end == null) ||
                 (start != null && end != null && start > 0L && end in start..row.timeMs))
     }

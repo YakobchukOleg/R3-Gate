@@ -225,7 +225,7 @@ class MainActivity : Activity() {
             .setTitle(title).setMessage(message).setNegativeButton("Odrzuć") { _,_ ->
                 CoreGpsProposalStore.decide(storage,eventId,CoreGpsProposalInbox.Decision.USER_REJECTED)
                 CoreGpsStageBridge.dismiss(this)
-            }.setPositiveButton("Potwierdź") { _,_ ->
+            }.setNeutralButton("Później", null).setPositiveButton("Potwierdź") { _,_ ->
                 val latest=data(); val nowActive=active(latest) ?: return@setPositiveButton
                 val available=rows(latest,"objects").filter { !it.optBoolean("archived") }
                     .map { it.optString("id") }.toSet()
@@ -1183,6 +1183,31 @@ class MainActivity : Activity() {
         label("GPS aktywny działa w tle z widocznym powiadomieniem. Wyłącz GPS, aby zakończyć rejestrację.")
         gpsResumePrompt()
         button("Diagnostyka GPS i baterii Android") { gpsDeviceDiagnostics() }
+        button("Historia obserwacji GPS") {
+            val events=(CoreGpsProposalStore.read(AndroidCoreGpsProposalStorage(this)) as?
+                CoreGpsProposalStore.ReadResult.Success)?.events
+            val entries=events.orEmpty().asReversed().take(50).map { event ->
+                val kind=when(event.kind) {
+                    CoreGpsProposalInbox.Kind.TRIP_START -> "Początek przejazdu"
+                    CoreGpsProposalInbox.Kind.TRIP_STOP -> "Koniec przejazdu"
+                    CoreGpsProposalInbox.Kind.OBJECT_VISIT -> "Wizyta w miejscu"
+                    CoreGpsProposalInbox.Kind.GPS_GAP -> "Przerwa w pomiarach"
+                    CoreGpsProposalInbox.Kind.ARRIVAL -> "Przyjazd"
+                    CoreGpsProposalInbox.Kind.DEPARTURE -> "Wyjazd"
+                }
+                val status=when(event.decision) {
+                    CoreGpsProposalInbox.Decision.PROVISIONAL -> "obserwacja"
+                    CoreGpsProposalInbox.Decision.USER_CONFIRMED -> "potwierdzone"
+                    CoreGpsProposalInbox.Decision.USER_REJECTED -> "odrzucone"
+                }
+                val place=event.objectId?.let(::objectById)?.let(::objectName)
+                listOf(fmt.format(Date(event.timestampMs)),kind,place,status).filterNotNull().joinToString(" · ")
+            }
+            AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Historia obserwacji GPS")
+                .setItems(entries.ifEmpty { listOf(if(events==null) "Nie można odczytać historii" else "Brak obserwacji") }
+                    .toTypedArray()) { _,_ -> }
+                .setPositiveButton("Zamknij",null).show()
+        }
         button("Typy geostref: obiekt / sklep / biuro") { gpsPlaceKinds() }
         val adaptive=prefs.getBoolean("gps_adaptive_sampling",false)
         button("Oszczędzanie GPS z akcelerometrem: "+if(adaptive) "WŁĄCZONE" else "WYŁĄCZONE") {

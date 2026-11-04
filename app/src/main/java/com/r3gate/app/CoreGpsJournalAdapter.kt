@@ -14,7 +14,8 @@ object CoreGpsJournalAdapter {
         val confirmation: String,
         val confidence: CoreGpsProposalInbox.Confidence,
         val evidenceStartMs: Long?,
-        val evidenceEndMs: Long?
+        val evidenceEndMs: Long?,
+        val tripId: String? = null
     )
 
     data class Raw(
@@ -27,6 +28,31 @@ object CoreGpsJournalAdapter {
 
     fun eventId(kind: String, timeMs: Long, objectId: String): String =
         "gps-v1:${kind.length}:$kind:$timeMs:${objectId.length}:$objectId"
+
+    /** Travel and visit evidence is retained for review without authorizing work changes. */
+    fun observations(
+        journal: Collection<Raw>, shiftStartMs: Long, nowMs: Long
+    ): List<CoreGpsProposalInbox.Event> {
+        if (shiftStartMs <= 0L) return emptyList()
+        val supported = setOf(CoreGpsProposalInbox.Kind.TRIP_START, CoreGpsProposalInbox.Kind.TRIP_STOP,
+            CoreGpsProposalInbox.Kind.OBJECT_VISIT, CoreGpsProposalInbox.Kind.GPS_GAP)
+        return journal.groupBy { it.eventId ?: eventId(it.event, it.timeMs, it.objectId.orEmpty()) }
+            .mapNotNull { (id, matches) ->
+                val raw = matches.distinct().singleOrNull() ?: return@mapNotNull null
+                val kind = supported.firstOrNull { it.name == raw.event } ?: return@mapNotNull null
+                if (id.isBlank() || raw.timeMs !in shiftStartMs..nowMs ||
+                    !CoreGpsJournalIntegrity.validMetadata(raw)) return@mapNotNull null
+                val objectId = raw.objectId?.takeIf { it.isNotBlank() }
+                if (kind == CoreGpsProposalInbox.Kind.OBJECT_VISIT && objectId == null) return@mapNotNull null
+                val confidence = raw.metadata?.confidence ?: CoreGpsProposalInbox.Confidence.MEDIUM
+                if (kind != CoreGpsProposalInbox.Kind.GPS_GAP && confidence == CoreGpsProposalInbox.Confidence.LOW)
+                    return@mapNotNull null
+                CoreGpsProposalInbox.Event(id,kind,raw.timeMs,objectId,raw.metadata?.tripId,
+                    if (kind == CoreGpsProposalInbox.Kind.GPS_GAP) CoreGpsProposalInbox.Confidence.LOW else confidence,
+                    evidenceStartMs = raw.metadata?.evidenceStartMs,
+                    evidenceEndMs = raw.metadata?.evidenceEndMs)
+            }.sortedWith(compareBy<CoreGpsProposalInbox.Event> { it.timestampMs }.thenBy { it.eventId })
+    }
 
     fun convert(
         journal: Collection<Raw>,
