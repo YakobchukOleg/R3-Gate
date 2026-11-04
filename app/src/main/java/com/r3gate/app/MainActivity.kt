@@ -2192,16 +2192,41 @@ class MainActivity : Activity() {
             if(requestCode==100) { contentResolver.openOutputStream(uri)?.use { it.write(exportData().toString(2).toByteArray(Charsets.UTF_8)) }; toast("Kopia zapisana") }
             if(requestCode==101) {
                 if(uploading) { toast("Poczekaj na zakończenie przesyłania przed importem"); return }
-                val content=contentResolver.openInputStream(uri)!!.bufferedReader().use { it.readText() }; val imported=JSONObject(content); validateImport(imported)
-                AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Przywrócić kopię?").setMessage("Obecne dane zostaną zastąpione.").setNegativeButton("Anuluj",null).setPositiveButton("Importuj") { _, _ ->
-                    prefs.edit().putString("preImportBackup",data().toString()).putString("data",imported.toString()).putInt("widgetTransparency",imported.optJSONObject("wtSettings")?.optInt("widgetTransparency",prefs.getInt("widgetTransparency",0))?.coerceIn(0,100) ?: prefs.getInt("widgetTransparency",0)).apply(); migrate(); migrateWallet(); GateWidget.refresh(this); logs()
-                }.show()
+                val content=contentResolver.openInputStream(uri)!!.bufferedReader().use { it.readText() }
+                val imported=JSONObject(content)
+                validateImport(imported)
+                val expectedJournal=prefs.getString("data","{}")
+                AlertDialog.Builder(this,R.style.WorkMeterDialogTheme)
+                    .setTitle("Przywrócić kopię?").setMessage("Obecne dane zostaną zastąpione.")
+                    .setNegativeButton("Anuluj",null).setPositiveButton("Importuj") { _, _ ->
+                        if(uploading || prefs.getString("data","{}")!=expectedJournal) {
+                            toast("Dane zmieniły się podczas podglądu. Otwórz kopię ponownie.")
+                            return@setPositiveButton
+                        }
+                        val consent=GpsWorkdaySession.hasConsent(prefs)
+                        val transparency=imported.optJSONObject("wtSettings")
+                            ?.optInt("widgetTransparency",prefs.getInt("widgetTransparency",0))
+                            ?.coerceIn(0,100) ?: prefs.getInt("widgetTransparency",0)
+                        val restored=prefs.edit().putString("preImportBackup",expectedJournal)
+                            .putString("data",imported.toString()).putInt("widgetTransparency",transparency)
+                            .putBoolean(GpsWorkdaySession.CONSENT,consent)
+                            .putBoolean("gps_enabled",false).putBoolean("gps_resume_pending",false)
+                            .putBoolean("gps_service_active",false).remove("gps_session_start")
+                            .commit()
+                        setGpsEnabled(false)
+                        if(!restored) {
+                            toast("Nie udało się potwierdzić zapisu kopii")
+                            return@setPositiveButton
+                        }
+                        migrate(); migrateWallet(); GateWidget.refresh(this); logs()
+                    }.show()
             }
         } catch (_:Exception) { toast("Błąd pliku JSON") }
     }
 
     private fun exportData():JSONObject = DriveBackupWorker.snapshot(this)
     private fun validateImport(d:JSONObject) {
+        require(!d.has("active") || d.optJSONObject("active")!=null) { "Nieprawidłowa aktywna zmiana" }
         for(key in listOf("objects","shifts","links","materials","notes","payments","expenses","logs")) if(d.has(key) && d.optJSONArray(key)==null) throw IllegalArgumentException("Nieprawidłowa lista: "+key)
         if(!listOf("objects","shifts","links","materials","notes","payments").any { d.has(it) }) throw IllegalArgumentException("Brak danych WT")
         for(e in rows(d,"expenses")) {
