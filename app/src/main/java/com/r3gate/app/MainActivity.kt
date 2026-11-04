@@ -7,6 +7,7 @@ import android.location.Location
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.graphics.Color
+import android.graphics.Bitmap
 import android.graphics.drawable.GradientDrawable
 import android.text.Editable
 import android.text.TextWatcher
@@ -2859,12 +2860,26 @@ class MainActivity : Activity() {
         val count = photos.length()
         if (count == 0) return
         label(PhotoPreviewUi.summary(count))
-        val columns = PhotoPreviewUi.columns(count, resources.configuration.screenWidthDp)
-        for (start in 0 until count step columns) {
+        val uploaded = PhotoQueue.uploadedFiles(r)
+        val sent = (0 until count).count { photos.optString(it) in uploaded }
+        if (sent > 0) label("Wysłano na Google Drive: $sent z $count")
+        val visible = (0 until count).mapNotNull { index ->
+            val uri = photos.optString(index)
+            val remoteId = uploaded[uri]
+            val original = try {
+                PhotoPreview.decode(this, Uri.parse(uri), 320)
+            } catch (_: Exception) {
+                null
+            }
+            val preview = original ?: remoteId?.let { PhotoPreview.cachedThumbnail(this, it) }
+            if (preview == null && remoteId != null) null
+            else PhotoTile(index, uri, preview, original != null, remoteId)
+        }
+        val columns = PhotoPreviewUi.columns(visible.size, resources.configuration.screenWidthDp)
+        for (group in visible.chunked(columns)) {
             val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             for (column in 0 until columns) {
-                val index = start + column
-                val view = if (index < count) photoTile(photos.optString(index), index, count, columns) else View(this)
+                val view = group.getOrNull(column)?.let { photoTile(it, count, columns) } ?: View(this)
                 row.addView(view, LinearLayout.LayoutParams(0, -2, 1f).apply {
                     if (column > 0) marginStart = dp(8)
                 })
@@ -2873,13 +2888,11 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun photoTile(uri: String, index: Int, count: Int, columns: Int): View {
-        val bitmap = try {
-            PhotoPreview.decode(this, Uri.parse(uri))
-        } catch (_: Exception) {
-            null
-        }
-        val state = PhotoPreviewUi.state(index, count, bitmap != null)
+    private data class PhotoTile(val index: Int, val uri: String, val bitmap: Bitmap?, val local: Boolean, val remoteId: String?)
+
+    private fun photoTile(photo: PhotoTile, count: Int, columns: Int): View {
+        val bitmap = photo.bitmap
+        val state = PhotoPreviewUi.state(photo.index, count, bitmap != null)
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = background(palette.surface).apply { setStroke(dp(1), palette.border) }
@@ -2888,9 +2901,12 @@ class MainActivity : Activity() {
                 addView(ImageView(this@MainActivity).apply {
                     scaleType = ImageView.ScaleType.FIT_CENTER
                     setImageBitmap(bitmap)
-                    contentDescription = state.accessibilityLabel
+                    contentDescription = if (photo.local) state.accessibilityLabel else state.heading + " · Otwórz w Google Drive"
                     isFocusable = true
-                    setOnClickListener { openPhoto(uri) }
+                    setOnClickListener {
+                        if (photo.local) openPhoto(photo.uri)
+                        else openLink("https://drive.google.com/open?id=" + Uri.encode(photo.remoteId.orEmpty()))
+                    }
                 }, LinearLayout.LayoutParams(-1, dp(if (columns == 2) 120 else 180)))
             } else {
                 addView(TextView(this@MainActivity).apply {

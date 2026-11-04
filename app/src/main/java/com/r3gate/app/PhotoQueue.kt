@@ -10,6 +10,15 @@ object PhotoQueue {
         val caption:String get()=(if(pending==0) "WYSŁANO" else if(error) "BŁĄD WYSYŁANIA" else "W KOLEJCE")+" · wysłano: $sent · oczekuje: ${pending-failed} · błędy: $failed"
         val color:Int get()=if(pending==0) 0xFFD1E8D6.toInt() else if(error) 0xFFF2CCCC.toInt() else 0xFFFFE1BE.toInt()
     }
+    internal fun uploadedFiles(row: JSONObject): Map<String, String> {
+        val files = row.optJSONObject("driveFiles") ?: return emptyMap()
+        return files.keys().asSequence().mapNotNull { key ->
+            val uri = key.substringAfter('|', "")
+            val id = files.optString(key)
+            if (uri.isNotBlank() && id.isNotBlank() && !files.isNull(key)) uri to id else null
+        }.toMap()
+    }
+
     fun status(context:Context,key:String,row:JSONObject):Status {
         val prefs=context.getSharedPreferences("r3_gate",0)
         val email=prefs.getString("driveEmail","").orEmpty()

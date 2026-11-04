@@ -34,70 +34,57 @@ class ObjectDetailsPanel(
         val state = ObjectDetailsUiModel.display(content)
         setBackgroundColor(backgroundColor)
         setPadding(dp(16), dp(12), dp(16), dp(16))
-        val top = LinearLayout(context).apply {
-            orientation = HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        top.addView(text(state.heading, green, 12f).apply {
-            setTypeface(null, Typeface.BOLD)
-        }, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
-        top.addView(action("Edytuj obiekt", onEdit),
-            LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
-        addView(top)
         addView(text(state.title, ink, 24f).apply {
             setTypeface(null, Typeface.BOLD)
             setPadding(0, dp(12), 0, dp(4))
         })
         state.location?.let { addView(text("⌖ $it", muted, 13f)) }
         state.organization?.let { addView(text("◈ $it", muted, 13f)) }
-        addView(action("Otwórz w Google Maps", onMaps))
+        val actions = LinearLayout(context).apply { orientation = HORIZONTAL }
+        actions.addView(action("Edytuj obiekt", onEdit), LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f).apply {
+            marginEnd = dp(4)
+        })
+        actions.addView(action("Otwórz w Google Maps", onMaps), LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
+        addView(actions, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(8)
+        })
         addView(text(state.archiveStatus, if (content.archived) muted else green, 12f).apply {
             setPadding(0, dp(8), 0, dp(8))
         })
 
-        val shortcuts = LinearLayout(context).apply { orientation = HORIZONTAL }
-        listOf(
-            "Materiały" to onMaterials,
-            "Zdjęcia" to onPhotos,
-            "Notatki obiektu" to onNotes
-        ).forEach { (title, callback) ->
-            shortcuts.addView(action(title, callback).apply {
-                minHeight = dp(52)
-            }, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginEnd = dp(5)
+        val tabButtons = mutableListOf<Button>()
+        for (group in ObjectDetailsTabs.Tab.entries.chunked(3)) {
+            val row = LinearLayout(context).apply { orientation = HORIZONTAL }
+            group.forEach { tab ->
+                val button = action(tab.label) {
+                    tabButtons.forEachIndexed { index, view ->
+                        styleTab(view, index == tab.ordinal)
+                    }
+                    renderTab(tab, state)
+                }.apply {
+                    contentDescription = "Zakładka: " + tab.label
+                    styleTab(this, tab == ObjectDetailsTabs.Tab.TODAY)
+                }
+                tabButtons.add(button)
+                row.addView(button, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f).apply {
+                    marginEnd = dp(4)
+                })
+            }
+            addView(row, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(6)
             })
         }
-        addView(shortcuts, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
-            topMargin = dp(12)
-        })
-        val tabs = android.widget.HorizontalScrollView(context).apply {
-            isHorizontalScrollBarEnabled = false
-        }
-        val tabRow = LinearLayout(context).apply { orientation = HORIZONTAL }
-        tabs.addView(tabRow)
-        for (tab in ObjectDetailsTabs.Tab.entries) {
-            tabRow.addView(action(tab.label) {
-                for (i in 0 until tabRow.childCount) {
-                    val button = tabRow.getChildAt(i) as Button
-                    val active = i == tab.ordinal
-                    button.isSelected = active
-                    button.setTextColor(if (active) green else muted)
-                    button.setTypeface(null, if (active) Typeface.BOLD else Typeface.NORMAL)
-                }
-                renderTab(tab, state)
-            }.apply {
-                contentDescription = "Zakładka: " + tab.label
-                isSelected = tab == ObjectDetailsTabs.Tab.TODAY
-                setTextColor(if (isSelected) green else muted)
-                setTypeface(null, if (isSelected) Typeface.BOLD else Typeface.NORMAL)
-            }, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
-        }
-        addView(tabs, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         addView(tabBody, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         renderTab(ObjectDetailsTabs.Tab.TODAY, state)
         addView(text(state.archiveHint, muted, 12f).apply {
             setPadding(0, dp(12), 0, dp(12))
         })
+    }
+
+    private fun styleTab(button: Button, selected: Boolean) {
+        button.isSelected = selected
+        button.setTextColor(if (selected) green else ink)
+        button.setTypeface(null, if (selected) Typeface.BOLD else Typeface.NORMAL)
     }
 
     private fun renderTab(tab: ObjectDetailsTabs.Tab, state: ObjectDetailsUiModel.ViewState) {

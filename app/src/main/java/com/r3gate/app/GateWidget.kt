@@ -4,9 +4,7 @@ import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
 import android.content.*
-import android.os.Build
 import android.os.SystemClock
-import android.util.SizeF
 import android.view.View
 import android.widget.RemoteViews
 import org.json.JSONObject
@@ -35,19 +33,12 @@ class GateWidget : AppWidgetProvider() {
         }
         internal fun update(context: Context, mgr: AppWidgetManager, id: Int) {
             val appearance = WidgetAppearanceStore(context).read(id)
-            val views = if (Build.VERSION.SDK_INT >= 31) {
-                RemoteViews(WidgetLayoutProfile.entries.associate { profile ->
-                    SizeF(profile.minWidthDp.toFloat(), profile.minHeightDp.toFloat()) to render(context, profile, appearance)
-                })
-            } else {
-                val options = mgr.getAppWidgetOptions(id)
-                val profile = WidgetLayoutProfile.forBounds(
-                    options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 250),
-                    options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 160)
-                )
-                render(context, profile, appearance)
-            }
-            mgr.updateAppWidget(id, views)
+            val options = mgr.getAppWidgetOptions(id)
+            val profile = WidgetLayoutProfile.forBounds(
+                options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 250),
+                options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 160)
+            )
+            mgr.updateAppWidget(id, render(context, profile, appearance))
         }
         internal fun render(
             context: Context,
@@ -66,7 +57,11 @@ class GateWidget : AppWidgetProvider() {
             val expanded = profile == WidgetLayoutProfile.EXPANDED
             val v=RemoteViews(context.packageName,R.layout.widget)
             val theme = appearance.theme ?: WorkMeterAppearance.theme(context)
-            v.setInt(R.id.wbackground, "setColorFilter", theme.palette.header)
+            v.setImageViewResource(R.id.wbackground, when (theme) {
+                WorkMeterTheme.SLATE_SAGE -> R.drawable.widget_bg
+                WorkMeterTheme.NORDIC_BLUE -> R.drawable.widget_bg_nordic
+                WorkMeterTheme.GRAPHITE_DARK -> R.drawable.widget_bg_graphite
+            })
             v.setInt(R.id.wbackground, "setImageAlpha", appearance.backgroundAlpha(prefs.getInt("widgetTransparency", 0)))
             val travel=a?.optString("kind")=="Przejazd"
             val personal=a?.optString("kind")=="Prywatnie"

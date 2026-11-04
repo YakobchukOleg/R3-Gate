@@ -130,6 +130,11 @@ class DriveUploadWorker(context:Context,params:WorkerParameters):Worker(context,
                         JSONObject(upload.inputStream.bufferedReader().use { it.readText() }).getString("id")
                     } finally { upload.disconnect() }
                 }
+                try {
+                    PhotoPreview.rememberThumbnail(applicationContext, Uri.parse(photo), remoteId)
+                } catch (_: Exception) {
+                    // The Drive receipt remains valid even if a local thumbnail cannot be cached.
+                }
                 onMain {
                     val d=data(); val current=rows(d,key).find { it.optString("id")==id }
                     if(current!=null) {

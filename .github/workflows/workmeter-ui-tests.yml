@@ -5,6 +5,7 @@ on:
     branches:
       - feature/workmeter-ui
       - integration/workmeter-ui
+      - fix/phone-feedback
   workflow_dispatch:
 
 permissions:
@@ -46,7 +47,7 @@ jobs:
           if-no-files-found: warn
 
   ui-device-tests:
-    if: github.event_name == 'workflow_dispatch' || github.ref_name == 'integration/workmeter-ui'
+    if: github.event_name == 'workflow_dispatch' || github.ref_name == 'integration/workmeter-ui' || github.ref_name == 'fix/phone-feedback'
     name: Android instrumentation suite
     runs-on: ubuntu-24.04
     timeout-minutes: 25
