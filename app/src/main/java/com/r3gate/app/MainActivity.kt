@@ -2106,7 +2106,11 @@ class MainActivity : Activity() {
     private val displayDate = DateTimeFormatter.ofPattern("dd-MM-yyyy")
     private fun rows(d:JSONObject,key:String) = (0 until arr(d,key).length()).mapNotNull { arr(d,key).optJSONObject(it) }
     private fun objectName(o:JSONObject) = listOf(o.optString("TAG"),o.optString("organization"),o.optString("city"),o.optString("Adres")).filter { it.isNotBlank() }.joinToString(" · ")
-    private fun objectById(id:String) = rows(data(),"objects").find { it.optString("id")==id }
+    private fun objectSummary(row: JSONObject) = ObjectUiGateway.Summary(
+        row.optString("id"), row.optString("TAG"), row.optString("city"), row.optString("Adres"),
+        row.optString("name", row.optString("Opis")), row.optBoolean("archived")
+    )
+    private fun objectById(id:String) = rows(data(),"objects").singleOrNull { id.isNotBlank() && it.optString("id")==id }
     private fun localDate(ms:Long) = Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()).toLocalDate()
     private fun dateText(iso:String):String = try { LocalDate.parse(iso).format(displayDate) } catch (_:Exception) { "Data nieznana — starszy wpis" }
     private fun recordDate(r:JSONObject):String {
@@ -2148,7 +2152,10 @@ class MainActivity : Activity() {
         objectPicker(optional,false,selected)
     }
     private fun objectPicker(optional:Boolean, arrival:Boolean, selected:(JSONObject?)->Unit) {
-        val options=rows(data(),"objects").filter { !it.optBoolean("archived") }
+        val savedObjects=rows(data(),"objects")
+        val catalog=ObjectUiGateway(savedObjects.map(::objectSummary))
+        val selectableIds=catalog.selectableObjects().map { it.id }.toSet()
+        val options=savedObjects.filter { it.optString("id") in selectableIds }
         val layout=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(dp(20),dp(8),dp(20),dp(8)) }
         val searchRow=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; gravity=Gravity.CENTER_VERTICAL }
         val query=EditText(ContextThemeWrapper(this,R.style.WorkMeterDialogTheme)).apply { hint="Szukaj miasta"; setSingleLine(); inputType=InputType.TYPE_CLASS_TEXT; imeOptions=android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH }
@@ -2159,7 +2166,11 @@ class MainActivity : Activity() {
         fun renderResults() {
             results.removeAllViews()
             val matches=options.filter { ObjectSearch.matches(it.optString("city"),query.text.toString()) }.sortedWith { x,y -> ObjectSearch.compareTags(x.optString("TAG"),y.optString("TAG")) }
-            for(obj in matches) results.addView(makeButton(objectName(obj)) { dialog.dismiss(); selected(obj) },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(6) })
+            for(obj in matches) results.addView(makeButton(objectName(obj)) {
+                val current=objectById(obj.optString("id"))?.takeUnless { it.optBoolean("archived") }
+                if(current==null) { toast("Obiekt nie jest już dostępny"); dialog.dismiss() }
+                else { dialog.dismiss(); selected(current) }
+            },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(6) })
             if(matches.isEmpty()) results.addView(TextView(this).apply { text="Brak obiektów dla tego miasta"; setTextColor(0xFF37474F.toInt()); setPadding(0,dp(12),0,dp(12)) })
         }
         searchRow.addView(makeButton("⌕") { renderResults(); (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(query.windowToken,0) }.apply { contentDescription="Szukaj"; textSize=24f; background=background(0xFF37474F.toInt()); setTextColor(Color.WHITE) },LinearLayout.LayoutParams(dp(48),dp(48)))
@@ -2269,11 +2280,19 @@ class MainActivity : Activity() {
         button("Materiały") { openScreen("list:materials:"+id) }
         button("Zdjęcia") { openScreen("list:links:"+id) }
         button("Notatki obiektu") { openScreen("list:notes:"+id) }
-        button(if(obj.optBoolean("archived")) "Przywróć obiekt" else "Usuń z listy aktywnych") {
+        val archiveObject = !obj.optBoolean("archived")
+        button(if(archiveObject) "Usuń z listy aktywnych" else "Przywróć obiekt") {
             confirmAction {
-                val d=data(); val o=rows(d,"objects").find { it.optString("id")==id } ?: return@confirmAction
-                o.put("archived",!o.optBoolean("archived"))
-                save(d,"OBJECT_ARCHIVE",id); objects()
+                val d=data()
+                val saved=rows(d,"objects")
+                val change=ObjectUiGateway(saved.map(::objectSummary)).setArchived(id,archiveObject)
+                    ?: return@confirmAction
+                val row=saved.singleOrNull { it.optString("id")==change.id } ?: return@confirmAction
+                if(row.optBoolean("archived")!=change.archived) {
+                    row.put("archived",change.archived)
+                    save(d,"OBJECT_ARCHIVE",id)
+                }
+                objects()
             }
         }
         label("Usunięcie z listy archiwizuje obiekt. Historia pracy i wpisy pozostają dostępne.")
@@ -2589,7 +2608,20 @@ class MainActivity : Activity() {
         val d=data()
         if(formKind=="objects") {
             val city=draft.optString("city").trim()
-            if(city.isBlank() || draft.optString("Adres").isBlank()) { toast("Podaj miasto i adres"); return }
+            val existingObjects=rows(d,"objects")
+            val catalog=ObjectUiGateway(existingObjects.map(::objectSummary))
+            val draftObject=objectSummary(draft)
+            val previousId=existingObjects.firstOrNull { it.optString("id")==draftObject.id }?.optString("id")
+            val error=catalog.validateObjectDraft(draftObject,previousId,draft.optString("tagPrefix"))
+            if(error!=null) {
+                toast(when(error) {
+                    ObjectUiGateway.DraftError.MISSING_CITY,
+                    ObjectUiGateway.DraftError.MISSING_ADDRESS -> "Podaj miasto i adres"
+                    ObjectUiGateway.DraftError.INVALID_TAG_PREFIX -> "Tag musi zawierać litery lub cyfry"
+                    else -> "Nieprawidłowy identyfikator obiektu"
+                })
+                return
+            }
             if(draft.optString("TAG").isBlank()) {
                 val prefix=if(draft.optString("tagPrefix").isBlank()) DomainRules.cityPrefix(city) else DomainRules.customPrefix(draft.optString("tagPrefix"))
                 if(prefix.isBlank()) { toast("Tag musi zawierać litery lub cyfry"); return }
@@ -2619,12 +2651,7 @@ class MainActivity : Activity() {
         if((maps.isNotBlank() && !maps.startsWith("https://")) || (link.isNotBlank() && !link.startsWith("https://"))) { toast("Link musi zaczynać się od https://"); return }
         // Validate object references at the persistence boundary, including stale drafts.
         val objectRefs=rows(d,"objects").map { ObjectIntegrityRules.ObjectRef(it.optString("id"),it.optBoolean("archived")) }
-        if(formKind=="objects") {
-            val old=rows(d,"objects").find { it.optString("id")==draft.optString("id") }
-            if(old==null && !ObjectIntegrityRules.validateNewId(draft.optString("id"),objectRefs)) {
-                toast("Nieprawidłowy identyfikator obiektu"); return
-            }
-        } else {
+        if(formKind!="objects") {
             val assigned=draft.optString("objectId")
             if(assigned.isNotBlank()) {
                 val old=rows(d,formKind).find { it.optString("id")==draft.optString("id") }

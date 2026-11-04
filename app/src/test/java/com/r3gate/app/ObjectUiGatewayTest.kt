@@ -50,4 +50,14 @@ class ObjectUiGatewayTest {
         assertEquals(ObjectUiGateway.DraftError.MISSING_ADDRESS, gateway.validateObjectDraft(draft.copy(address = ""), null))
         assertEquals(ObjectUiGateway.DraftError.INVALID_TAG_PREFIX, gateway.validateObjectDraft(draft, null, "???"))
     }
+
+    @Test fun freshCatalogRejectsStaleSelectionAfterArchive() {
+        val selected = gateway.selectableObjects().single()
+        val changed = gateway.setArchived(selected.id, true)!!
+        val reloaded = ObjectUiGateway(listOf(changed, archive))
+        assertTrue(reloaded.selectableObjects().isEmpty())
+        assertFalse(reloaded.validateAssociation(selected.id, null, true))
+        assertEquals(selected.id, reloaded.getObject(selected.id)?.id)
+        assertTrue(reloaded.validateAssociation(selected.id, selected.id, true))
+    }
 }
