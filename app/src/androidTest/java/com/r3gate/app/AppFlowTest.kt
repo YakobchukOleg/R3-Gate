@@ -441,7 +441,7 @@ class AppFlowTest {
 
         instrumentation.runOnMainSync {
             val density = context.resources.displayMetrics.density
-            for ((width, height) in listOf(144 to 68, 144 to 144, 296 to 68, 220 to 128, 296 to 220)) {
+            for ((width, height) in listOf(144 to 68, 144 to 144, 296 to 68, 220 to 144, 296 to 220)) {
                 val profile = WidgetLayoutProfile.forBounds(width, height)
                 val parent = android.widget.FrameLayout(context)
                 val view = GateWidget.render(context, profile).apply(context, parent) as ViewGroup
@@ -466,8 +466,8 @@ class AppFlowTest {
 
                 checkAction(R.id.wstopbutton, width >= 220 || height >= 112)
                 checkAction(R.id.wcamera, width >= 220)
-                checkAction(R.id.wtravel, width >= 220 && height >= 128)
-                checkAction(R.id.wshopping, width >= 220 && height >= 128)
+                checkAction(R.id.wtravel, width >= 220 && height >= 144)
+                checkAction(R.id.wshopping, width >= 220 && height >= 144)
             }
         }
     }

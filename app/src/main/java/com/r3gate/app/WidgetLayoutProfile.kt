@@ -4,7 +4,7 @@ internal enum class WidgetLayoutProfile(val minWidthDp: Int, val minHeightDp: In
     MINI(110, 68, "Mini"),
     COMPACT(110, 112, "Compact"),
     WIDE_SHORT(220, 64, "Wide short"),
-    STANDARD(220, 128, "Standard"),
+    STANDARD(220, 144, "Standard"),
     EXPANDED(220, 208, "Expanded");
 
     companion object {
