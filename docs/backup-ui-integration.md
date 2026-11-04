@@ -68,3 +68,13 @@ Use `BackupState.label` for Polish labels and `needsAttention` for contextual
 indicators. Present scheduled periodic work separately from a retry waiting
 for connectivity. Older successful workers without a verified result are
 excluded from the operation list. Read this snapshot off the UI thread.
+
+## Recovery after restore
+
+`JournalRestoreStore.previewRecovery` inspects the private checkpoint made before
+the last replacement and checks that referenced local photos remain readable.
+Present its summary and ask for explicit confirmation before calling `recover`.
+Recovery rejects an edited journal or replaced checkpoint after preview. It saves
+a separate rollback checkpoint before writing, leaving the original recovery copy
+intact. This checkpoint contains journal data and local photo references, so it is
+an on-device recovery option and requires those original files to remain available.

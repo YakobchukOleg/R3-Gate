@@ -14,9 +14,11 @@ import java.nio.file.StandardCopyOption
 internal object JournalRecoveryCheckpoint {
     private const val ARCHIVE = "journal-before-restore.wmb.zip"
 
+    fun file(directory: File): File = File(directory, ARCHIVE)
+
     fun save(directory: File, journal: String): File {
         require(directory.isDirectory || directory.mkdirs()) { "Cannot create private backup directory" }
-        val target = File(directory, ARCHIVE)
+        val target = file(directory)
         val temp = File.createTempFile(".restore-", ".tmp", directory)
         try {
             FileOutputStream(temp).use { file ->

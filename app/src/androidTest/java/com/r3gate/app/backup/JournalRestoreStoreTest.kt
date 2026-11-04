@@ -18,15 +18,19 @@ class JournalRestoreStoreTest {
     private var original: String? = null
     private val checkpoint get() = java.io.File(context.noBackupFilesDir, "journal-before-restore.wmb.zip")
     private var originalCheckpoint: ByteArray? = null
+    private val undoCheckpoint get() = JournalRecoveryCheckpoint.file(java.io.File(context.noBackupFilesDir, "before-recovery"))
+    private var originalUndo: ByteArray? = null
     private val before = """{"objects":[{"id":"existing"}]}"""
     private val incoming = """{"objects":[{"id":"archived","archived":true}],"shifts":[{"objectId":"archived"}]}"""
 
     @Before fun setUp() {
         original = prefs.getString("data", null)
         originalCheckpoint = if (checkpoint.exists()) checkpoint.readBytes() else null
+        originalUndo = if (undoCheckpoint.exists()) undoCheckpoint.readBytes() else null
         assertTrue(prefs.edit().putString("data", before).commit())
     }
     @After fun tearDown() {
+        if (originalUndo == null) undoCheckpoint.delete() else undoCheckpoint.writeBytes(originalUndo!!)
         if (originalCheckpoint == null) checkpoint.delete()
         else checkpoint.writeBytes(originalCheckpoint!!)
         assertTrue(prefs.edit().apply {
@@ -97,6 +101,59 @@ class JournalRestoreStoreTest {
         } catch (_: IllegalArgumentException) { }
         assertFalse(checkpoint.exists())
         assertEquals(before, prefs.getString("data", null))
+    }
+
+    @Test fun recoveryRequiresConfirmationAndKeepsCheckpoint() {
+        JournalRestoreStore.restore(context, plan(), true)
+        val recovery = requireNotNull(JournalRestoreStore.previewRecovery(context))
+        assertTrue(recovery.summary.replacesJournal)
+        assertEquals(1, recovery.summary.objects)
+        assertThrows(IllegalArgumentException::class.java) { JournalRestoreStore.recover(context, recovery, false) }
+        assertEquals(incoming, prefs.getString("data", null))
+        assertEquals(before, JournalRecoveryCheckpoint.readVerified(checkpoint))
+    }
+
+    @Test fun recoveryRestoresPriorJournalAndPreservesBothVersions() {
+        JournalRestoreStore.restore(context, plan(), true)
+        val recovery = requireNotNull(JournalRestoreStore.previewRecovery(context))
+        assertEquals(JournalRestoreStore.Outcome.RESTORED, JournalRestoreStore.recover(context, recovery, true))
+        assertEquals(before, prefs.getString("data", null))
+        assertEquals(before, JournalRecoveryCheckpoint.readVerified(checkpoint))
+        assertEquals(incoming, JournalRecoveryCheckpoint.readVerified(undoCheckpoint))
+    }
+
+    @Test fun recoveryRejectsJournalEditedAfterPreview() {
+        JournalRestoreStore.restore(context, plan(), true)
+        val recovery = requireNotNull(JournalRestoreStore.previewRecovery(context))
+        assertTrue(prefs.edit().putString("data", "{}").commit())
+        assertThrows(IllegalArgumentException::class.java) { JournalRestoreStore.recover(context, recovery, true) }
+        assertEquals("{}", prefs.getString("data", null))
+    }
+
+    @Test fun recoveryRejectsReplacedCheckpointAfterPreview() {
+        JournalRestoreStore.restore(context, plan(), true)
+        val recovery = requireNotNull(JournalRestoreStore.previewRecovery(context))
+        JournalRecoveryCheckpoint.save(context.noBackupFilesDir, "{}")
+        assertThrows(IllegalArgumentException::class.java) { JournalRestoreStore.recover(context, recovery, true) }
+        assertEquals(incoming, prefs.getString("data", null))
+    }
+
+    @Test fun recoveryRejectsPhotoRemovedAfterPreview() {
+        val photo = java.io.File.createTempFile("recovery-photo-", ".jpg", context.cacheDir)
+        try {
+            photo.writeBytes(byteArrayOf(1, 2, 3))
+            val uri = android.net.Uri.fromFile(photo)
+            JournalRecoveryCheckpoint.save(context.noBackupFilesDir, """{"links":[{"photos":["$uri"]}]}""")
+            val recovery = requireNotNull(JournalRestoreStore.previewRecovery(context))
+            assertEquals(1, recovery.summary.photos)
+            assertTrue(photo.delete())
+            assertThrows(java.io.FileNotFoundException::class.java) {
+                JournalRestoreStore.recover(context, recovery, true)
+            }
+            assertEquals(before, prefs.getString("data", null))
+        } finally {
+            photo.delete()
+        }
     }
 
 }
