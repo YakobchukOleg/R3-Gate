@@ -7,9 +7,14 @@ import java.net.HttpURLConnection
 import java.net.URLEncoder
 
 /** App-private Drive files only. Reusing and renaming the legacy root preserves existing photo links. */
-internal class DriveStore {
+internal class DriveStore(
+    private val openConnection: (String) -> HttpURLConnection =
+        { URL(it).openConnection() as HttpURLConnection }
+) {
+    internal fun connect(url: String): HttpURLConnection = openConnection(url)
+
     fun json(method:String,url:String,token:String,body:JSONObject?=null):JSONObject {
-        val c=URL(url).openConnection() as HttpURLConnection
+        val c=connect(url)
         try {
             c.requestMethod=method; c.connectTimeout=20000; c.readTimeout=30000
             c.setRequestProperty("Authorization","Bearer "+token)

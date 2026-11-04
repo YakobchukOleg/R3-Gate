@@ -7,7 +7,6 @@ import org.json.JSONObject
 import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
-import java.net.URL
 import java.security.MessageDigest
 import java.io.RandomAccessFile
 import java.net.URI
@@ -126,7 +125,7 @@ internal class DriveBackupUpload(private val drive: DriveStore, private val toke
     }
 
     private fun connection(url: String, method: String): HttpURLConnection =
-        (URI(url).toURL().openConnection() as HttpURLConnection).apply {
+        drive.connect(url).apply {
             requestMethod = method
             instanceFollowRedirects = false
             connectTimeout = 20_000
