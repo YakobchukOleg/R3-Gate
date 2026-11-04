@@ -219,68 +219,123 @@ class MainActivity : Activity() {
                 !CoreGpsStageBridge.hasJournalEvidence(this,event))) return
         val obj=rows(d,"objects").find { it.optString("id")==event.objectId } ?: return
         val stage=CoreGpsStageRules.proposal(event.kind,event.objectId,shift,activeIds) ?: return
-        val title=if(stage==CoreGpsStageRules.Proposal.START_TRAVEL)
-            "Rozpocząć przejazd?" else "Potwierdzić przyjazd?"
-        val message=if(stage==CoreGpsStageRules.Proposal.START_TRAVEL)
-            "GPS wykrył wyjazd z: "+objectName(obj)+"\\nZmienimy etap od chwili potwierdzenia."
-        else "GPS wykrył przyjazd: "+objectName(obj)+"\\nZmienimy etap od chwili potwierdzenia."
-        AlertDialog.Builder(this,R.style.WorkMeterDialogTheme)
-            .setTitle(title).setMessage(message).setNegativeButton("Odrzuć") { _,_ ->
+        val arriving = stage == CoreGpsStageRules.Proposal.ARRIVE_OBJECT
+        val shiftId = running.optString("id")
+        var destinationId = if (arriving) event.objectId else null
+        var destinationName = objectName(obj)
+        var correctedTime: Long? = null
+        val zone = ZoneId.systemDefault()
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(8), dp(16), dp(8))
+        }
+        val time = Button(this)
+        fun updateTime() {
+            time.text = correctedTime?.let { "Godzina zmiany: " + fmt.format(Date(it)) }
+                ?: "Godzina zmiany: chwila potwierdzenia"
+        }
+        updateTime()
+        time.setOnClickListener {
+            val selected = Instant.ofEpochMilli(correctedTime ?: event.timestampMs).atZone(zone)
+            AlertDialog.Builder(this, R.style.WorkMeterDialogTheme).setTitle("Godzina zmiany")
+                .setItems(arrayOf("Chwila potwierdzenia", "Godzina GPS", "Wybierz datę i godzinę")) { _, index ->
+                    when (index) {
+                        0 -> { correctedTime = null; updateTime() }
+                        1 -> { correctedTime = event.timestampMs; updateTime() }
+                        else -> pickReportDate(selected.toLocalDate()) { date ->
+                            TimePickerDialog(this, { _, hour, minute ->
+                                val local = date.atTime(hour, minute)
+                                val resolved = WorkShiftIntegrity.resolveEditTime(local, zone, selected.toInstant().toEpochMilli())
+                                if (resolved == null) toast("Wybrana godzina nie istnieje w tej strefie czasowej")
+                                else { correctedTime = resolved; updateTime() }
+                            }, selected.hour, selected.minute, true).show()
+                        }
+                    }
+                }.show()
+        }
+        layout.addView(time)
+        if (arriving) layout.addView(Button(this).apply {
+            text = "Miejsce: $destinationName"
+            setOnClickListener {
+                chooseObject(false) { place ->
+                    if (place != null) {
+                        destinationId = place.optString("id")
+                        destinationName = objectName(place)
+                        text = "Miejsce: $destinationName"
+                    }
+                }
+            }
+        })
+        val dialog = AlertDialog.Builder(this,R.style.WorkMeterDialogTheme)
+            .setTitle(if(arriving) "Potwierdzić przyjazd?" else "Rozpocząć przejazd?")
+            .setMessage((if(arriving) "GPS wykrył przyjazd: " else "GPS wykrył wyjazd z: ") + objectName(obj))
+            .setView(layout)
+            .setNegativeButton("Odrzuć") { _,_ ->
                 CoreGpsProposalStore.decide(storage,eventId,CoreGpsProposalInbox.Decision.USER_REJECTED)
                 CoreGpsStageBridge.dismiss(this)
-            }.setNeutralButton("Później", null).setPositiveButton("Potwierdź") { _,_ ->
-                val latest=data(); val nowActive=active(latest) ?: return@setPositiveButton
+            }.setNeutralButton("Później", null).setPositiveButton("Potwierdź", null).create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val latest=data()
+                val nowActive=active(latest) ?: return@setOnClickListener
                 val available=activeObjectIds(latest)
                 val currentShift=CoreGpsStageRules.Shift(true,nowActive.optString("kind","Obiekt"),
                     nowActive.optString("objectId"))
                 val latestEvents=(CoreGpsProposalStore.read(storage) as?
-                    CoreGpsProposalStore.ReadResult.Success)?.events ?: return@setPositiveButton
-                val stageStart=maxOf(nowActive.optLong("start"),
+                    CoreGpsProposalStore.ReadResult.Success)?.events ?: return@setOnClickListener
+                val latestStageStart=maxOf(nowActive.optLong("start"),
                     nowActive.optLong("stageStart",nowActive.optLong("start")))
-                if(!CoreGpsStageReviewQueue.isCurrent(eventId,latestEvents,currentShift,
-                        available,stageStart,System.currentTimeMillis()) ||
-                    (!CoreGpsStageBridge.hasContinuousCoverage(this,event.timestampMs,System.currentTimeMillis()) ||
-                        !CoreGpsStageBridge.hasJournalEvidence(this,event))) {
-                    toast("Propozycja jest już nieaktualna"); return@setPositiveButton
-                }
-                val selected=rows(latest,"objects").find { it.optString("id")==event.objectId &&
-                    !it.optBoolean("archived") } ?: return@setPositiveButton
                 val now=System.currentTimeMillis()
-                if(now<=nowActive.optLong("stageStart",nowActive.optLong("start"))) return@setPositiveButton
-                if(stage==CoreGpsStageRules.Proposal.START_TRAVEL) {
-                    closeStage(nowActive,now)
+                if(nowActive.optString("id")!=shiftId || currentShift!=shift || latestStageStart!=stageStart ||
+                    latestEvents.none { it == event } ||
+                    !CoreGpsStageReviewQueue.isCurrent(eventId,latestEvents,currentShift,available,latestStageStart,now) ||
+                    !CoreGpsStageBridge.hasContinuousCoverage(this,event.timestampMs,now) ||
+                    !CoreGpsStageBridge.hasJournalEvidence(this,event)) {
+                    toast("Propozycja jest już nieaktualna"); return@setOnClickListener
+                }
+                val transitionTime=correctedTime ?: now
+                val recorded=(rows(nowActive,"stages") + rows(latest,"shifts")).map(::stageInterval)
+                if(!CoreGpsStageRules.canConfirmCorrection(stage,destinationId,available,
+                        latestStageStart,transitionTime,now,recorded)) {
+                    toast("Sprawdź godzinę i miejsce. Etap nie może nakładać się na zapisany czas.")
+                    return@setOnClickListener
+                }
+                if(!arriving) {
+                    closeStage(nowActive,transitionTime)
                     val origin=nowActive.optString("object")
-                    nowActive.put("stageStart",now).put("kind","Przejazd")
+                    nowActive.put("stageStart",transitionTime).put("kind","Przejazd")
                         .put("object","").put("objectId","")
-                        .put("stageMeta",JSONObject().put("fromObject",origin)
-                            .put("fromObjectId",event.objectId))
+                        .put("stageMeta",JSONObject().put("fromObject",origin).put("fromObjectId",event.objectId))
                 } else {
-                    if(nowActive.optString("kind")=="Przejazd")
-                        nowActive.optJSONObject("stageMeta")?.put("toObject",objectName(selected))
-                            ?.put("toObjectId",event.objectId)
-                    closeStage(nowActive,now)
+                    val selected=rows(latest,"objects").singleOrNull { it.optString("id")==destinationId }
+                        ?: return@setOnClickListener
+                    val name=objectName(selected)
+                    nowActive.optJSONObject("stageMeta")?.put("toObject",name)?.put("toObjectId",destinationId)
+                    closeStage(nowActive,transitionTime)
                     nowActive.remove("stageMeta")
-                    nowActive.put("stageStart",now).put("kind",workStageFor(selected))
-                        .put("object",objectName(selected)).put("objectId",event.objectId)
+                    nowActive.put("stageStart",transitionTime).put("kind",workStageFor(selected))
+                        .put("object",name).put("objectId",destinationId)
                 }
                 // Commit the confirmed stage and reviewed proposal in the same durable write.
                 // A process death cannot leave the work stage applied but the event pending.
-                val reviewed=(CoreGpsProposalStore.read(storage) as? CoreGpsProposalStore.ReadResult.Success)
-                    ?.events ?: return@setPositiveButton
-                val marked=CoreGpsProposalInbox.decide(reviewed,eventId,
+                val marked=CoreGpsProposalInbox.decide(latestEvents,eventId,
                     CoreGpsProposalInbox.Decision.USER_CONFIRMED)
                 arr(latest,"logs").put(JSONObject().put("at",fmt.format(Date()))
-                    .put("type","GPS_STAGE_CONFIRMED").put("detail",eventId))
+                    .put("type","GPS_STAGE_CONFIRMED").put("detail",eventId)
+                    .put("transitionTimeMs",transitionTime).put("destinationId",destinationId))
                 if(!prefs.edit().putString("data",latest.toString())
                     .putString(CoreGpsProposalStore.KEY,CoreGpsProposalStore.encode(marked))
                     .commit()) {
                     toast("Nie zapisano zmiany etapu, spróbuj ponownie")
-                    return@setPositiveButton
+                    return@setOnClickListener
                 }
                 GateWidget.refresh(this)
                 CoreGpsStageBridge.dismiss(this)
+                dialog.dismiss()
                 home()
-            }.show()
+            }
+        }
+        dialog.show()
     }
     private fun data(): JSONObject = try { JSONObject(prefs.getString("data","{}")!!) } catch (_: Exception) { JSONObject() }
     private fun arr(d:JSONObject,key:String):JSONArray = d.optJSONArray(key) ?: JSONArray().also { d.put(key,it) }

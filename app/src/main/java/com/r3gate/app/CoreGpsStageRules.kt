@@ -21,6 +21,24 @@ object CoreGpsStageRules {
         }
     }
 
+    fun canConfirmCorrection(
+        proposal: Proposal,
+        destinationId: String?,
+        activeObjectIds: Set<String>,
+        stageStartMs: Long,
+        transitionMs: Long,
+        nowMs: Long,
+        recorded: List<WorkShiftIntegrity.Interval>
+    ): Boolean {
+        if (stageStartMs <= 0 || transitionMs <= stageStartMs || transitionMs > nowMs) return false
+        if (proposal == Proposal.ARRIVE_OBJECT && destinationId !in activeObjectIds) return false
+        if (proposal == Proposal.START_TRAVEL && destinationId != null) return false
+        val affected = WorkShiftIntegrity.Interval(stageStartMs, nowMs)
+        return recorded.none {
+            WorkShiftIntegrity.isValid(it.start, it.end) && WorkShiftIntegrity.overlaps(affected, it)
+        }
+    }
+
     fun canApply(event: CoreGpsProposalInbox.Event, shift: Shift,
                  activeObjectIds: Set<String>): Boolean =
         event.decision == CoreGpsProposalInbox.Decision.PROVISIONAL &&
