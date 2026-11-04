@@ -1691,18 +1691,22 @@ class MainActivity : Activity() {
         if(to.isBefore(from)) { label("Data do nie może być wcześniejsza niż Data od."); return }
         val d=data(); val config=walletConfig(d); val shifts=walletShifts(d); val payments=walletPayments(d)
         val summary=WalletRules.summary(shifts,payments,from,to)
-        label("Naliczone: "+money(summary.earned))
+        label((if(summary.conflictingRateMillis==0L) "Naliczone: " else "Naliczone bez spornego czasu: ")+money(summary.earned))
+        if(summary.conflictingRateMillis>0L) label("Różne stawki w tym samym czasie: "+duration(summary.conflictingRateMillis)+". Sprawdź zmiany w Mój czas.")
         label("Otrzymano — gotówka: "+money(summary.cash))
         label("Otrzymano — karta: "+money(summary.card))
-        if(summary.overlapping==0) label((if(summary.due>=0) "Do wypłaty: " else "Nadpłata: ")+money(kotlin.math.abs(summary.due)))
-        else label("Saldo okresu niepełne: "+summary.overlapping+" wypłat obejmuje szerszy okres. Poszerz daty lub popraw przypisanie wypłaty.")
-        val global=WalletRules.earned(shifts)+config.optLong("openingCents")-payments.sumOf { it.cents }
-        label((if(global>=0) "Łącznie do wypłaty (cała historia): " else "Łączna nadpłata (cała historia): ")+money(kotlin.math.abs(global)))
+        if(summary.overlapping==0 && summary.conflictingRateMillis==0L) label((if(summary.due>=0) "Do wypłaty: " else "Nadpłata: ")+money(kotlin.math.abs(summary.due)))
+        else if(summary.overlapping>0) label("Saldo okresu niepełne: "+summary.overlapping+" wypłat obejmuje szerszy okres. Poszerz daty lub popraw przypisanie wypłaty.")
+        val historyEarnings=WalletRules.calculateEarnings(shifts)
+        val global=historyEarnings.cents+config.optLong("openingCents")-payments.sumOf { it.cents }
+        if(historyEarnings.conflictingRateMillis==0L)
+            label((if(global>=0) "Łącznie do wypłaty (cała historia): " else "Łączna nadpłata (cała historia): ")+money(kotlin.math.abs(global)))
+        else label("Saldo całej historii niedostępne do czasu wyjaśnienia nakładających się stawek.")
         label("Naliczanie obejmuje zakończone zmiany, także przejazdy i zakupy. Otwarty dzień zostanie rozliczony po zakończeniu.")
         val expenses=rows(d,"expenses")
         val expensesDue=expenses.sumOf { (it.optLong("cents")-it.optLong("reimbursedCents")).coerceAtLeast(0) }
         label("Zakupy firmowe do zwrotu (cała historia): "+money(expensesDue))
-        label((if(global+expensesDue>=0) "Razem do rozliczenia (wynagrodzenie i zakupy): " else "Łączna nadpłata (wynagrodzenie i zakupy): ")+money(kotlin.math.abs(global+expensesDue)))
+        if(historyEarnings.conflictingRateMillis==0L) label((if(global+expensesDue>=0) "Razem do rozliczenia (wynagrodzenie i zakupy): " else "Łączna nadpłata (wynagrodzenie i zakupy): ")+money(kotlin.math.abs(global+expensesDue)))
         button("Zakupy za własne pieniądze / paragony") { expenseList() }
         button("+ Dodaj wypłatę") { walletDraft=JSONObject().put("id",UUID.randomUUID().toString()).put("date",LocalDate.now().toString()).put("periodFrom",from.toString()).put("periodTo",to.toString()).put("method","cash"); paymentForm() }
         filters("walletRates",caption="Stawka i saldo początkowe") {
