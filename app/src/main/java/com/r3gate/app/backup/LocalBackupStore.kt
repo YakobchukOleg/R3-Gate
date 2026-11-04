@@ -55,7 +55,9 @@ internal object LocalBackupStore {
         }
     }
 
+    fun isBackupName(name: String): Boolean = publishedName.matches(name)
+
     fun list(directory: File): List<File> = directory.listFiles().orEmpty()
-        .filter { it.isFile && publishedName.matches(it.name) }
+        .filter { it.isFile && isBackupName(it.name) }
         .sortedWith(compareByDescending<File> { it.lastModified() }.thenByDescending { it.name })
 }

@@ -33,5 +33,12 @@ bytes and the same create-only ID. A conflict is accepted only after Drive confi
 expected file metadata and transport checksum. The user-facing success status is written
 after that check. Existing JSON backups are kept.
 
-Cloud browsing and import, cancellation cleanup, quota-specific messages, byte-range
+Cancellation cleanup, quota-specific messages, byte-range
 resume for large archives and real-account testing remain pending.
+
+The settings screen can call `DriveBackups.copies` using the existing Drive authorization
+token. The adapter lists accessible WorkMeter ZIP archives and checks the selected file
+against Drive metadata again before downloading. `DriveBackups.prepareRestore` returns
+the same preview session as local restore after checking the downloaded bytes and ZIP.
+Run both operations off the UI thread and keep the token in memory. Legacy JSON files
+remain in Drive. Settings integration and verification with a real account are pending.
