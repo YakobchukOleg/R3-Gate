@@ -22,4 +22,33 @@ object PrivateTimeRules {
         }
         return (end - start - personal).coerceAtLeast(0)
     }
+
+    fun workedTotal(shifts: List<Interval>, privatePeriods: List<Interval>): Long {
+        val covered = union(shifts)
+        val personal = union(privatePeriods)
+        var privateIndex = 0
+        var total = 0L
+        for (shift in covered) {
+            total += shift.end - shift.start
+            while (privateIndex < personal.size) {
+                val pause = personal[privateIndex]
+                if (pause.start >= shift.end) break
+                total -= (minOf(shift.end, pause.end) - maxOf(shift.start, pause.start)).coerceAtLeast(0L)
+                if (pause.end > shift.end) break
+                privateIndex++
+            }
+        }
+        return total
+    }
+
+    private fun union(intervals: List<Interval>): List<Interval> {
+        val merged = mutableListOf<Interval>()
+        for (interval in intervals.filter { it.start >= 0 && it.end > it.start }.sortedBy { it.start }) {
+            val previous = merged.lastOrNull()
+            if (previous != null && interval.start <= previous.end)
+                merged[merged.lastIndex] = Interval(previous.start, maxOf(previous.end, interval.end))
+            else merged.add(interval)
+        }
+        return merged
+    }
 }

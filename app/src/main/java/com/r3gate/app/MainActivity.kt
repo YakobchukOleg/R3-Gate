@@ -362,14 +362,24 @@ class MainActivity : Activity() {
         end: Long = shift.optLong("end", System.currentTimeMillis())
     ): Long = PrivateTimeRules.worked(start, end, privateIntervals(shift, end))
 
+    private fun reportWorkedMillis(entries: List<Pair<JSONObject, HistoryRules.Slice>>): Long =
+        PrivateTimeRules.workedTotal(
+            entries.map { (_, slice) -> PrivateTimeRules.Interval(slice.start,slice.end) },
+            entries.flatMap { (shift, slice) ->
+                privateIntervals(shift,slice.end).mapNotNull { pause ->
+                    if(pause.start<0L || pause.end<=pause.start) return@mapNotNull null
+                    val start=maxOf(pause.start,slice.start)
+                    val end=minOf(pause.end,slice.end)
+                    PrivateTimeRules.Interval(start,end).takeIf { end>start }
+                }
+            }
+        )
+
     private fun togglePrivateTime() {
         val d = data()
         val shift = active(d) ?: return
         val now = System.currentTimeMillis()
-        if (now <= shift.optLong("stageStart", shift.optLong("start"))) {
-            toast("Sprawdź godzinę urządzenia")
-            return
-        }
+        if (!canCloseCurrentStage(shift,now)) return
         val resuming = shift.optString("kind") == PrivateTimeRules.KIND
         closeStage(shift, now)
         shift.put("stageStart", now)
@@ -410,17 +420,44 @@ class MainActivity : Activity() {
     }
     private fun startOnObject(obj: JSONObject) {
         val d=data(); if (active(d)!=null) { toast("Dzień pracy już rozpoczęty"); home(); return }
-        val t=System.currentTimeMillis(); d.put("active",JSONObject().put("id",UUID.randomUUID().toString()).put("start",t).put("object",objectName(obj)).put("objectId",obj.optString("id")).put("kind",workStageFor(obj)).put("stageStart",t).put("stages",JSONArray()).put("rate",defaultRate().toPlainString())); save(d,"START",fmt.format(Date(t)))
+        val t=System.currentTimeMillis()
+        if(!WorkShiftIntegrity.canSave(WorkShiftIntegrity.Interval(t,Long.MAX_VALUE),validClosedShiftIntervals(d))) {
+            toast("Nowa zmiana koliduje z zapisaną historią")
+            return
+        }
+        d.put("active",JSONObject().put("id",UUID.randomUUID().toString()).put("start",t).put("object",objectName(obj)).put("objectId",obj.optString("id")).put("kind",workStageFor(obj)).put("stageStart",t).put("stages",JSONArray()).put("rate",defaultRate().toPlainString())); save(d,"START",fmt.format(Date(t)))
         if (GpsWorkdaySession.hasConsent(prefs)) setGpsEnabled(true)
         home()
     }
+    private fun validClosedShiftIntervals(d: JSONObject): List<WorkShiftIntegrity.Interval> =
+        rows(d,"shifts").map(::stageInterval).filter { WorkShiftIntegrity.isValid(it.start,it.end) }
+
     private fun stopShift() {
         val d=data(); val a=active(d); if(a==null) { toast("Brak rozpoczętej pracy"); home(); return }
-        val end=System.currentTimeMillis(); closeStage(a,end); a.put("end",end); arr(d,"shifts").put(a); d.remove("active"); save(d,"STOP",fmt.format(Date(end)))
+        val end=System.currentTimeMillis()
         if (GpsWorkdaySession.hasConsent(prefs)) prefs.edit().putBoolean(GpsWorkdaySession.CONSENT,true).apply()
+        if(!canCloseCurrentStage(a,end)) {
+            setGpsEnabled(false)
+            return
+        }
+        if(!WorkShiftIntegrity.canSave(WorkShiftIntegrity.Interval(a.optLong("start",-1L),end),
+                validClosedShiftIntervals(d))) {
+            setGpsEnabled(false)
+            toast("Zmiana koliduje z zapisaną historią")
+            return
+        }
+        closeStage(a,end); a.put("end",end); arr(d,"shifts").put(a); d.remove("active"); save(d,"STOP",fmt.format(Date(end)))
         setGpsEnabled(false)
         PhotoQueue.enqueueAll(this); home()
     }
+    private fun canCloseCurrentStage(shift: JSONObject, end: Long): Boolean {
+        val start=shift.optLong("start",-1L)
+        if(WorkShiftIntegrity.canCloseCurrentStage(start,shift.optLong("stageStart",start),end,
+                rows(shift,"stages").map(::stageInterval))) return true
+        toast("Sprawdź zegar urządzenia lub wcześniejsze etapy zmiany.")
+        return false
+    }
+
     private fun closeStage(a:JSONObject, end:Long) {
         val st=a.optLong("stageStart",a.optLong("start"))
         if(end>st) {
@@ -436,6 +473,7 @@ class MainActivity : Activity() {
         val d=data(); val a=active(d)
         if(a==null) { toast("Najpierw rozpocznij pracę"); return }
         val now=System.currentTimeMillis()
+        if(!canCloseCurrentStage(a,now)) return
         closeStage(a,now)
         val origin=if(a.optString("kind")=="Zakupy") "Zakupy" else a.optString("object"); val originId=a.optString("objectId")
         a.remove("stageMeta")
@@ -453,6 +491,7 @@ class MainActivity : Activity() {
                 val d = data(); val a = active(d) ?: return@chooseObject
                 if(a.optString("kind")==PrivateTimeRules.KIND) return@chooseObject
                 val now = System.currentTimeMillis()
+                if(!canCloseCurrentStage(a,now)) return@chooseObject
                 if(a.optString("kind")=="Przejazd") a.optJSONObject("stageMeta")?.put("toObject",objectName(obj))?.put("toObjectId",obj.optString("id"))
                 closeStage(a,now)
                 a.remove("stageMeta")
@@ -475,6 +514,7 @@ class MainActivity : Activity() {
                 val d=data(); val current=active(d) ?: return@objectPicker
                 if(current.optString("kind")!="Przejazd") return@objectPicker
                 val now=System.currentTimeMillis()
+                if(!canCloseCurrentStage(current,now)) return@objectPicker
                 current.optJSONObject("stageMeta")?.put("toObject",objectName(obj))?.put("toObjectId",obj.optString("id"))
                 closeStage(current,now); current.remove("stageMeta")
                 current.put("stageStart",now).put("kind",workStageFor(obj)).put("object",objectName(obj)).put("objectId",obj.optString("id"))
@@ -533,8 +573,10 @@ class MainActivity : Activity() {
                 "${clock.format(Date(slice.start))}–${clock.format(Date(slice.end))}" +
                 if(work != slice.end-slice.start) " · czas pracy: "+duration(work) else ""
         }
-        val minutes = sum / 60000
-        val sms = lines.joinToString("\n\n") + "\n\nRazem\n${minutes / 60} godz. ${minutes % 60} min"
+        val worked = reportWorkedMillis(slices)
+        val minutes = worked / 60000
+        val overlapNote = if(worked != sum) "\nNakładający się czas uwzględniono tylko raz." else ""
+        val sms = lines.joinToString("\n\n") + "\n\nRazem\n${minutes / 60} godz. ${minutes % 60} min" + overlapNote
         label(sms)
         button("KOPIUJ RAPORT") {
             (getSystemService(CLIPBOARD_SERVICE) as ClipboardManager)
@@ -1882,7 +1924,10 @@ class MainActivity : Activity() {
         val shifts=rows(journal,"shifts")
         val entries=shifts.flatMap { shift -> HistoryRules.slices(shift.optLong("start"),shift.optLong("end"),ZoneId.systemDefault()).map { shift to it } }
             .filter { DomainRules.inRange(it.second.day,from,to) }
-        label("Łączny czas: "+duration(entries.sumOf { workedMillis(it.first,it.second.start,it.second.end) }))
+        val total=reportWorkedMillis(entries)
+        label("Łączny czas: "+duration(total))
+        if(total!=entries.sumOf { workedMillis(it.first,it.second.start,it.second.end) })
+            label("Nakładający się czas uwzględniono tylko raz.")
         if(entries.isEmpty()) label("Brak zmian w wybranym okresie")
         for((day,items) in entries.groupBy { it.second.day }.toSortedMap(reverseOrder())) {
             val parent=root
@@ -1894,7 +1939,7 @@ class MainActivity : Activity() {
             root=card
             try {
                 label(dateText(day)+" · "+LocalDate.parse(day).dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL,Locale.forLanguageTag("pl")))
-                label("Czas dnia: "+duration(items.sumOf { workedMillis(it.first,it.second.start,it.second.end) }))
+                label("Czas dnia: "+duration(reportWorkedMillis(items)))
                 for((shift,slice) in items.sortedByDescending { it.second.start }) {
                     button(fmt.format(Date(slice.start))+" → "+fmt.format(Date(slice.end))+"  ("+duration(workedMillis(shift,slice.start,slice.end))+")") { shiftDetails(shift.optString("id")) }
                     button("Edytuj czas") { confirmAction("Edytować godziny tej zmiany?") { editShift(shift.optString("id")) } }
@@ -1928,6 +1973,11 @@ class MainActivity : Activity() {
             cursor=maxOf(cursor,to)
         }
         if(stages.isNotEmpty() && cursor<end) label("Brak przypisanego etapu: "+fmt.format(Date(cursor))+" → "+fmt.format(Date(end))+" · "+duration(end-cursor))
+        val diagnostics=WorkStageHistory.diagnose(start,end,stages.map {
+            WorkStageHistory.Stage(it.optLong("start"),it.optLong("end"),it.optString("kind"),it.optString("objectId"))
+        })
+        if(diagnostics.overlapMillis>0) label("Nakładające się etapy: "+duration(diagnostics.overlapMillis))
+        if(diagnostics.invalidStages>0) label("Nieprawidłowe etapy: "+diagnostics.invalidStages)
         label("Zakończenie pracy: "+fmt.format(Date(end)))
         label("Łączny czas: "+duration(workedMillis(shift,start,end)))
         button("Edytuj etapy") { selectStageEdit(id) }
@@ -3101,7 +3151,9 @@ class MainActivity : Activity() {
     private fun startShopping() {
         if(active(data())?.optString("kind")==PrivateTimeRules.KIND) { toast("Najpierw wznów pracę"); return }
         val d=data();val a=active(d) ?: return
-        val now=System.currentTimeMillis();val id=UUID.randomUUID().toString()
+        val now=System.currentTimeMillis()
+        if(!canCloseCurrentStage(a,now)) return
+        val id=UUID.randomUUID().toString()
         if(a.optString("kind")=="Przejazd") a.optJSONObject("stageMeta")?.put("toObject","Zakupy")
         closeStage(a,now)
         val note=JSONObject().put("id",id).put("date",localDate(now).toString()).put("created",fmt.format(Date(now))).put("shopping",true).put("text","").put("photos",JSONArray()).put("objectId",a.optString("objectId"))

@@ -33,7 +33,7 @@ object WorkStageHistory {
 
     fun inspect(shiftStart: Long, shiftEnd: Long, stages: List<Stage>): Result {
         if (shiftStart < 0 || shiftEnd <= shiftStart) return Result(emptyList(), 0, 0, stages.size)
-        val valid = stages.filter { it.end > it.start }
+        val valid = stages.filter { WorkShiftIntegrity.isValid(it.start, it.end) }
         val invalid = stages.size - valid.size
         val boundaries = (listOf(shiftStart, shiftEnd) + valid.flatMap { listOf(it.start, it.end) }
             .filter { it > shiftStart && it < shiftEnd }).distinct().sorted()

@@ -63,4 +63,16 @@ class WorkShiftEditTest {
         val others=listOf(WorkShiftIntegrity.Interval(-1L,20L),WorkShiftIntegrity.Interval(50L,60L))
         assertTrue(WorkShiftIntegrity.canSaveStage(shift,WorkShiftIntegrity.Interval(10L,50L),others))
     }
+
+    @Test fun clockRollbackCannotOverwriteTheActiveStageBoundary() {
+        assertFalse(WorkShiftIntegrity.canCloseCurrentStage(10,20,19,emptyList()))
+        assertFalse(WorkShiftIntegrity.canCloseCurrentStage(10,9,21,emptyList()))
+        assertTrue(WorkShiftIntegrity.canCloseCurrentStage(10,20,21,emptyList()))
+    }
+
+    @Test fun closingAStageRequiresNoOverlapWithRecordedHistory() {
+        val existing=listOf(WorkShiftIntegrity.Interval(10,30))
+        assertFalse(WorkShiftIntegrity.canCloseCurrentStage(10,20,40,existing))
+        assertTrue(WorkShiftIntegrity.canCloseCurrentStage(10,30,40,existing))
+    }
 }

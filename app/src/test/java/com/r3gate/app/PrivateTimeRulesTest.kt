@@ -37,4 +37,20 @@ class PrivateTimeRulesTest {
     @Test fun legacyShiftWithoutPrivateStagesKeepsOriginalPay() {
         assertEquals(6000L, WalletRules.earned(listOf(WalletRules.Shift(0, 2 * hour, BigDecimal("30")))))
     }
+
+    @Test fun reportCountsDuplicateAndOverlappingShiftCoverageOnce() {
+        val shifts=listOf(interval(0,3*hour),interval(hour,4*hour),interval(0,3*hour))
+        assertEquals(4*hour,PrivateTimeRules.workedTotal(shifts,emptyList()))
+    }
+
+    @Test fun reportDoesNotCountPrivateTimeEvenWhenAnotherShiftOverlaps() {
+        val shifts=listOf(interval(0,3*hour),interval(hour,4*hour))
+        val personal=listOf(interval(hour,2*hour),interval(hour,3*hour))
+        assertEquals(2*hour,PrivateTimeRules.workedTotal(shifts,personal))
+    }
+
+    @Test fun aPrivateIntervalSpanningTwoShiftsDoesNotSubtractUnworkedGap() {
+        val shifts=listOf(interval(0,hour),interval(2*hour,3*hour))
+        assertEquals(hour,PrivateTimeRules.workedTotal(shifts,listOf(interval(hour/2,5*hour/2))))
+    }
 }

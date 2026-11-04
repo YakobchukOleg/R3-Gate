@@ -36,6 +36,10 @@ object WorkShiftIntegrity {
                 (proposed.start <= coveredStart && proposed.end >= coveredEnd)
         }
 
+    fun canCloseCurrentStage(
+        shiftStart: Long, stageStart: Long, end: Long, stages: Collection<Interval>
+    ): Boolean = canSaveStage(Interval(shiftStart,end),Interval(stageStart,end),stages)
+
     fun canSaveStage(shift: Interval, proposed: Interval, otherStages: Collection<Interval>): Boolean =
         isValid(shift.start, shift.end) && isValid(proposed.start, proposed.end) &&
             proposed.start >= shift.start && proposed.end <= shift.end &&
