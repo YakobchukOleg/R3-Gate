@@ -4,6 +4,13 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PhotoPreviewUiTest {
+    @Test fun gridKeepsSinglePhotosAndNarrowScreensInOneColumn() {
+        assertEquals(1, PhotoPreviewUi.columns(1, 500))
+        assertEquals(1, PhotoPreviewUi.columns(2, 359))
+        assertEquals(2, PhotoPreviewUi.columns(2, 360))
+        assertEquals(2, PhotoPreviewUi.columns(3, 500))
+    }
+
     @Test fun previewLabelsIncludePositionAndTotal() {
         assertEquals("Zdjęcie 1 z 3",PhotoPreviewUi.state(0,3,true).heading)
         assertEquals("Zdjęcie 3 z 3",PhotoPreviewUi.state(2,3,true).heading)

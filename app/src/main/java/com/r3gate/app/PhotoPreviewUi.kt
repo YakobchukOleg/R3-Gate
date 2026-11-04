@@ -19,6 +19,9 @@ object PhotoPreviewUi {
         )
     }
 
+    fun columns(count: Int, widthDp: Int): Int =
+        if (count >= 2 && widthDp >= 360) 2 else 1
+
     fun summary(count: Int): String {
         require(count >= 0)
         return when (count) {

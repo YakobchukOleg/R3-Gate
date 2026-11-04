@@ -2050,49 +2050,61 @@ class MainActivity : Activity() {
         if(u.scheme!="https") { toast("Wymagany link https://"); return }
         try { startActivity(Intent(Intent.ACTION_VIEW,u)) } catch (_:Exception) { toast("Nie można otworzyć linku") }
     }
-    private fun showPhotos(r:JSONObject) {
-        val photos=arr(r,"photos")
-        if(photos.length()==0) return
-        label(PhotoPreviewUi.summary(photos.length()))
-        for(i in 0 until photos.length()) {
-            val uri=photos.optString(i)
-            val card=FrameLayout(this).apply {
-                background=background(palette.surface).apply { setStroke(dp(1),palette.border) }
-                clipToOutline=true
-                elevation=dp(2).toFloat()
-                contentDescription=PhotoPreviewUi.state(i,photos.length(),true).heading
+    private fun showPhotos(r: JSONObject) {
+        val photos = arr(r, "photos")
+        val count = photos.length()
+        if (count == 0) return
+        label(PhotoPreviewUi.summary(count))
+        val columns = PhotoPreviewUi.columns(count, resources.configuration.screenWidthDp)
+        for (start in 0 until count step columns) {
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            for (column in 0 until columns) {
+                val index = start + column
+                val view = if (index < count) photoTile(photos.optString(index), index, count, columns) else View(this)
+                row.addView(view, LinearLayout.LayoutParams(0, -2, 1f).apply {
+                    if (column > 0) marginStart = dp(8)
+                })
             }
-            val thumb=ImageView(this).apply {
-                scaleType=ImageView.ScaleType.CENTER_CROP
-                adjustViewBounds=true
+            root.addView(row, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
+        }
+    }
+
+    private fun photoTile(uri: String, index: Int, count: Int, columns: Int): View {
+        val bitmap = try {
+            PhotoPreview.decode(this, Uri.parse(uri))
+        } catch (_: Exception) {
+            null
+        }
+        val state = PhotoPreviewUi.state(index, count, bitmap != null)
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = background(palette.surface).apply { setStroke(dp(1), palette.border) }
+            setPadding(dp(6), dp(6), dp(6), dp(6))
+            if (bitmap != null) {
+                addView(ImageView(this@MainActivity).apply {
+                    scaleType = ImageView.ScaleType.FIT_CENTER
+                    setImageBitmap(bitmap)
+                    contentDescription = state.accessibilityLabel
+                    isFocusable = true
+                    setOnClickListener { openPhoto(uri) }
+                }, LinearLayout.LayoutParams(-1, dp(if (columns == 2) 120 else 180)))
+            } else {
+                addView(TextView(this@MainActivity).apply {
+                    text = state.message
+                    setTextColor(palette.textPrimary)
+                    gravity = Gravity.CENTER
+                    minimumHeight = dp(if (columns == 2) 120 else 180)
+                }, LinearLayout.LayoutParams(-1, -2))
             }
-            try {
-                val bitmap=PhotoPreview.decode(this,Uri.parse(uri))
-                val viewState=PhotoPreviewUi.state(i,photos.length(),true)
-                thumb.contentDescription=viewState.accessibilityLabel
-                thumb.scaleType=ImageView.ScaleType.FIT_CENTER
-                thumb.setImageBitmap(bitmap)
-                val width=resources.displayMetrics.widthPixels-dp(32)
-                card.addView(thumb,FrameLayout.LayoutParams(-1,width*9/16))
-                thumb.isFocusable=true
-                thumb.setOnClickListener { openPhoto(uri) }
-            } catch(_:Exception) {
-                val viewState=PhotoPreviewUi.state(i,photos.length(),false)
-                val placeholder=ImageView(this).apply {
-                    setImageResource(android.R.drawable.ic_menu_gallery)
-                    contentDescription=viewState.accessibilityLabel
-                    setPadding(dp(32),dp(32),dp(32),dp(32))
-                    isFocusable=true
-                    setOnClickListener { toast(viewState.message ?: "Zdjęcie niedostępne") }
-                }
-                card.addView(placeholder,FrameLayout.LayoutParams(-1,dp(120)))
-            }
-            root.addView(card,LinearLayout.LayoutParams(-1,-2).apply {
-                bottomMargin=dp(16)
-                topMargin=dp(4)
+            addView(TextView(this@MainActivity).apply {
+                text = state.heading
+                textSize = 12f
+                setTextColor(palette.secondaryText)
+                setPadding(dp(4), dp(6), dp(4), dp(2))
             })
         }
     }
+
     private fun newForm(key:String,id:String="",objectId:String="",sendAfterSave:Boolean=false) {
         quickPhotoUpload=sendAfterSave
         formReturn=screen; formKind=key
@@ -2441,7 +2453,7 @@ class MainActivity : Activity() {
             root.addView(row, LinearLayout.LayoutParams(-1, -2))
         }
         if(sum==0L) label("Brak czasu pracy w wybranym okresie.")
-        label("Podział nie zmienia czasu płatnego. Cała zmiana jest czasem pracy.")
+        label("Podział pokazuje czas zapisanych etapów. Rozliczenia znajdziesz w Portfelu.")
     }
     private fun toggleShopping() {
         val a=active(data()) ?: run { toast("Najpierw rozpocznij pracę");return }
