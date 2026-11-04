@@ -8,12 +8,20 @@ import android.view.*
 import android.widget.ImageView
 
 object PhotoPreview {
+    internal fun sampleSize(width: Int, height: Int, maxSize: Int): Int? {
+        if (width <= 0 || height <= 0 || maxSize <= 0) return null
+        val edge = maxOf(width, height).toLong()
+        var sample = 1L
+        while ((edge + sample - 1L) / sample > maxSize) sample *= 2L
+        return sample.takeIf { it <= Int.MAX_VALUE }?.toInt()
+    }
+
     fun decode(context:Context,uri:Uri,maxSize:Int=1800):Bitmap {
         val resolver=context.contentResolver
         val bounds=BitmapFactory.Options().apply { inJustDecodeBounds=true }
         resolver.openInputStream(uri).use { BitmapFactory.decodeStream(it,null,bounds) }
-        var sample=1
-        while(bounds.outWidth/sample>maxSize || bounds.outHeight/sample>maxSize) sample*=2
+        val sample = sampleSize(bounds.outWidth, bounds.outHeight, maxSize)
+            ?: throw java.io.IOException("Invalid photo dimensions or preview size")
         val bitmap=resolver.openInputStream(uri).use { BitmapFactory.decodeStream(it,null,BitmapFactory.Options().apply { inSampleSize=sample }) } ?: throw java.io.FileNotFoundException()
         val orientation=runCatching { resolver.openInputStream(uri)!!.use { ExifInterface(it).getAttributeInt(ExifInterface.TAG_ORIENTATION,1) } }.getOrDefault(1)
         val m=Matrix()
