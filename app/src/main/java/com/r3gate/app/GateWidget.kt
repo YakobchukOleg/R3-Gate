@@ -4,7 +4,10 @@ import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
 import android.content.*
+import android.os.Build
+import android.os.Bundle
 import android.os.SystemClock
+import android.util.SizeF
 import android.view.View
 import android.widget.RemoteViews
 import org.json.JSONObject
@@ -14,7 +17,7 @@ import java.util.*
 class GateWidget : AppWidgetProvider() {
     override fun onUpdate(context:Context,manager:AppWidgetManager,ids:IntArray) { ids.forEach { update(context,manager,it) } }
     override fun onAppWidgetOptionsChanged(context:Context,manager:AppWidgetManager,id:Int,options:android.os.Bundle) {
-        update(context,manager,id)
+        update(context,manager,id,options)
     }
     override fun onDeleted(context: Context, appWidgetIds: IntArray) {
         WidgetAppearanceStore(context).delete(appWidgetIds)
@@ -31,15 +34,41 @@ class GateWidget : AppWidgetProvider() {
             val ids=mgr.getAppWidgetIds(ComponentName(context,GateWidget::class.java))
             ids.forEach { update(context,mgr,it) }
         }
-        internal fun update(context: Context, mgr: AppWidgetManager, id: Int) {
+        internal fun update(
+            context: Context, mgr: AppWidgetManager, id: Int, options: Bundle = mgr.getAppWidgetOptions(id)
+        ) {
             val appearance = WidgetAppearanceStore(context).read(id)
-            val options = mgr.getAppWidgetOptions(id)
-            val profile = WidgetLayoutProfile.forBounds(
-                options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 250),
-                options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 160)
-            )
-            mgr.updateAppWidget(id, render(context, profile, appearance))
+            mgr.updateAppWidget(id, renderForOptions(context, options, appearance))
         }
+
+        internal fun renderForOptions(
+            context: Context, options: Bundle, appearance: WidgetAppearance = WidgetAppearance()
+        ): RemoteViews {
+            val views = mutableMapOf<WidgetLayoutProfile, RemoteViews>()
+            fun at(width: Int, height: Int): RemoteViews {
+                val profile = WidgetLayoutProfile.forBounds(width, height)
+                return views.getOrPut(profile) { render(context, profile, appearance) }
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                @Suppress("DEPRECATION")
+                val sizes = options.getParcelableArrayList<SizeF>(AppWidgetManager.OPTION_APPWIDGET_SIZES)
+                    .orEmpty().filter { it.width.isFinite() && it.height.isFinite() && it.width > 0 && it.height > 0 }
+                    .distinct()
+                if (sizes.size in 1..16) {
+                    return RemoteViews(sizes.associateWith { at(it.width.toInt(), it.height.toInt()) })
+                }
+            }
+
+            val minWidth = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 250)
+            val minHeight = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 160)
+            val maxWidth = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, minWidth)
+            val maxHeight = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, minHeight)
+            val portrait = at(minWidth, maxHeight)
+            val landscape = at(maxWidth, minHeight)
+            return if (portrait === landscape) portrait else RemoteViews(landscape, portrait)
+        }
+
         internal fun render(
             context: Context,
             profile: WidgetLayoutProfile = WidgetLayoutProfile.STANDARD,
@@ -53,6 +82,7 @@ class GateWidget : AppWidgetProvider() {
             val shown=a?:last
             val start=shown?.optLong("start")?:0L; val end=shown?.optLong("end")?:0L
             val mini = profile == WidgetLayoutProfile.MINI
+            val shortWide = profile == WidgetLayoutProfile.WIDE_SHORT
             val wide = profile == WidgetLayoutProfile.STANDARD || profile == WidgetLayoutProfile.EXPANDED
             val expanded = profile == WidgetLayoutProfile.EXPANDED
             val v=RemoteViews(context.packageName,R.layout.widget)
@@ -72,8 +102,8 @@ class GateWidget : AppWidgetProvider() {
             v.setTextColor(R.id.wstopbutton, theme.palette.onError)
             v.setViewVisibility(R.id.wstartbutton,if(a==null) android.view.View.VISIBLE else android.view.View.GONE)
             v.setViewVisibility(R.id.wstopbutton,if(a!=null) android.view.View.VISIBLE else android.view.View.GONE)
-            v.setViewVisibility(R.id.wcamera, if (wide) View.VISIBLE else View.GONE)
-            v.setViewVisibility(R.id.wprimary, if (mini || !appearance.showActions) View.GONE else View.VISIBLE)
+            v.setViewVisibility(R.id.wcamera, if ((wide || shortWide) && appearance.showActions) View.VISIBLE else View.GONE)
+            v.setViewVisibility(R.id.wprimary, if (mini) View.GONE else View.VISIBLE)
             v.setViewVisibility(R.id.wdetails, if (expanded) View.VISIBLE else View.GONE)
             if (expanded && appearance.showGps) {
                 v.setViewVisibility(R.id.wgps, View.VISIBLE)
@@ -85,7 +115,8 @@ class GateWidget : AppWidgetProvider() {
             v.setViewVisibility(R.id.wactions, if (appearance.showActions && wide && a != null && !personal) View.VISIBLE else View.GONE)
             v.setViewVisibility(R.id.wend, if (a == null) View.VISIBLE else View.GONE)
             v.setTextViewText(R.id.wswitch, if (wide) "ZMIEŃ OBIEKT" else "OBIEKT ↔")
-            if (mini) v.setTextViewTextSize(R.id.wduration, android.util.TypedValue.COMPLEX_UNIT_SP, 19f)
+            v.setViewVisibility(R.id.wstatus, if (shortWide) View.GONE else View.VISIBLE)
+            if (mini || shortWide) v.setTextViewTextSize(R.id.wduration, android.util.TypedValue.COMPLEX_UNIT_SP, 19f)
             v.setTextViewText(R.id.wtitle,"WorkMeter")
             v.setTextViewText(R.id.wshopping,if(a?.optString("kind")=="Zakupy") "ZAKOŃCZ ZAKUPY" else "ZAKUPY")
             v.setViewVisibility(R.id.wshopping,if(a!=null && wide) android.view.View.VISIBLE else android.view.View.GONE)
@@ -102,7 +133,7 @@ class GateWidget : AppWidgetProvider() {
                 else -> "Brak przypisanego etapu"
             }
             v.setTextViewText(R.id.wstatus, status)
-            if (!appearance.showObject || (!wide && (a == null || travel || personal || a.optString("kind") == "Zakupy"))) {
+            if (shortWide || !appearance.showObject || (!wide && (a == null || travel || personal || a.optString("kind") == "Zakupy"))) {
                 v.setViewVisibility(R.id.wobject, View.GONE)
             }
             v.setTextColor(R.id.wstatus,if(personal) 0xFFFFC88F.toInt() else if(a!=null) 0xFF6EE0AD.toInt() else 0xFFD1DDE0.toInt())

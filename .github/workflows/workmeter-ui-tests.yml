@@ -7,6 +7,7 @@ on:
       - integration/workmeter-ui
       - fix/phone-feedback
       - fix/workday-object-search
+      - fix/solo-widget-responsive
   workflow_dispatch:
 
 permissions:

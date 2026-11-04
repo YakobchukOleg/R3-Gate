@@ -433,6 +433,45 @@ class AppFlowTest {
             }
         }
     }
+    @Test fun widgetResizeKeepsActionsInsideEachSupportedLayout() {
+        val context = instrumentation.targetContext
+        val data = JSONObject().put("active", JSONObject().put("objectId", "object-test")
+            .put("object", "KOP-01").put("start", System.currentTimeMillis()))
+        context.getSharedPreferences("r3_gate", 0).edit().putString("data", data.toString()).commit()
+
+        instrumentation.runOnMainSync {
+            val density = context.resources.displayMetrics.density
+            for ((width, height) in listOf(144 to 68, 144 to 144, 296 to 68, 220 to 128, 296 to 220)) {
+                val profile = WidgetLayoutProfile.forBounds(width, height)
+                val parent = android.widget.FrameLayout(context)
+                val view = GateWidget.render(context, profile).apply(context, parent) as ViewGroup
+                val widthPx = (width * density).toInt()
+                val heightPx = (height * density).toInt()
+                view.measure(View.MeasureSpec.makeMeasureSpec(widthPx, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(heightPx, View.MeasureSpec.EXACTLY))
+                view.layout(0, 0, widthPx, heightPx)
+
+                fun checkAction(id: Int, visible: Boolean) {
+                    val action = view.findViewById<View>(id)
+                    assertEquals("Action ${context.resources.getResourceEntryName(id)} at ${width}×$height",
+                        visible, generateSequence(action) { it.parent as? View }.all { it.visibility == View.VISIBLE })
+                    if (visible) {
+                        val bounds = android.graphics.Rect(0, 0, action.width, action.height)
+                        view.offsetDescendantRectToMyCoords(action, bounds)
+                        assertTrue("Clipped action at ${width}×$height: $bounds",
+                            !bounds.isEmpty && bounds.left >= 0 && bounds.top >= 0 &&
+                                bounds.right <= widthPx && bounds.bottom <= heightPx)
+                    }
+                }
+
+                checkAction(R.id.wstopbutton, width >= 220 || height >= 112)
+                checkAction(R.id.wcamera, width >= 220)
+                checkAction(R.id.wtravel, width >= 220 && height >= 128)
+                checkAction(R.id.wshopping, width >= 220 && height >= 128)
+            }
+        }
+    }
+
     @Test fun widgetAppearanceIsIsolatedAndSurvivesIdRemapping() {
         val context = instrumentation.targetContext
         val store = WidgetAppearanceStore(context)
