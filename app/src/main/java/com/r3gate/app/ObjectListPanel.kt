@@ -99,14 +99,12 @@ class ObjectListPanel(
         // The parent screen already scrolls; avoid a nested weighted ScrollView.
         addView(results, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
 
-        val add = button("＋ Dodaj obiekt", palette.primary).apply {
+        val add = workMeterButton(context, "＋ Dodaj obiekt", WorkMeterButtonRole.PRIMARY, onAddObject).apply {
             gravity = Gravity.CENTER
-            setTextColor(palette.onPrimary)
             setTypeface(null, Typeface.BOLD)
             contentDescription = "Dodaj obiekt"
-            setOnClickListener { onAddObject() }
         }
-        addView(add, LayoutParams(LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(8) })
+        addView(add, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
         render()
     }
 
@@ -220,10 +218,5 @@ class ObjectListPanel(
         text = value
         textSize = size
         setTextColor(color)
-    }
-    private fun button(value: String, color: Int) = label(value, palette.surface, 14f).apply {
-        background = rounded(color, 16)
-        isClickable = true
-        isFocusable = true
     }
 }

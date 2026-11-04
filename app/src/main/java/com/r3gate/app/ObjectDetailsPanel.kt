@@ -165,14 +165,5 @@ class ObjectDetailsPanel(
     }
 
     private fun action(label: String, callback: () -> Unit): Button =
-        Button(context).apply {
-            text = label
-            isAllCaps = false
-            textSize = 12f
-            minHeight = dp(44)
-            setTextColor(ink)
-            backgroundTintList = android.content.res.ColorStateList.valueOf(palette.surface)
-            contentDescription = label
-            setOnClickListener { callback() }
-        }
+        workMeterButton(context, label, WorkMeterButtonRole.SECONDARY, callback)
 }

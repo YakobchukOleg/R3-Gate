@@ -382,17 +382,12 @@ class MainActivity : Activity() {
     private fun makeButton(s:String, f:()->Unit):Button {
         val accent=s.contains("ZAKOŃCZ") || s.startsWith("Usuń") || ((s.startsWith("🚗") || s=="DOTARŁEM") && active(data())?.optString("kind")=="Przejazd")
         val primary=s=="Zapisz" || s.contains("ROZPOCZNIJ") || s.startsWith("Wyślij zdjęcia")
-        val fill=when { accent -> WorkMeterTheme.ERROR; primary -> palette.primary; else -> palette.surface }
-        return Button(this).apply {
-            text=s; textSize=14f; isAllCaps=false; minHeight=dp(48); minimumHeight=dp(48)
-            setTextColor(when { accent -> palette.onError; primary -> palette.onPrimary; else -> palette.textPrimary })
-            val shape=background(fill).apply { if(!primary && !accent) setStroke(dp(1),palette.border) }
-            background=android.graphics.drawable.RippleDrawable(
-                android.content.res.ColorStateList.valueOf(currentTextColor and 0x00FFFFFF or 0x22000000),
-                shape,null)
-            backgroundTintList=null; elevation=0f
-            setPadding(dp(12),dp(6),dp(12),dp(6)); setOnClickListener { f() }
+        val role = when {
+            accent -> WorkMeterButtonRole.DESTRUCTIVE
+            primary -> WorkMeterButtonRole.PRIMARY
+            else -> WorkMeterButtonRole.SECONDARY
         }
+        return workMeterButton(this, s, role, f)
     }
     private fun button(s:String, f:()->Unit) {
         root.addView(makeButton(s,f),LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(8) })
@@ -400,7 +395,7 @@ class MainActivity : Activity() {
     private fun tiles(items:List<Pair<String,()->Unit>>) {
         items.chunked(2).forEach { pair ->
             val row=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
-            pair.forEachIndexed { i,item -> row.addView(makeButton(item.first,item.second).apply { minHeight=dp(45); minimumHeight=dp(45) },LinearLayout.LayoutParams(0,-2,1f).apply { if(i==0) rightMargin=dp(8) }) }
+            pair.forEachIndexed { i,item -> row.addView(makeButton(item.first,item.second),LinearLayout.LayoutParams(0,-2,1f).apply { if(i==0) rightMargin=dp(8) }) }
             if(pair.size==1) row.addView(View(this),LinearLayout.LayoutParams(0,1,1f))
             root.addView(row,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(8) })
         }
@@ -477,8 +472,6 @@ class MainActivity : Activity() {
         val recent=rows(d,"shifts").lastOrNull(); val shown=a?:recent
         val slate=palette.header
         val muted=palette.secondaryText
-        val coral=WorkMeterTheme.ERROR
-        val surface=palette.surface
         val privateMode=a?.optString("kind")=="Prywatnie"
         root.setBackgroundColor(palette.background)
         root.setPadding(dp(16),dp(16),dp(16),dp(28))
@@ -497,18 +490,12 @@ class MainActivity : Activity() {
                 topMargin=dp(20); bottomMargin=dp(10)
             })
         }
-        fun action(label:String,primary:Boolean=false,onClick:()->Unit):Button =
-            makeButton(label,onClick).apply {
-                textSize=13f; minHeight=dp(48); minimumHeight=dp(48)
-                setTextColor(if(primary) palette.onPrimary else palette.textPrimary)
-                background=rounded(if(primary) palette.primary else surface,14)
-                setPadding(dp(8),dp(10),dp(8),dp(10))
-                isAllCaps=false
-            }
+        fun action(label: String, role: WorkMeterButtonRole = WorkMeterButtonRole.SECONDARY, onClick: () -> Unit): Button =
+            workMeterButton(this, label, role, onClick)
         fun actionRow(first:Pair<String,()->Unit>,second:Pair<String,()->Unit>) {
             val row=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
-            row.addView(action(first.first,onClick=first.second),LinearLayout.LayoutParams(0,dp(52),1f).apply { rightMargin=dp(5) })
-            row.addView(action(second.first,onClick=second.second),LinearLayout.LayoutParams(0,dp(52),1f).apply { leftMargin=dp(5) })
+            row.addView(action(first.first,onClick=first.second),LinearLayout.LayoutParams(0,-2,1f).apply { rightMargin=dp(5) })
+            row.addView(action(second.first,onClick=second.second),LinearLayout.LayoutParams(0,-2,1f).apply { leftMargin=dp(5) })
             root.addView(row,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
         }
         val hero=LinearLayout(this).apply {
@@ -546,12 +533,10 @@ class MainActivity : Activity() {
         root.addView(hero,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(14) })
 
         if(a==null) {
-            root.addView(action("▶  ROZPOCZNIJ PRACĘ",true) { confirmPin { startShift() } },
-                LinearLayout.LayoutParams(-1,dp(52)))
+            root.addView(action("▶  ROZPOCZNIJ PRACĘ", WorkMeterButtonRole.PRIMARY) { confirmPin { startShift() } },
+                LinearLayout.LayoutParams(-1,-2))
         } else {
-            root.addView(action("■  ZAKOŃCZ PRACĘ",true) { confirmPin { stopShift() } }.apply {
-                background=rounded(coral,14); setTextColor(palette.onError)
-            },LinearLayout.LayoutParams(-1,dp(52)).apply { bottomMargin=dp(10) })
+            root.addView(action("■  ZAKOŃCZ PRACĘ", WorkMeterButtonRole.DESTRUCTIVE) { confirmPin { stopShift() } },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
             if(privateMode) {
                 root.addView(text("Tryb prywatny — wróć do pracy z menu po zakończeniu przerwy.",13f,muted),
                     LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })

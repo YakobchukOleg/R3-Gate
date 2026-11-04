@@ -209,10 +209,13 @@ class ObjectListPanelInstrumentedTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 goToObjects(activity)
-                val addButton=views(activity).filterIsInstance<TextView>()
+                val addButton=views(activity).filterIsInstance<Button>()
                     .firstOrNull { it.contentDescription == "Dodaj obiekt" && it.isClickable }
                 assertNotNull("Native add-object action", addButton)
-                addButton!!.performClick()
+                val minTouchSize = (48 * activity.resources.displayMetrics.density + 0.5f).toInt()
+                assertTrue(addButton!!.minimumHeight >= minTouchSize)
+                assertTrue(addButton.minimumWidth >= minTouchSize)
+                addButton.performClick()
                 val labels=texts(activity)
                 assertTrue(labels.contains("Nowy obiekt"))
                 assertTrue(labels.contains("Lokalizacja"))
