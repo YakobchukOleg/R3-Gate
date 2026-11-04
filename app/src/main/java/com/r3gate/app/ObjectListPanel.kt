@@ -1,7 +1,6 @@
 package com.r3gate.app
 
 import android.content.Context
-import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.text.Editable
@@ -23,10 +22,11 @@ class ObjectListPanel(
     private val onAddObject: () -> Unit,
     private val onArchiveChanged: (Boolean) -> Unit = {}
 ) : LinearLayout(context) {
-    private val ink = Color.rgb(35, 57, 67)
-    private val muted = Color.rgb(114, 130, 139)
-    private val bg = Color.rgb(244, 247, 247)
-    private val green = Color.rgb(37, 136, 109)
+    private val palette = WorkMeterAppearance.theme(context).palette
+    private val ink = palette.textPrimary
+    private val muted = palette.secondaryText
+    private val bg = palette.background
+    private val green = palette.accentText
     private var items: List<ObjectListUiModel.Item> = emptyList()
     private var filterState = ObjectFilterUiState.State()
     private var query = ""
@@ -49,7 +49,7 @@ class ObjectListPanel(
             setTextColor(ink)
             setHintTextColor(muted)
             setPadding(dp(14), dp(8), dp(14), dp(8))
-            background = rounded(Color.WHITE, 16)
+            background = rounded(palette.surface, 16)
             contentDescription = "Szukaj obiektu"
         }
         addView(search, LayoutParams(LayoutParams.MATCH_PARENT, dp(52)))
@@ -68,7 +68,7 @@ class ObjectListPanel(
             gravity = Gravity.CENTER
             setTextColor(ink)
             setPadding(dp(10), dp(10), dp(10), dp(10))
-            background = rounded(Color.WHITE, 20)
+            background = rounded(palette.surface, 20)
             setOnClickListener { filterState = ObjectFilterUiState.toggleArchive(filterState); onArchiveChanged(filterState.archived); render() }
         }
         groupToggle.apply {
@@ -76,7 +76,7 @@ class ObjectListPanel(
             gravity = Gravity.CENTER
             setTextColor(ink)
             setPadding(dp(10), dp(10), dp(10), dp(10))
-            background = rounded(Color.WHITE, 20)
+            background = rounded(palette.surface, 20)
             setOnClickListener { filterState = ObjectFilterUiState.toggleGrouping(filterState); render() }
         }
         options.addView(archiveToggle, LayoutParams(0, dp(44), 1f))
@@ -99,9 +99,9 @@ class ObjectListPanel(
         // The parent screen already scrolls; avoid a nested weighted ScrollView.
         addView(results, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
 
-        val add = button("＋ Dodaj obiekt", green).apply {
+        val add = button("＋ Dodaj obiekt", palette.primary).apply {
             gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
+            setTextColor(palette.onPrimary)
             setTypeface(null, Typeface.BOLD)
             contentDescription = "Dodaj obiekt"
             setOnClickListener { onAddObject() }
@@ -138,10 +138,10 @@ class ObjectListPanel(
         val choices: List<String?> = listOf(null) + cities
         for (city in choices) {
             val active = filterState.city == city
-            val chip = label(city ?: "Wszystkie miasta", if (active) Color.WHITE else ink, 12f).apply {
+            val chip = label(city ?: "Wszystkie miasta", if (active) palette.onPrimary else ink, 12f).apply {
                 gravity = Gravity.CENTER
                 setPadding(dp(12), dp(7), dp(12), dp(7))
-                background = rounded(if (active) ink else Color.WHITE, 18)
+                background = rounded(if (active) palette.primary else palette.surface, 18)
                 isClickable = true
                 isFocusable = true
                 contentDescription = if (city == null) "Wszystkie miasta" else "Filtr miasta: " + city
@@ -169,7 +169,7 @@ class ObjectListPanel(
             for (row in group.rows) {
                 val card = LinearLayout(context).apply {
                     orientation = VERTICAL
-                    background = rounded(Color.WHITE, 17)
+                    background = rounded(palette.surface, 17)
                     setPadding(dp(15), dp(12), dp(15), dp(12))
                     contentDescription = row.accessibilityLabel
                     isFocusable = true
@@ -221,7 +221,7 @@ class ObjectListPanel(
         textSize = size
         setTextColor(color)
     }
-    private fun button(value: String, color: Int) = label(value, Color.WHITE, 14f).apply {
+    private fun button(value: String, color: Int) = label(value, palette.surface, 14f).apply {
         background = rounded(color, 16)
         isClickable = true
         isFocusable = true

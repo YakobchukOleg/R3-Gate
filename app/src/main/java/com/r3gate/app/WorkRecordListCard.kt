@@ -1,7 +1,6 @@
 package com.r3gate.app
 
 import android.content.Context
-import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
@@ -16,12 +15,14 @@ class WorkRecordListCard(
 ) : LinearLayout(context) {
     private fun dp(n: Int) = (n * resources.displayMetrics.density + 0.5f).toInt()
 
+    private val palette = WorkMeterAppearance.theme(context).palette
+
     init {
         orientation = VERTICAL
         val pad=dp(14)
         setPadding(pad,pad,pad,pad)
         background = GradientDrawable().apply {
-            setColor(Color.WHITE)
+            setColor(palette.surface)
             cornerRadius=dp(16).toFloat()
         }
         contentDescription=model.accessibilityLabel
@@ -35,16 +36,16 @@ class WorkRecordListCard(
         top.addView(TextView(context).apply {
             text=model.title
             textSize=16f
-            setTextColor(Color.rgb(35,57,67))
+            setTextColor(palette.textPrimary)
             setTypeface(null,Typeface.BOLD)
         },LayoutParams(0,LayoutParams.WRAP_CONTENT,1f))
         top.addView(TextView(context).apply {
             text=model.badge
             textSize=12f
-            setTextColor(Color.rgb(37,136,109))
+            setTextColor(palette.accentText)
             setPadding(dp(9),dp(5),dp(9),dp(5))
             background=GradientDrawable().apply {
-                setColor(Color.rgb(237,248,244))
+                setColor(palette.background)
                 cornerRadius=dp(10).toFloat()
             }
         })
@@ -53,7 +54,7 @@ class WorkRecordListCard(
             addView(TextView(context).apply {
                 text=model.subtitle
                 textSize=13f
-                setTextColor(Color.rgb(114,130,139))
+                setTextColor(palette.secondaryText)
                 setPadding(0,dp(9),0,0)
             })
         }

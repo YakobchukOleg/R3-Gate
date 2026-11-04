@@ -112,21 +112,21 @@ class MainActivity : Activity() {
     override fun onRestart() { super.onRestart(); if(screen=="wallet" || screen=="payment" || screen=="expenses" || screen.startsWith("detail:expenses:")) settings() else if(screen!="form") openScreen(screen) }
     private fun hash(s: String): String = MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).joinToString("") { "%02x".format(it) }
     private fun setupPin() {
-        val field = EditText(ContextThemeWrapper(this,R.style.WorkMeterDialogTheme)).apply { hint="PIN (4–8 cyfr)"; inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD }
-        AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Ustaw PIN").setMessage("Kod chroni rozpoczęcie i zakończenie pracy.").setView(field).setCancelable(false).setPositiveButton("Zapisz") { _, _ ->
+        val field = EditText(ContextThemeWrapper(this,dialogStyle)).apply { hint="PIN (4–8 cyfr)"; inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD }
+        AlertDialog.Builder(this,dialogStyle).setTitle("Ustaw PIN").setMessage("Kod chroni rozpoczęcie i zakończenie pracy.").setView(field).setCancelable(false).setPositiveButton("Zapisz") { _, _ ->
             val p=field.text.toString(); if (p.length in 4..8) {
                 val salt=UUID.randomUUID().toString(); prefs.edit().putString("salt",salt).putString("pin",hash(salt+p)).apply(); home()
             } else { toast("PIN musi mieć 4–8 cyfr"); setupPin() }
         }.show()
     }
     private fun confirmPin(action: () -> Unit) {
-        val field=EditText(ContextThemeWrapper(this,R.style.WorkMeterDialogTheme)).apply { inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD; hint="PIN" }
-        AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Potwierdź PIN").setView(field).setNegativeButton("Anuluj",null).setPositiveButton("Potwierdź") { _, _ ->
+        val field=EditText(ContextThemeWrapper(this,dialogStyle)).apply { inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD; hint="PIN" }
+        AlertDialog.Builder(this,dialogStyle).setTitle("Potwierdź PIN").setView(field).setNegativeButton("Anuluj",null).setPositiveButton("Potwierdź") { _, _ ->
             if (hash(prefs.getString("salt","")+field.text.toString()) == prefs.getString("pin","")) action() else toast("Nieprawidłowy PIN")
         }.show()
     }
     private fun confirmAction(message:String="Wykonać tę czynność?",action:()->Unit) {
-        AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Potwierdzenie").setMessage(message)
+        AlertDialog.Builder(this,dialogStyle).setTitle("Potwierdzenie").setMessage(message)
             .setNegativeButton("Nie",null).setPositiveButton("Tak") { _,_ -> action() }.show()
     }
     override fun onNewIntent(intent: Intent) {
@@ -287,30 +287,34 @@ class MainActivity : Activity() {
         }
     }
     private fun toast(s:String)=Toast.makeText(this,s,Toast.LENGTH_LONG).show()
+    private val appearance get() = WorkMeterAppearance.theme(this)
+    private val palette get() = appearance.palette
+    private val dialogStyle get() = WorkMeterAppearance.dialogStyle(appearance)
+
     private fun dp(n:Int) = (n * resources.displayMetrics.density).toInt()
     private fun background(color:Int): GradientDrawable = GradientDrawable().apply {
         setColor(color); cornerRadius = dp(8).toFloat()
     }
     private fun base(title:String) {
         homeVisible=false
-        val frame=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setBackgroundColor(Color.BLACK) }
+        val frame=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setBackgroundColor(palette.header) }
         val top=View(this); frame.addView(top,LinearLayout.LayoutParams(-1,0))
-        val header=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; gravity=Gravity.CENTER_VERTICAL; setPadding(dp(16),0,dp(8),0); setBackgroundColor(0xFF37474F.toInt()) }
-        header.addView(TextView(this).apply { text=title; textSize=27f; gravity=Gravity.CENTER_VERTICAL; setTextColor(Color.WHITE); setTypeface(resources.getFont(R.font.clash_grotesk),android.graphics.Typeface.BOLD) },LinearLayout.LayoutParams(0,dp(56),1f).apply { gravity=Gravity.CENTER_VERTICAL })
+        val header=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; gravity=Gravity.CENTER_VERTICAL; setPadding(dp(16),0,dp(8),0); setBackgroundColor(palette.header) }
+        header.addView(TextView(this).apply { text=title; textSize=27f; gravity=Gravity.CENTER_VERTICAL; setTextColor(palette.onHeader); setTypeface(resources.getFont(R.font.clash_grotesk),android.graphics.Typeface.BOLD) },LinearLayout.LayoutParams(0,dp(56),1f).apply { gravity=Gravity.CENTER_VERTICAL })
         if(title=="WorkMeter") header.addView(TextView(this).apply {
             text="SOLO"
             textSize=11f
-            setTextColor(0xFFAFE3CE.toInt())
+            setTextColor(palette.onPrimary)
             setPadding(dp(7),dp(5),dp(7),dp(5))
-            background=background(0xFF28443F.toInt())
+            background=background(palette.primary)
         },LinearLayout.LayoutParams(-2,-2).apply { rightMargin=dp(7) })
         if(title=="WorkMeter") header.addView(Button(this).apply {
-            text="⚙"; textSize=27f; contentDescription="Ustawienia"; setTextColor(Color.WHITE)
+            text="⚙"; textSize=27f; contentDescription="Ustawienia"; setTextColor(palette.onHeader)
             background=android.graphics.drawable.ColorDrawable(Color.TRANSPARENT); backgroundTintList=null; setPadding(0,0,0,0)
             setOnClickListener { settings() }
         },LinearLayout.LayoutParams(dp(48),dp(48)))
         frame.addView(header,LinearLayout.LayoutParams(-1,dp(56)))
-        val scroll=ScrollView(this).apply { setBackgroundColor(Color.WHITE); isFillViewport=true }
+        val scroll=ScrollView(this).apply { setBackgroundColor(palette.background); isFillViewport=true }
         root=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(dp(16),dp(12),dp(16),dp(24)); isFocusableInTouchMode=true; descendantFocusability=ViewGroup.FOCUS_BEFORE_DESCENDANTS }
         scroll.addView(root,FrameLayout.LayoutParams(-1,-2))
         frame.addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
@@ -320,7 +324,7 @@ class MainActivity : Activity() {
             orientation=LinearLayout.HORIZONTAL
             gravity=Gravity.CENTER_VERTICAL
             setPadding(dp(3),dp(4),dp(3),dp(3))
-            setBackgroundColor(Color.WHITE)
+            setBackgroundColor(palette.background)
             elevation=dp(4).toFloat()
         }
         val destinations=listOf(
@@ -339,7 +343,7 @@ class MainActivity : Activity() {
                 isAllCaps=false
                 minHeight=dp(52); minimumHeight=dp(52)
                 setPadding(0,0,0,0)
-                setTextColor(if(screen==target || (target=="menu" && screen.startsWith("menu"))) 0xFF32916F.toInt() else 0xFF667E87.toInt())
+                setTextColor(if(screen==target || (target=="menu" && screen.startsWith("menu"))) palette.accentText else palette.secondaryText)
                 background=android.graphics.drawable.ColorDrawable(Color.TRANSPARENT)
                 backgroundTintList=null
                 setOnClickListener {
@@ -373,16 +377,20 @@ class MainActivity : Activity() {
         it.groupValues[3]+"-"+it.groupValues[2]+"-"+it.groupValues[1]
     }
     private fun label(s:String) { root.addView(TextView(this).apply {
-        text=displayLegacyDates(s); textSize=16f; setTextColor(0xFF37474F.toInt()); setPadding(dp(2),dp(8),dp(2),dp(8))
+        text=displayLegacyDates(s); textSize=16f; setTextColor(palette.textPrimary); setPadding(dp(2),dp(8),dp(2),dp(8))
     }) }
     private fun makeButton(s:String, f:()->Unit):Button {
         val accent=s.contains("ZAKOŃCZ") || s.startsWith("Usuń") || ((s.startsWith("🚗") || s=="DOTARŁEM") && active(data())?.optString("kind")=="Przejazd")
         val primary=s=="Zapisz" || s.contains("ROZPOCZNIJ") || s.startsWith("Wyślij zdjęcia")
-        val fill=when { accent -> 0xFFFF5C5C.toInt(); primary -> 0xFF37474F.toInt(); else -> 0xFFECEFF1.toInt() }
+        val fill=when { accent -> WorkMeterTheme.ERROR; primary -> palette.primary; else -> palette.surface }
         return Button(this).apply {
-            text=s; textSize=14f; isAllCaps=false; minHeight=dp(28); minimumHeight=dp(28)
-            setTextColor(if(accent || primary) Color.WHITE else 0xFF37474F.toInt())
-            background=background(fill); backgroundTintList=null; elevation=0f
+            text=s; textSize=14f; isAllCaps=false; minHeight=dp(48); minimumHeight=dp(48)
+            setTextColor(when { accent -> palette.onError; primary -> palette.onPrimary; else -> palette.textPrimary })
+            val shape=background(fill).apply { if(!primary && !accent) setStroke(dp(1),palette.border) }
+            background=android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(currentTextColor and 0x00FFFFFF or 0x22000000),
+                shape,null)
+            backgroundTintList=null; elevation=0f
             setPadding(dp(12),dp(6),dp(12),dp(6)); setOnClickListener { f() }
         }
     }
@@ -435,7 +443,7 @@ class MainActivity : Activity() {
             screen=="car" || screen.startsWith("materialGroup:") -> openScreen("list:materials:")
             screen=="queue" -> openScreen("list:links:")
             screen == "form" -> {
-                AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setMessage("Zachować szkic i wrócić?")
+                AlertDialog.Builder(this,dialogStyle).setMessage("Zachować szkic i wrócić?")
                     .setNegativeButton("Zostań",null).setPositiveButton("Wróć") { _, _ ->
                         prefs.edit().putString("draft_$formKind",draft.toString()).apply()
                         openScreen(formReturn)
@@ -467,12 +475,12 @@ class MainActivity : Activity() {
         screen="home"; homeVisible=true
         val d=data(); val a=active(d)
         val recent=rows(d,"shifts").lastOrNull(); val shown=a?:recent
-        val slate=0xFF304953.toInt()
-        val muted=0xFF6D7C84.toInt()
-        val coral=0xFFFF5C5C.toInt()
-        val surface=0xFFF4F7F8.toInt()
+        val slate=palette.header
+        val muted=palette.secondaryText
+        val coral=WorkMeterTheme.ERROR
+        val surface=palette.surface
         val privateMode=a?.optString("kind")=="Prywatnie"
-        root.setBackgroundColor(Color.WHITE)
+        root.setBackgroundColor(palette.background)
         root.setPadding(dp(16),dp(16),dp(16),dp(28))
 
         fun rounded(color:Int,radius:Int=18):GradientDrawable = GradientDrawable().apply {
@@ -485,15 +493,15 @@ class MainActivity : Activity() {
                 includeFontPadding=false
             }
         fun section(title:String) {
-            root.addView(text(title,14f,slate,true),LinearLayout.LayoutParams(-1,-2).apply {
+            root.addView(text(title,14f,palette.textPrimary,true),LinearLayout.LayoutParams(-1,-2).apply {
                 topMargin=dp(20); bottomMargin=dp(10)
             })
         }
         fun action(label:String,primary:Boolean=false,onClick:()->Unit):Button =
             makeButton(label,onClick).apply {
                 textSize=13f; minHeight=dp(48); minimumHeight=dp(48)
-                setTextColor(if(primary) Color.WHITE else slate)
-                background=rounded(if(primary) slate else surface,14)
+                setTextColor(if(primary) palette.onPrimary else palette.textPrimary)
+                background=rounded(if(primary) palette.primary else surface,14)
                 setPadding(dp(8),dp(10),dp(8),dp(10))
                 isAllCaps=false
             }
@@ -542,7 +550,7 @@ class MainActivity : Activity() {
                 LinearLayout.LayoutParams(-1,dp(52)))
         } else {
             root.addView(action("■  ZAKOŃCZ PRACĘ",true) { confirmPin { stopShift() } }.apply {
-                background=rounded(coral,14)
+                background=rounded(coral,14); setTextColor(palette.onError)
             },LinearLayout.LayoutParams(-1,dp(52)).apply { bottomMargin=dp(10) })
             if(privateMode) {
                 root.addView(text("Tryb prywatny — wróć do pracy z menu po zakończeniu przerwy.",13f,muted),
@@ -597,7 +605,7 @@ class MainActivity : Activity() {
     private fun menu() {
         screen="menu"
         base("Menu WorkMeter")
-        root.setBackgroundColor(0xFFF4F7F8.toInt())
+        root.setBackgroundColor(palette.background)
         nav()
         val banner=TextView(this).apply {
             text="WORKMETER · SOLO\nWSZYSTKIE FUNKCJE · P1–P4"
@@ -983,7 +991,7 @@ class MainActivity : Activity() {
                             val category=prefs.getString(categoryKey,"UNKNOWN")
                             if(category=="UNKNOWN") {
                                 button("Potwierdź kategorię tej podróży") {
-                                    AlertDialog.Builder(this,R.style.WorkMeterDialogTheme)
+                                    AlertDialog.Builder(this,dialogStyle)
                                         .setTitle("Zakupy materiałów?")
                                         .setMessage("Przejazd: "+
                                             fmt.format(Date(matched.startMs))+
@@ -1041,7 +1049,7 @@ class MainActivity : Activity() {
         val stopMinutes=prefs.getInt("gps_stop_minutes",10)
         button("Próg postoju: "+stopMinutes+" min — zmień") {
             val options=intArrayOf(5,10,15,30)
-            AlertDialog.Builder(this,R.style.WorkMeterDialogTheme)
+            AlertDialog.Builder(this,dialogStyle)
                 .setTitle("Próg postoju")
                 .setSingleChoiceItems(arrayOf("5 min","10 min","15 min","30 min"),options.indexOf(stopMinutes)) { dialog,index ->
                     prefs.edit().putInt("gps_stop_minutes",options[index]).apply()
@@ -1097,7 +1105,7 @@ class MainActivity : Activity() {
 
     private fun settings() {
         base("Ustawienia"); screen="settings"; nav()
-        root.setBackgroundColor(0xFFF4F7F8.toInt())
+        root.setBackgroundColor(palette.background)
         label("WSZYSTKIE USTAWIENIA · SOLO")
         label("Z poziomu głównego dostępne są ustawienia wszystkich działów.")
         // Backward-compatible entry points retained for existing flows and tests.
@@ -1108,6 +1116,20 @@ class MainActivity : Activity() {
         button("Google Disk") { driveSettings() }
         button("Centrum kopii / eksport / import") { logs() }
         label("Widżet i interfejs")
+        button("Motyw aplikacji · "+appearance.title) {
+            val themes=WorkMeterTheme.entries
+            AlertDialog.Builder(this,dialogStyle).setTitle("Motyw aplikacji")
+                .setSingleChoiceItems(themes.map { it.title }.toTypedArray(),appearance.ordinal) { dialog,index ->
+                    val scroll=root.parent as? ScrollView
+                    val previousScroll=scroll?.scrollY ?: 0
+                    prefs.edit().putString(WorkMeterTheme.PREF_KEY,themes[index].key).apply()
+                    dialog.dismiss()
+                    settings()
+                    (root.parent as? ScrollView)?.let { updated ->
+                        updated.post { updated.scrollTo(0,previousScroll) }
+                    }
+                }.setNegativeButton("Anuluj",null).show()
+        }
         button("Wygląd widżetu") { widgetSettings() }
         button("Język aplikacji") { language() }
         label("GPS i lokalizacja")
@@ -1128,7 +1150,7 @@ class MainActivity : Activity() {
     }
     private fun sectionSettings(section:String) {
         base("Ustawienia · $section"); screen="sectionSettings"; nav()
-        root.setBackgroundColor(0xFFF4F7F8.toInt())
+        root.setBackgroundColor(palette.background)
         when(section) {
             "Mój czas" -> {
                 label("Czas pracy i raporty")
@@ -1176,7 +1198,7 @@ class MainActivity : Activity() {
     private fun widgetSettings() {
         base("Wygląd widżetu"); screen="widgetSettings"; nav()
         label("Przezroczystość tła widżetu")
-        val value=TextView(this).apply { setTextColor(0xFF37474F.toInt()); text=prefs.getInt("widgetTransparency",0).toString()+"%" }
+        val value=TextView(this).apply { setTextColor(palette.textPrimary); text=prefs.getInt("widgetTransparency",0).toString()+"%" }
         root.addView(value)
         val previewFrame=FrameLayout(this).apply { setBackgroundColor(0xFF90A4AE.toInt()); setPadding(dp(8),dp(8),dp(8),dp(8)) }
         val preview=GateWidget.render(this).apply(this,previewFrame)
@@ -1268,9 +1290,9 @@ class MainActivity : Activity() {
     }
     private fun walletInput(caption:String,key:String,numeric:Boolean=false) {
         label(caption)
-        root.addView(EditText(ContextThemeWrapper(this,R.style.WorkMeterDialogTheme)).apply {
-            hint=caption; setText(walletDraft.optString(key)); setTextColor(0xFF37474F.toInt()); setHintTextColor(0xFF78909C.toInt())
-            background=background(0xFFECEFF1.toInt()); setPadding(dp(10),dp(6),dp(10),dp(6))
+        root.addView(EditText(ContextThemeWrapper(this,dialogStyle)).apply {
+            hint=caption; setText(walletDraft.optString(key)); setTextColor(palette.textPrimary); setHintTextColor(palette.secondaryText)
+            background=background(palette.surface).apply { setStroke(dp(1),palette.border) }; setPadding(dp(10),dp(6),dp(10),dp(6))
             inputType=if(numeric) InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL else InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
             addTextChangedListener(object:TextWatcher {
                 override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int) {}
@@ -1287,7 +1309,7 @@ class MainActivity : Activity() {
         }
         walletInput("Kwota (zł)","amount",true)
         button("Sposób: "+if(walletDraft.optString("method")=="cash") "Gotówka" else "Karta") {
-            AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Sposób wypłaty").setItems(arrayOf("Gotówka","Karta")) { _,index -> walletDraft.put("method",if(index==0) "cash" else "card"); paymentForm() }.show()
+            AlertDialog.Builder(this,dialogStyle).setTitle("Sposób wypłaty").setItems(arrayOf("Gotówka","Karta")) { _,index -> walletDraft.put("method",if(index==0) "cash" else "card"); paymentForm() }.show()
         }
         walletInput("Notatka (opcjonalnie)","note")
         button("Zapisz") {
@@ -1303,14 +1325,14 @@ class MainActivity : Activity() {
         }
         val id=walletDraft.optString("id")
         if(rows(data(),"payments").any { it.optString("id")==id }) button("Usuń wypłatę (PIN)") {
-            confirmPin { AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setMessage("Usunąć tę wypłatę z rozliczenia?").setNegativeButton("Anuluj",null).setPositiveButton("Usuń") { _, _ ->
+            confirmPin { AlertDialog.Builder(this,dialogStyle).setMessage("Usunąć tę wypłatę z rozliczenia?").setNegativeButton("Anuluj",null).setPositiveButton("Usuń") { _, _ ->
                 val d=data(); val next=JSONArray(); rows(d,"payments").filter { it.optString("id")!=id }.forEach { next.put(it) }; d.put("payments",next); save(d,"PAYMENT_DELETE",id); wallet()
             }.show() }
         }
     }
     private fun rateDialog(existing:Boolean) {
-        val input=EditText(ContextThemeWrapper(this,R.style.WorkMeterDialogTheme)).apply { hint="Stawka zł/h"; setText(defaultRate().toPlainString()); inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL }
-        val dialog=AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle(if(existing) "Stawka za wybrany okres" else "Stawka dla nowych zmian")
+        val input=EditText(ContextThemeWrapper(this,dialogStyle)).apply { hint="Stawka zł/h"; setText(defaultRate().toPlainString()); inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL }
+        val dialog=AlertDialog.Builder(this,dialogStyle).setTitle(if(existing) "Stawka za wybrany okres" else "Stawka dla nowych zmian")
             .setMessage(if(existing) "Zmienisz stawkę zakończonych zmian rozpoczynających się w wybranym okresie." else "Zmiana dotyczy tylko nowych dni pracy. Starsze zmiany zachowają swoje stawki.")
             .setView(input).setNegativeButton("Anuluj",null).setPositiveButton("Zapisz",null).create()
         dialog.setOnShowListener { dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
@@ -1323,8 +1345,8 @@ class MainActivity : Activity() {
         } }; dialog.show()
     }
     private fun openingDialog() {
-        val field=EditText(ContextThemeWrapper(this,R.style.WorkMeterDialogTheme)).apply { hint="Saldo początkowe zł"; setText(BigDecimal.valueOf(walletConfig(data()).optLong("openingCents"),2).toPlainString()); inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED }
-        val dialog=AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Saldo sprzed zapisanej historii").setMessage("Dodatnia kwota: zaległa wypłata. Ujemna: wcześniejsza nadpłata. Uwzględniana tylko w saldzie całej historii.").setView(field).setNegativeButton("Anuluj",null).setPositiveButton("Zapisz",null).create()
+        val field=EditText(ContextThemeWrapper(this,dialogStyle)).apply { hint="Saldo początkowe zł"; setText(BigDecimal.valueOf(walletConfig(data()).optLong("openingCents"),2).toPlainString()); inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED }
+        val dialog=AlertDialog.Builder(this,dialogStyle).setTitle("Saldo sprzed zapisanej historii").setMessage("Dodatnia kwota: zaległa wypłata. Ujemna: wcześniejsza nadpłata. Uwzględniana tylko w saldzie całej historii.").setView(field).setNegativeButton("Anuluj",null).setPositiveButton("Zapisz",null).create()
         dialog.setOnShowListener { dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
             val amount=WalletRules.money(field.text.toString(),true)
             if(amount==null) { field.error="Nieprawidłowa kwota"; return@setOnClickListener }
@@ -1354,7 +1376,7 @@ class MainActivity : Activity() {
             val key="gps_trip_category_"+trip.startMs
             val current=categories.find { it.first.name==prefs.getString(key,"UNKNOWN") }?.second ?: "Nieustalony"
             button(fmt.format(Date(trip.startMs))+" · "+duration(trip.endMs-trip.startMs)+" · "+current) {
-                AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Rodzaj przejazdu")
+                AlertDialog.Builder(this,dialogStyle).setTitle("Rodzaj przejazdu")
                     .setItems(categories.map { it.second }.toTypedArray()) { _,index ->
                         prefs.edit().putString(key,categories[index].first.name).apply()
                         gpsTripCategories()
@@ -1529,7 +1551,7 @@ class MainActivity : Activity() {
         timeStart.setOnClickListener { TimePickerDialog(this,{ _,h,m -> start=start.withHour(h).withMinute(m); refresh() },start.hour,start.minute,true).show() }
         timeEnd.setOnClickListener { TimePickerDialog(this,{ _,h,m -> end=end.withHour(h).withMinute(m); refresh() },end.hour,end.minute,true).show() }
         listOf(dateStart,dateEnd,timeStart,timeEnd).forEach { layout.addView(it) }; refresh()
-        val dialog=AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Edytuj zmianę").setView(layout)
+        val dialog=AlertDialog.Builder(this,dialogStyle).setTitle("Edytuj zmianę").setView(layout)
             .setNegativeButton("Anuluj",null).setPositiveButton("Zapisz",null).create()
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
@@ -1595,7 +1617,7 @@ class MainActivity : Activity() {
             if(requestCode==101) {
                 if(uploading) { toast("Poczekaj na zakończenie przesyłania przed importem"); return }
                 val content=contentResolver.openInputStream(uri)!!.bufferedReader().use { it.readText() }; val imported=JSONObject(content); validateImport(imported)
-                AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Przywrócić kopię?").setMessage("Obecne dane zostaną zastąpione.").setNegativeButton("Anuluj",null).setPositiveButton("Importuj") { _, _ ->
+                AlertDialog.Builder(this,dialogStyle).setTitle("Przywrócić kopię?").setMessage("Obecne dane zostaną zastąpione.").setNegativeButton("Anuluj",null).setPositiveButton("Importuj") { _, _ ->
                     prefs.edit().putString("preImportBackup",data().toString()).putString("data",imported.toString()).putInt("widgetTransparency",imported.optJSONObject("wtSettings")?.optInt("widgetTransparency",prefs.getInt("widgetTransparency",0))?.coerceIn(0,100) ?: prefs.getInt("widgetTransparency",0)).apply(); migrate(); migrateWallet(); GateWidget.refresh(this); logs()
                 }.show()
             }
@@ -1665,16 +1687,16 @@ class MainActivity : Activity() {
         val options=rows(data(),"objects").filter { !it.optBoolean("archived") }
         val layout=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(dp(20),dp(8),dp(20),dp(8)) }
         val searchRow=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; gravity=Gravity.CENTER_VERTICAL }
-        val query=EditText(ContextThemeWrapper(this,R.style.WorkMeterDialogTheme)).apply { hint="Szukaj miasta"; setSingleLine(); inputType=InputType.TYPE_CLASS_TEXT; imeOptions=android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH }
+        val query=EditText(ContextThemeWrapper(this,dialogStyle)).apply { hint="Szukaj miasta"; setSingleLine(); inputType=InputType.TYPE_CLASS_TEXT; imeOptions=android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH }
         searchRow.addView(query,LinearLayout.LayoutParams(0,dp(48),1f))
         val results=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL }
-        val dialog=AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle(if(arrival) "Dokąd przyjechałeś?" else "Wybierz obiekt")
+        val dialog=AlertDialog.Builder(this,dialogStyle).setTitle(if(arrival) "Dokąd przyjechałeś?" else "Wybierz obiekt")
             .setView(layout).setNegativeButton(if(arrival) "Anuluj — przejazd trwa" else "Anuluj",null).create()
         fun renderResults() {
             results.removeAllViews()
             val matches=options.filter { ObjectSearch.matches(it.optString("city"),query.text.toString()) }.sortedWith { x,y -> ObjectSearch.compareTags(x.optString("TAG"),y.optString("TAG")) }
             for(obj in matches) results.addView(makeButton(objectName(obj)) { dialog.dismiss(); selected(obj) },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(6) })
-            if(matches.isEmpty()) results.addView(TextView(this).apply { text="Brak obiektów dla tego miasta"; setTextColor(0xFF37474F.toInt()); setPadding(0,dp(12),0,dp(12)) })
+            if(matches.isEmpty()) results.addView(TextView(this).apply { text="Brak obiektów dla tego miasta"; setTextColor(palette.textPrimary); setPadding(0,dp(12),0,dp(12)) })
         }
         searchRow.addView(makeButton("⌕") { renderResults(); (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(query.windowToken,0) }.apply { contentDescription="Szukaj"; textSize=24f; background=background(0xFF37474F.toInt()); setTextColor(Color.WHITE) },LinearLayout.LayoutParams(dp(48),dp(48)))
         query.setOnEditorActionListener { _,action,_ -> if(action==android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) { renderResults(); true } else false }
@@ -1921,7 +1943,7 @@ class MainActivity : Activity() {
                 if(paid) confirmAction("Cofnąć oznaczenie zwrotu? Kwota znów będzie należna.") {
                     val d=data(); val current=rows(d,key).find { it.optString("id")==id } ?: return@confirmAction
                     current.put("reimbursedCents",0).remove("reimbursedDate"); current.remove("reimbursedMethod"); save(d,"EXPENSE_REOPEN",id); recordDetails(key,id,parent)
-                } else AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Jak otrzymałeś zwrot?")
+                } else AlertDialog.Builder(this,dialogStyle).setTitle("Jak otrzymałeś zwrot?")
                     .setItems(arrayOf("Gotówka","Karta")) { _,which -> confirmAction("Potwierdzić zwrot kosztu zakupu? Nie zmienia to rozliczenia wynagrodzenia.") {
                         val d=data(); val current=rows(d,key).find { it.optString("id")==id } ?: return@confirmAction
                         current.put("reimbursedCents",current.optLong("cents")).put("reimbursedDate",fmt.format(Date())).put("reimbursedMethod",if(which==0) "Gotówka" else "Karta")
@@ -1975,7 +1997,7 @@ class MainActivity : Activity() {
         for(i in 0 until photos.length()) {
             val uri=photos.optString(i)
             val card=FrameLayout(this).apply {
-                background=background(0xFFECEFF1.toInt())
+                background=background(palette.surface).apply { setStroke(dp(1),palette.border) }
                 clipToOutline=true
                 elevation=dp(2).toFloat()
                 contentDescription=PhotoPreviewUi.state(i,photos.length(),true).heading
@@ -2028,10 +2050,10 @@ class MainActivity : Activity() {
     }
     private fun field(caption:String,key:String,multiline:Boolean=false,numeric:Boolean=false) {
         label(caption)
-        val e=EditText(ContextThemeWrapper(this,R.style.WorkMeterDialogTheme)).apply {
+        val e=EditText(ContextThemeWrapper(this,dialogStyle)).apply {
             setText(draft.optString(key)); textSize=17f; minHeight=dp(48)
             inputType=if(numeric) InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL else InputType.TYPE_CLASS_TEXT or (if(multiline) InputType.TYPE_TEXT_FLAG_MULTI_LINE else 0)
-            setSingleLine(!multiline); setPadding(dp(10),dp(8),dp(10),dp(8)); setTextColor(0xFF37474F.toInt()); setHintTextColor(0xFF78909C.toInt()); background=background(0xFFECEFF1.toInt())
+            setSingleLine(!multiline); setPadding(dp(10),dp(8),dp(10),dp(8)); setTextColor(palette.textPrimary); setHintTextColor(palette.secondaryText); background=background(palette.surface).apply { setStroke(dp(1),palette.border) }
         }
         e.addTextChangedListener(object:TextWatcher {
             override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int) {}
@@ -2076,7 +2098,7 @@ class MainActivity : Activity() {
                 }
             }
             if(formKind=="materials" && draft.optString("sourceId").isBlank()) button("Miejsce: "+if(draft.optString("storage")=="car") "W samochodzie" else "Na obiekcie") {
-                AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Miejsce").setItems(arrayOf("Na obiekcie","W samochodzie")) { _,i -> draft.put("storage",if(i==1) "car" else "object"); renderForm() }.show()
+                AlertDialog.Builder(this,dialogStyle).setTitle("Miejsce").setItems(arrayOf("Na obiekcie","W samochodzie")) { _,i -> draft.put("storage",if(i==1) "car" else "object"); renderForm() }.show()
             }
             button("Obiekt: "+(objectById(draft.optString("objectId"))?.let { objectName(it) } ?: if(formKind in listOf("notes","expenses")) "Bez obiektu" else "Wybierz")) {
                 chooseObject(formKind in listOf("notes","expenses") || (formKind=="materials" && draft.optString("storage")=="car")) { draft.put("objectId",it?.optString("id") ?: ""); draft.remove("Obiekt"); renderForm() }
@@ -2096,7 +2118,7 @@ class MainActivity : Activity() {
                 button("Dodaj zdjęcia z galerii") { pickPhotos() }; button("Zrób zdjęcie") { camera() }
                 field("Ilość","quantity",numeric=true)
                 button("Jednostka: "+draft.optString("unit","szt.")) {
-                    AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Jednostka").setItems(arrayOf("szt.","m")) { _,which ->
+                    AlertDialog.Builder(this,dialogStyle).setTitle("Jednostka").setItems(arrayOf("szt.","m")) { _,which ->
                         draft.put("unit",if(which==0) "szt." else "m"); renderForm()
                     }.show()
                 }
@@ -2105,13 +2127,13 @@ class MainActivity : Activity() {
                     if(draft.optBoolean("shopping")) field("Sklep (opcjonalnie)","store")
                     field("Treść (opcjonalnie, gdy dodajesz zdjęcie)","text",true)
                     root.addView(CheckBox(this).apply {
-                        text="Zakupy / paragon"; setTextColor(0xFF37474F.toInt())
+                        text="Zakupy / paragon"; setTextColor(palette.textPrimary)
                         buttonTintList=android.content.res.ColorStateList.valueOf(0xFFFF5C5C.toInt())
                         isChecked=draft.optBoolean("shopping")
                         setOnCheckedChangeListener { _,checked -> draft.put("shopping",checked) }
                     })
                     root.addView(CheckBox(this).apply {
-                        setTextColor(0xFF37474F.toInt()); buttonTintList=android.content.res.ColorStateList.valueOf(0xFFFF5C5C.toInt())
+                        setTextColor(palette.textPrimary); buttonTintList=android.content.res.ColorStateList.valueOf(0xFFFF5C5C.toInt())
                         text="Aktualna"; isChecked=draft.optBoolean("aktualne")
                         setOnCheckedChangeListener { _,checked -> draft.put("aktualne",checked); if(checked) draft.put("done",false) }
                     })
@@ -2123,7 +2145,7 @@ class MainActivity : Activity() {
             showPhotos(draft)
             if(arr(draft,"photos").length()>0) button("Usuń zdjęcie ze szkicu") {
                 val photos=arr(draft,"photos")
-                AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Wybierz zdjęcie").setItems((0 until photos.length()).map { "Zdjęcie "+(it+1) }.toTypedArray()) { _,index ->
+                AlertDialog.Builder(this,dialogStyle).setTitle("Wybierz zdjęcie").setItems((0 until photos.length()).map { "Zdjęcie "+(it+1) }.toTypedArray()) { _,index ->
                     photos.remove(index); renderForm()
                 }.show()
             }
@@ -2339,7 +2361,7 @@ class MainActivity : Activity() {
         root.addView(TimeChart(this,result,true),LinearLayout.LayoutParams(-1,dp(240)))
         val sum=result.totals.sum()
         result.totals.forEachIndexed { i,n ->
-            root.addView(TextView(this).apply { text="● "+TimeChart.names[i]+" — "+duration(n)+" · "+"%.1f%%".format(Locale("pl"),if(sum==0L) 0.0 else n*100.0/sum);textSize=16f;setTextColor(0xFF37474F.toInt());setPadding(0,dp(7),0,dp(7)) })
+            root.addView(TextView(this).apply { text="● "+TimeChart.names[i]+" — "+duration(n)+" · "+"%.1f%%".format(Locale("pl"),if(sum==0L) 0.0 else n*100.0/sum);textSize=16f;setTextColor(palette.textPrimary);setPadding(0,dp(7),0,dp(7)) })
         }
         if(sum==0L) label("Brak czasu pracy w wybranym okresie.")
         label("Podział nie zmienia czasu płatnego. Cała zmiana jest czasem pracy.")
@@ -2348,7 +2370,7 @@ class MainActivity : Activity() {
         val a=active(data()) ?: run { toast("Najpierw rozpocznij pracę");return }
         if(a.optString("kind")=="Zakupy") {
             confirmAction("Zakończyć zakupy? Wybierz obiekt lub rozpocznij przejazd.") {
-                AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Co dalej?").setItems(arrayOf("Na obiekt","Przejazd","Bez przypisania")) { _,i ->
+                AlertDialog.Builder(this,dialogStyle).setTitle("Co dalej?").setItems(arrayOf("Na obiekt","Przejazd","Bez przypisania")) { _,i ->
                     when(i) { 0 -> switchObject();1 -> beginStage("Przejazd");else -> beginStage("Nieprzypisane") }
                 }.setNegativeButton("Anuluj",null).show()
             }
@@ -2424,8 +2446,8 @@ class MainActivity : Activity() {
     private fun materialNameField() {
         label("Nazwa materiału")
         val choices=(rows(data(),"materialCatalog")+rows(data(),"materials")).filter { it.optString("name").isNotBlank() }.distinctBy { it.optString("name").trim().lowercase(Locale.ROOT) }
-        val input=AutoCompleteTextView(ContextThemeWrapper(this,R.style.WorkMeterDialogTheme)).apply {
-            setText(draft.optString("name"));threshold=1;textSize=17f;setSingleLine();setPadding(dp(10),dp(8),dp(10),dp(8));background=background(0xFFECEFF1.toInt())
+        val input=AutoCompleteTextView(ContextThemeWrapper(this,dialogStyle)).apply {
+            setText(draft.optString("name"));threshold=1;textSize=17f;setSingleLine();setPadding(dp(10),dp(8),dp(10),dp(8));background=background(palette.surface).apply { setStroke(dp(1),palette.border) }
         }
         val names=choices.map { it.optString("name") }
         val adapter=object:ArrayAdapter<String>(this,android.R.layout.simple_dropdown_item_1line,ArrayList(names)) {
@@ -2504,7 +2526,7 @@ class MainActivity : Activity() {
             button("PRZENIEŚ NA OBIEKT · "+source.name) { transferMaterial(source.id) }
             button("Historia / edytuj · "+source.name) {
                 val rows=rows(data(),"materials").filter { it.optString("id")==source.id || it.optString("sourceId")==source.id }
-                AlertDialog.Builder(this,R.style.WorkMeterDialogTheme).setTitle("Poprawienia / przeniesienia").setItems(rows.map { dateText(recordDate(it))+" · "+materialLine(it) }.toTypedArray()) { _,i -> recordDetails("materials",rows[i].optString("id"),"car") }.setNegativeButton("Zamknij",null).show()
+                AlertDialog.Builder(this,dialogStyle).setTitle("Poprawienia / przeniesienia").setItems(rows.map { dateText(recordDate(it))+" · "+materialLine(it) }.toTypedArray()) { _,i -> recordDetails("materials",rows[i].optString("id"),"car") }.setNegativeButton("Zamknij",null).show()
             }
         }
         if(entries.none { it.car }) label("Brak materiałów w samochodzie.")

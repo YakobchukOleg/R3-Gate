@@ -1,7 +1,6 @@
 package com.r3gate.app
 
 import android.content.Context
-import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
@@ -23,10 +22,11 @@ class ObjectDetailsPanel(
     private val onNotes: () -> Unit,
     private val counts: ObjectDetailsTabs.Counts = ObjectDetailsTabs.Counts()
 ) : LinearLayout(context) {
-    private val ink = Color.rgb(35, 57, 67)
-    private val muted = Color.rgb(114, 130, 139)
-    private val green = Color.rgb(37, 136, 109)
-    private val backgroundColor = Color.rgb(244, 247, 247)
+    private val palette = WorkMeterAppearance.theme(context).palette
+    private val ink = palette.textPrimary
+    private val muted = palette.secondaryText
+    private val green = palette.accentText
+    private val backgroundColor = palette.background
     private val tabBody = LinearLayout(context).apply { orientation = VERTICAL }
     private var selectedTab = ObjectDetailsTabs.Tab.OVERVIEW
 
@@ -159,7 +159,7 @@ class ObjectDetailsPanel(
         orientation = VERTICAL
         setPadding(dp(15), dp(14), dp(15), dp(14))
         background = GradientDrawable().apply {
-            setColor(Color.WHITE)
+            setColor(palette.surface)
             cornerRadius = dp(17).toFloat()
         }
     }
@@ -171,7 +171,7 @@ class ObjectDetailsPanel(
             textSize = 12f
             minHeight = dp(44)
             setTextColor(ink)
-            backgroundTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
+            backgroundTintList = android.content.res.ColorStateList.valueOf(palette.surface)
             contentDescription = label
             setOnClickListener { callback() }
         }
