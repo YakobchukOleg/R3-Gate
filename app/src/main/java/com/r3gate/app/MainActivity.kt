@@ -47,6 +47,8 @@ class MainActivity : Activity() {
     private var walletDraft = JSONObject()
     private val ticker = Handler(Looper.getMainLooper())
     private var screen = "home"
+    private var objectFilters: ObjectFilterUiState.State? = null
+    private var objectSearch = ""
     private val expandedFilters = mutableSetOf<String>()
     private var formKind = ""
     private var formReturn = "home"
@@ -89,6 +91,10 @@ class MainActivity : Activity() {
         migrateWallet()
         DriveBackupWorker.schedule(this)
         expandedFilters.addAll(savedInstanceState?.getStringArrayList("expandedFilters") ?: emptyList())
+        savedInstanceState?.getBundle("objectFilters")?.let { filters ->
+            objectFilters = ObjectFilterUiState.State(filters.getBoolean("archived"), filters.getBoolean("grouped", true), filters.getString("city"))
+            objectSearch = filters.getString("query").orEmpty()
+        }
         walletDraft = JSONObject(savedInstanceState?.getString("walletDraft") ?: "{}")
         quickPhotoUpload=savedInstanceState?.getBoolean("quickPhotoUpload") ?: false
         cameraPath = savedInstanceState?.getString("cameraPath")
@@ -472,6 +478,14 @@ class MainActivity : Activity() {
         out.putBoolean("quickPhotoUpload",quickPhotoUpload)
         out.putString("walletDraft",walletDraft.toString())
         out.putStringArrayList("expandedFilters",ArrayList(expandedFilters))
+        objectFilters?.let { filters ->
+            out.putBundle("objectFilters", Bundle().apply {
+                putBoolean("archived", filters.archived)
+                putBoolean("grouped", filters.grouped)
+                putString("city", filters.city)
+                putString("query", objectSearch)
+            })
+        }
         out.putString("draft",draft.toString()); out.putString("cameraPath",cameraPath); out.putString("pendingUpload",pendingUpload)
         super.onSaveInstanceState(out)
     }
@@ -1859,13 +1873,18 @@ class MainActivity : Activity() {
             this,
             onOpenObject={ id -> openScreen("object:"+id) },
             onAddObject={ newForm("objects") },
-            onArchiveChanged={ archived ->
-                prefs.edit().putBoolean("archived_objects",archived).apply()
+            initialFilter = objectFilters ?: ObjectFilterUiState.State(archived = prefs.getBoolean("archived_objects", false)),
+            initialQuery = objectSearch,
+            onFilterChanged = { filters, query ->
+                objectFilters = filters
+                objectSearch = query
+                if (prefs.getBoolean("archived_objects", false) != filters.archived) {
+                    prefs.edit().putBoolean("archived_objects", filters.archived).apply()
+                }
             }
         )
         root.addView(panel,LinearLayout.LayoutParams(-1,-2))
         panel.submitObjects(items)
-        panel.showArchivedObjects(prefs.getBoolean("archived_objects",false))
     }
     private fun objectDetails(id:String) {
         val obj=objectById(id) ?: run { objects(); return }

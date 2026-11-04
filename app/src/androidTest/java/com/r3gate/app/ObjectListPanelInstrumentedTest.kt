@@ -102,6 +102,26 @@ class ObjectListPanelInstrumentedTest {
         }
     }
 
+    @Test fun objectFiltersSurviveOpeningDetailsAndRecreatingTheActivity() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                goToObjects(activity)
+                views(activity).filterIsInstance<android.widget.EditText>()
+                    .first { it.contentDescription == "Szukaj obiektu" }.setText("tczew")
+                views(activity).first { it.contentDescription == "Wyłącz grupowanie" }.performClick()
+                views(activity).first { it.isClickable && it.contentDescription?.contains("TCZ-01") == true }.performClick()
+                activity.onBackPressed()
+            }
+            scenario.recreate()
+            scenario.onActivity { activity ->
+                val search = views(activity).filterIsInstance<android.widget.EditText>()
+                    .first { it.contentDescription == "Szukaj obiektu" }
+                assertEquals("tczew", search.text.toString())
+                assertTrue(views(activity).any { it.contentDescription == "Grupuj według miast" })
+            }
+        }
+    }
+
     @Test fun cityFilterIsInteractiveOnActualScreen() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->

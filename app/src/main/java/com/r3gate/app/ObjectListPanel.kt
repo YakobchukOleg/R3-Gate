@@ -20,7 +20,9 @@ class ObjectListPanel(
     context: Context,
     private val onOpenObject: (String) -> Unit,
     private val onAddObject: () -> Unit,
-    private val onArchiveChanged: (Boolean) -> Unit = {}
+    initialFilter: ObjectFilterUiState.State = ObjectFilterUiState.State(),
+    initialQuery: String = "",
+    private val onFilterChanged: (ObjectFilterUiState.State, String) -> Unit = { _, _ -> }
 ) : LinearLayout(context) {
     private val palette = WorkMeterAppearance.theme(context).palette
     private val ink = palette.textPrimary
@@ -28,8 +30,8 @@ class ObjectListPanel(
     private val bg = palette.background
     private val green = palette.accentText
     private var items: List<ObjectListUiModel.Item> = emptyList()
-    private var filterState = ObjectFilterUiState.State()
-    private var query = ""
+    private var filterState = initialFilter
+    private var query = initialQuery
     private val cityChips = LinearLayout(context).apply { orientation = HORIZONTAL }
     private val results = LinearLayout(context).apply { orientation = VERTICAL }
     private val archiveToggle = TextView(context)
@@ -51,13 +53,14 @@ class ObjectListPanel(
             setPadding(dp(14), dp(8), dp(14), dp(8))
             background = rounded(palette.surface, 16)
             contentDescription = "Szukaj obiektu"
+            setText(initialQuery)
         }
         addView(search, LayoutParams(LayoutParams.MATCH_PARENT, dp(52)))
         search.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
                 query = s?.toString().orEmpty()
-                render()
+                filtersChanged()
             }
             override fun afterTextChanged(s: Editable?) {}
         })
@@ -71,7 +74,7 @@ class ObjectListPanel(
             setTextColor(ink)
             setPadding(dp(10), dp(10), dp(10), dp(10))
             background = rounded(palette.surface, 20)
-            setOnClickListener { filterState = ObjectFilterUiState.toggleArchive(filterState); onArchiveChanged(filterState.archived); render() }
+            setOnClickListener { filterState = ObjectFilterUiState.toggleArchive(filterState); filtersChanged() }
         }
         groupToggle.apply {
             textSize = 13f
@@ -81,7 +84,7 @@ class ObjectListPanel(
             setTextColor(ink)
             setPadding(dp(10), dp(10), dp(10), dp(10))
             background = rounded(palette.surface, 20)
-            setOnClickListener { filterState = ObjectFilterUiState.toggleGrouping(filterState); render() }
+            setOnClickListener { filterState = ObjectFilterUiState.toggleGrouping(filterState); filtersChanged() }
         }
         options.addView(archiveToggle, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
         options.addView(groupToggle, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = dp(8) })
@@ -115,16 +118,11 @@ class ObjectListPanel(
     fun submitObjects(value: List<ObjectListUiModel.Item>) {
         items = value.toList()
         filterState = ObjectFilterUiState.restore(filterState, ObjectListUiModel.activeCities(items))
-        render()
+        filtersChanged()
     }
 
-    fun showArchivedObjects(value: Boolean) {
-        filterState = filterState.copy(archived = value, city = null)
-        render()
-    }
-
-    fun setCityFilter(city: String?) {
-        filterState = ObjectFilterUiState.city(filterState, city)
+    private fun filtersChanged() {
+        onFilterChanged(filterState, query)
         render()
     }
 
@@ -151,7 +149,7 @@ class ObjectListPanel(
                 isFocusable = true
                 contentDescription = if (city == null) "Wszystkie miasta" else "Filtr miasta: " + city
                 isSelected = active
-                setOnClickListener { filterState = ObjectFilterUiState.city(filterState, city); render() }
+                setOnClickListener { filterState = ObjectFilterUiState.city(filterState, city); filtersChanged() }
             }
             cityChips.addView(chip, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply {
                 rightMargin = dp(8)
