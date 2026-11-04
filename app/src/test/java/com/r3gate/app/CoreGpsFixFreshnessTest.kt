@@ -40,4 +40,21 @@ class CoreGpsFixFreshnessTest {
         assertEquals(fresh(fix=persistedFix),fresh(fix=persistedFix))
     }
     @Test fun eventEqualFixAndNowIsValid() { assertTrue(fresh(1000,1000,1000)) }
+
+    @Test fun newSessionCannotReuseProposalFromEarlierSession() {
+        assertFalse(CoreGpsFixFreshness.isFromActiveSession(2_000L, 1_999L, 2_100L, 2_200L))
+    }
+
+    @Test fun firstEventOfCurrentSessionCanUseAFreshFix() {
+        assertTrue(CoreGpsFixFreshness.isFromActiveSession(2_000L, 2_000L, 2_100L, 2_200L))
+    }
+
+    @Test fun missingSessionCheckpointCannotAuthorizeProposal() {
+        assertFalse(CoreGpsFixFreshness.isFromActiveSession(0L, 2_000L, 2_100L, 2_200L))
+    }
+
+    @Test fun currentSessionStillRequiresRecentOrderedFix() {
+        assertFalse(CoreGpsFixFreshness.isFromActiveSession(1_000L, 2_000L, 1_999L, 2_200L))
+        assertFalse(CoreGpsFixFreshness.isFromActiveSession(1_000L, 2_000L, 2_100L, 122_101L))
+    }
 }

@@ -12,4 +12,7 @@ object CoreGpsFixFreshness {
     fun isFresh(eventMs: Long, fixMs: Long, nowMs: Long): Boolean =
         eventMs > 0L && fixMs >= eventMs && nowMs >= fixMs &&
             nowMs - fixMs <= MAX_LAST_FIX_AGE_MS
+
+    fun isFromActiveSession(sessionStartMs: Long, eventMs: Long, fixMs: Long, nowMs: Long): Boolean =
+        sessionStartMs in 1..eventMs && isFresh(eventMs, fixMs, nowMs)
 }

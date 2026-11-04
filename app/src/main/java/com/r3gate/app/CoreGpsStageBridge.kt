@@ -30,14 +30,20 @@ object CoreGpsStageBridge {
         prefs.edit().remove("core_gps_active_notification").apply()
     }
 
+    private fun hasPreciseTracking(context: Context, prefs: android.content.SharedPreferences): Boolean =
+        GpsWorkdaySession.shouldTrack(prefs) &&
+            context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+
     /** Recheck GPS coverage at notification time and immediately before approval. */
     fun hasContinuousCoverage(context: Context, eventMs: Long, nowMs: Long): Boolean {
         val prefs = context.getSharedPreferences("r3_gate", Context.MODE_PRIVATE)
-        if (!prefs.getBoolean("gps_enabled", false)) return false
+        if (!hasPreciseTracking(context, prefs) || !prefs.getBoolean("gps_service_active", false))
+            return false
         val lastFix = try {
             JSONObject(prefs.getString("gps_last_fix", "{}") ?: "{}").optLong("time")
         } catch (_: Exception) { return false }
-        if (!CoreGpsFixFreshness.isFresh(eventMs, lastFix, nowMs)) return false
+        val sessionStart = prefs.getLong("gps_session_start", 0L)
+        if (!CoreGpsFixFreshness.isFromActiveSession(sessionStart, eventMs, lastFix, nowMs)) return false
         val events = try { JSONArray(prefs.getString("gps_trip_events", "[]") ?: "[]") }
             catch (_: Exception) { return false }
         val gaps = try { JSONArray(prefs.getString("gps_coverage_gaps", "[]") ?: "[]") }
@@ -117,7 +123,7 @@ object CoreGpsStageBridge {
         val shiftStart = active.optLong("start")
         val stageStart = maxOf(shiftStart, active.optLong("stageStart", shiftStart))
         val session = CoreGpsSessionGate.Snapshot(
-            prefs.getBoolean("gps_enabled", false), true,
+            hasPreciseTracking(context, prefs), true,
             active.optString("kind", "Obiekt"), shiftStart, stageStart, nowMs
         )
         if (!CoreGpsSessionGate.isEligible(session)) {
