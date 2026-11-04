@@ -172,16 +172,16 @@ class ObjectListPanelInstrumentedTest {
         }
     }
 
-    @Test fun serviceTabShowsNonMisleadingFallbackAndNotesAction() {
+    @Test fun tasksTabShowsFallbackAndNotesAction() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 openActiveDetails(activity)
                 val service = views(activity).filterIsInstance<Button>()
-                    .firstOrNull { it.contentDescription == "Zakładka: Serwis" }
+                    .firstOrNull { it.contentDescription == "Zakładka: Zadania" }
                 assertNotNull(service)
                 service!!.performClick()
                 assertTrue(texts(activity).any {
-                    it.contains("Osobna lista zgłoszeń serwisowych nie jest jeszcze dostępna")
+                    it.contains("Lista zadań i zgłoszeń nie jest jeszcze dostępna")
                 })
                 assertTrue(texts(activity).contains("Otwórz notatki"))
                 val notes = views(activity).filterIsInstance<Button>()
@@ -192,12 +192,12 @@ class ObjectListPanelInstrumentedTest {
         }
     }
 
-    @Test fun technicalTabShowsTagAndLocation() {
+    @Test fun todayTabKeepsTechnicalDetailsAndMap() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 openActiveDetails(activity)
                 val tech = views(activity).filterIsInstance<Button>()
-                    .first { it.contentDescription == "Zakładka: Techniczne" }
+                    .first { it.contentDescription == "Zakładka: Dzisiaj" }
                 tech.performClick()
                 assertTrue(texts(activity).contains("TAG: TCZ-01"))
                 assertTrue(texts(activity).contains("Otwórz w Google Maps"))

@@ -66,6 +66,8 @@ class ObjectListPanel(
         archiveToggle.apply {
             textSize = 13f
             gravity = Gravity.CENTER
+            minimumHeight = dp(48)
+            isFocusable = true
             setTextColor(ink)
             setPadding(dp(10), dp(10), dp(10), dp(10))
             background = rounded(palette.surface, 20)
@@ -74,13 +76,15 @@ class ObjectListPanel(
         groupToggle.apply {
             textSize = 13f
             gravity = Gravity.CENTER
+            minimumHeight = dp(48)
+            isFocusable = true
             setTextColor(ink)
             setPadding(dp(10), dp(10), dp(10), dp(10))
             background = rounded(palette.surface, 20)
             setOnClickListener { filterState = ObjectFilterUiState.toggleGrouping(filterState); render() }
         }
-        options.addView(archiveToggle, LayoutParams(0, dp(44), 1f))
-        options.addView(groupToggle, LayoutParams(0, dp(44), 1f).apply { leftMargin = dp(8) })
+        options.addView(archiveToggle, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
+        options.addView(groupToggle, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = dp(8) })
         addView(options, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(12)
         })
@@ -88,7 +92,7 @@ class ObjectListPanel(
             isHorizontalScrollBarEnabled = false
             addView(cityChips)
         }
-        addView(chipsScroll, LayoutParams(LayoutParams.MATCH_PARENT, dp(48)).apply {
+        addView(chipsScroll, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(8)
         })
         count.apply { textSize = 12f; setTextColor(muted) }
@@ -127,6 +131,8 @@ class ObjectListPanel(
     private fun render() {
         val archived = filterState.archived
         val grouped = filterState.grouped
+        archiveToggle.isSelected = archived
+        groupToggle.isSelected = grouped
         archiveToggle.text = if (archived) "Archiwum ✓" else "Wszystkie"
         groupToggle.text = if (grouped) "▤ Grupuj: miasta" else "☷ Lista"
         archiveToggle.contentDescription = if (archived) "Pokaż aktywne obiekty" else "Pokaż archiwum obiektów"
@@ -138,6 +144,7 @@ class ObjectListPanel(
             val active = filterState.city == city
             val chip = label(city ?: "Wszystkie miasta", if (active) palette.onPrimary else ink, 12f).apply {
                 gravity = Gravity.CENTER
+                minimumHeight = dp(48)
                 setPadding(dp(12), dp(7), dp(12), dp(7))
                 background = rounded(if (active) palette.primary else palette.surface, 18)
                 isClickable = true
@@ -146,7 +153,7 @@ class ObjectListPanel(
                 isSelected = active
                 setOnClickListener { filterState = ObjectFilterUiState.city(filterState, city); render() }
             }
-            cityChips.addView(chip, LayoutParams(LayoutParams.WRAP_CONTENT, dp(38)).apply {
+            cityChips.addView(chip, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply {
                 rightMargin = dp(8)
             })
         }

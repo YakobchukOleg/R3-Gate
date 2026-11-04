@@ -5,7 +5,7 @@ import org.junit.Test
 
 class ObjectDetailsTabsTest {
     @Test fun allTabsMatchPolishPrototype() {
-        assertEquals(listOf("Przegląd","Zdjęcia","Materiały","Serwis","Techniczne"),
+        assertEquals(listOf("Dzisiaj", "Zadania", "Zdjęcia", "Materiały", "Historia"),
             ObjectDetailsTabs.Tab.values().map { it.label })
     }
 
@@ -23,22 +23,16 @@ class ObjectDetailsTabsTest {
         assertEquals("Otwórz materiały", section.action)
     }
 
-    @Test fun unsupportedServiceDoesNotInventServiceTickets() {
+    @Test fun unsupportedTasksOfferExistingNotesWithoutInventingTasks() {
         val section = ObjectDetailsTabs.section(
-            ObjectDetailsTabs.Tab.SERVICE, ObjectDetailsTabs.Counts(notes=9))
+            ObjectDetailsTabs.Tab.TASKS, ObjectDetailsTabs.Counts(notes=9))
         assertTrue(section.description.contains("nie jest jeszcze dostępna"))
         assertEquals("Otwórz notatki", section.action)
     }
 
-    @Test fun technicalSectionPreservesMapShortcut() {
-        val section = ObjectDetailsTabs.section(
-            ObjectDetailsTabs.Tab.TECHNICAL, ObjectDetailsTabs.Counts())
-        assertEquals("Otwórz w Google Maps", section.action)
-    }
-
-    @Test fun overviewUsesExistingHistoryWithoutNavigationShortcut() {
-        val section = ObjectDetailsTabs.section(
-            ObjectDetailsTabs.Tab.OVERVIEW, ObjectDetailsTabs.Counts())
+    @Test fun historyUsesExistingRecordsWithoutNavigationShortcut() {
+        val section = ObjectDetailsTabs.section(ObjectDetailsTabs.Tab.HISTORY, ObjectDetailsTabs.Counts())
+        assertEquals("Historia", section.heading)
         assertNull(section.action)
     }
 

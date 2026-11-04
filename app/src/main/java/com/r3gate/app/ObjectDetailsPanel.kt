@@ -28,7 +28,6 @@ class ObjectDetailsPanel(
     private val green = palette.accentText
     private val backgroundColor = palette.background
     private val tabBody = LinearLayout(context).apply { orientation = VERTICAL }
-    private var selectedTab = ObjectDetailsTabs.Tab.OVERVIEW
 
     init {
         orientation = VERTICAL
@@ -76,21 +75,26 @@ class ObjectDetailsPanel(
         }
         val tabRow = LinearLayout(context).apply { orientation = HORIZONTAL }
         tabs.addView(tabRow)
-        for (tab in ObjectDetailsTabs.Tab.values()) {
+        for (tab in ObjectDetailsTabs.Tab.entries) {
             tabRow.addView(action(tab.label) {
-                selectedTab = tab
                 for (i in 0 until tabRow.childCount) {
                     val button = tabRow.getChildAt(i) as Button
                     val active = i == tab.ordinal
+                    button.isSelected = active
                     button.setTextColor(if (active) green else muted)
                     button.setTypeface(null, if (active) Typeface.BOLD else Typeface.NORMAL)
                 }
                 renderTab(tab, state)
-            }.apply { contentDescription = "Zakładka: " + tab.label }, LayoutParams(LayoutParams.WRAP_CONTENT, dp(48)))
+            }.apply {
+                contentDescription = "Zakładka: " + tab.label
+                isSelected = tab == ObjectDetailsTabs.Tab.TODAY
+                setTextColor(if (isSelected) green else muted)
+                setTypeface(null, if (isSelected) Typeface.BOLD else Typeface.NORMAL)
+            }, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
         }
-        addView(tabs, LayoutParams(LayoutParams.MATCH_PARENT, dp(54)))
+        addView(tabs, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         addView(tabBody, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
-        renderTab(ObjectDetailsTabs.Tab.OVERVIEW, state)
+        renderTab(ObjectDetailsTabs.Tab.TODAY, state)
         addView(text(state.archiveHint, muted, 12f).apply {
             setPadding(0, dp(12), 0, dp(12))
         })
@@ -99,8 +103,8 @@ class ObjectDetailsPanel(
     private fun renderTab(tab: ObjectDetailsTabs.Tab, state: ObjectDetailsUiModel.ViewState) {
         tabBody.removeAllViews()
         val tabSection = ObjectDetailsTabs.section(tab, counts)
-        if (tab == ObjectDetailsTabs.Tab.OVERVIEW) {
-            tabBody.addView(section("Przegląd"))
+        tabBody.addView(section(tabSection.heading))
+        if (tab == ObjectDetailsTabs.Tab.HISTORY) {
             tabBody.addView(card().apply {
                 addView(text(state.historyHeading, ink, 16f).apply {
                     setTypeface(null, Typeface.BOLD)
@@ -115,26 +119,27 @@ class ObjectDetailsPanel(
                 })
                 state.legacyNote?.let { addView(text(it, muted, 12f)) }
             })
+        } else if (tab == ObjectDetailsTabs.Tab.TODAY) {
+            tabBody.addView(card().apply {
+                addView(text(state.historyHeading, ink, 16f))
+                addView(text(state.totalTime, green, 19f))
+                state.emptyHistory?.let { addView(text(it, muted, 13f)) }
+            })
             tabBody.addView(section("Ważne informacje"))
             tabBody.addView(card().apply {
-                addView(text(state.notes ?: "Brak notatek. Dodaj dane kontaktowe lub ważną informację.", muted, 13f))
+                addView(text("Dane techniczne", ink, 16f))
+                addView(text("TAG: " + state.heading, ink, 13f))
+                state.location?.let { addView(text("⌖ " + it, ink, 13f)) }
+                state.organization?.let { addView(text("◈ " + it, ink, 13f)) }
+                addView(text(state.notes ?: "Brak ważnych informacji.", muted, 13f))
             })
         } else {
-            tabBody.addView(section(tabSection.heading))
-            tabBody.addView(card().apply {
-                addView(text(tabSection.description, muted, 14f))
-                if (tab == ObjectDetailsTabs.Tab.TECHNICAL) {
-                    addView(text("TAG: " + state.heading, ink, 13f))
-                    state.location?.let { addView(text("⌖ " + it, ink, 13f)) }
-                    state.organization?.let { addView(text("◈ " + it, ink, 13f)) }
-                }
-            })
+            tabBody.addView(card().apply { addView(text(tabSection.description, muted, 14f)) })
             val callback: (() -> Unit)? = when (tab) {
                 ObjectDetailsTabs.Tab.PHOTOS -> onPhotos
                 ObjectDetailsTabs.Tab.MATERIALS -> onMaterials
-                ObjectDetailsTabs.Tab.SERVICE -> onNotes
-                ObjectDetailsTabs.Tab.TECHNICAL -> onMaps
-                ObjectDetailsTabs.Tab.OVERVIEW -> null
+                ObjectDetailsTabs.Tab.TASKS -> onNotes
+                ObjectDetailsTabs.Tab.TODAY, ObjectDetailsTabs.Tab.HISTORY -> null
             }
             if (tabSection.action != null && callback != null)
                 tabBody.addView(action(tabSection.action, callback))
