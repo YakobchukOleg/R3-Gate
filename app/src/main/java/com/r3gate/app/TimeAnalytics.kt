@@ -5,15 +5,38 @@ import java.time.*
 object TimeAnalytics {
     data class Stage(val start:Long,val end:Long,val category:Int)
     data class Shift(val start:Long,val end:Long,val stages:List<Stage>)
-    data class Result(val totals:LongArray,val hours:Array<LongArray>)
-    fun previousWeek(today:LocalDate):Pair<LocalDate,LocalDate> {
-        val monday=today.minusDays((today.dayOfWeek.value-1).toLong())
-        return monday.minusWeeks(1) to monday.minusDays(1)
+    const val PERSONAL = 4
+    data class Result(val totals:LongArray,val hours:Array<LongArray>,val personalMillis:Long=0L)
+
+    enum class Period { TODAY, CURRENT_WEEK, PREVIOUS_WEEK, CURRENT_MONTH, PREVIOUS_MONTH, CUSTOM }
+
+    fun previousWeek(today: LocalDate): Pair<LocalDate, LocalDate> =
+        week(today.minusWeeks(1))
+
+    fun previousMonth(today: LocalDate): Pair<LocalDate, LocalDate> =
+        month(today.minusMonths(1))
+
+    fun dateRange(
+        period: Period,
+        today: LocalDate,
+        custom: Pair<LocalDate, LocalDate>? = null
+    ): Pair<LocalDate, LocalDate>? = when (period) {
+        Period.TODAY -> today to today
+        Period.CURRENT_WEEK -> week(today)
+        Period.PREVIOUS_WEEK -> previousWeek(today)
+        Period.CURRENT_MONTH -> month(today)
+        Period.PREVIOUS_MONTH -> previousMonth(today)
+        Period.CUSTOM -> custom?.takeIf { it.first <= it.second }
     }
-    fun previousMonth(today:LocalDate):Pair<LocalDate,LocalDate> {
-        val first=today.withDayOfMonth(1)
-        return first.minusMonths(1) to first.minusDays(1)
+
+    private fun week(day: LocalDate): Pair<LocalDate, LocalDate> {
+        val monday = day.minusDays((day.dayOfWeek.value - 1).toLong())
+        return monday to monday.plusDays(6)
     }
+
+    private fun month(day: LocalDate): Pair<LocalDate, LocalDate> =
+        day.withDayOfMonth(1) to day.withDayOfMonth(day.lengthOfMonth())
+
     private data class Slice(val start: Long, val end: Long, val category: Int, val stageStart: Long?)
     private data class Boundary(val time: Long, val sliceIndex: Int, val begins: Boolean)
 
@@ -35,7 +58,7 @@ object TimeAnalytics {
                     val stageStart = maxOf(stage.start, start)
                     val stageEnd = minOf(stage.end, end)
                     if (stageEnd > stageStart)
-                        add(Slice(stageStart, stageEnd, stage.category.takeIf { it in 0..3 } ?: 3, stage.start))
+                        add(Slice(stageStart, stageEnd, stage.category.takeIf { it in 0..PERSONAL } ?: 3, stage.start))
                 }
             }
         }
@@ -43,19 +66,25 @@ object TimeAnalytics {
             listOf(Boundary(slice.start, index, true), Boundary(slice.end, index, false))
         }.sortedBy { it.time }
         // Prefer recorded stages to unclassified gaps, then preserve latest-stage precedence.
-        val active = java.util.TreeSet(compareBy<Int> { slices[it].stageStart ?: Long.MIN_VALUE }
-            .thenByDescending { it })
+        // A recorded personal interval must not appear as work, even in conflicting legacy shifts.
+        val active = java.util.TreeSet(compareBy<Int> { slices[it].category == PERSONAL }
+            .thenBy { slices[it].stageStart ?: Long.MIN_VALUE }.thenByDescending { it })
         var previous = lower
+        var personalMillis = 0L
         for (boundary in boundaries) {
             if (previous < boundary.time && active.isNotEmpty()) {
                 val category = slices[active.last()].category
-                totals[category] += boundary.time - previous
-                addHours(hours, category, previous, boundary.time, zone)
+                if (category == PERSONAL) {
+                    personalMillis += boundary.time - previous
+                } else {
+                    totals[category] += boundary.time - previous
+                    addHours(hours, category, previous, boundary.time, zone)
+                }
             }
             if (boundary.begins) active.add(boundary.sliceIndex) else active.remove(boundary.sliceIndex)
             previous = boundary.time
         }
-        return Result(totals, hours)
+        return Result(totals, hours, personalMillis)
     }
 
     private fun addHours(hours: Array<LongArray>, category: Int, start: Long, end: Long, zone: ZoneId) {
