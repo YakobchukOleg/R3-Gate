@@ -861,7 +861,7 @@ class MainActivity : Activity() {
             screen=="sectionSettings" -> settings()
             screen=="gps" -> sectionSettings("Obiekty")
             screen=="gpsPlaceKinds" -> gpsScreen()
-            screen=="gpsCategories" -> report()
+            screen=="gpsCategories" || screen=="gpsTimeSummary" -> gpsScreen()
             screen=="gpsDiagnostics" -> gpsScreen()
             screen=="gpsPay" -> settings()
             screen.startsWith("menuFeature:") -> menu()
@@ -1458,6 +1458,7 @@ class MainActivity : Activity() {
         label("GPS aktywny działa w tle z widocznym powiadomieniem. Wyłącz GPS, aby zakończyć rejestrację.")
         gpsResumePrompt()
         button("Diagnostyka GPS i baterii Android") { gpsDeviceDiagnostics() }
+        button("GPS · Mój czas") { gpsTimeSummary() }
         button("Historia obserwacji GPS") {
             val events=(CoreGpsProposalStore.read(AndroidCoreGpsProposalStorage(this)) as?
                 CoreGpsProposalStore.ReadResult.Success)?.events
@@ -2119,17 +2120,15 @@ class MainActivity : Activity() {
                 shopping=prefs.getBoolean("gps_pay_shopping",true)))
         return GpsShiftEstimate.Summary(totals.elapsedMs,totals.payableMs,totals.trips)
     }
-    private fun report() {
-        base("Mój czas"); screen="report"; nav()
-        button("GENERUJ RAPORT SMS") { weeklySms("report") }
-        button("GPS · zasady rozliczania") { gpsPaySettings() }
-        button("GPS · kategorie przejazdów") { gpsTripCategories() }
-        val currentShift=active(data()) ?: rows(data(),"shifts").lastOrNull()
+    private fun gpsTimeSummary() {
+        base("GPS · Mój czas"); screen = "gpsTimeSummary"; nav()
+        val journal = data()
+        val currentShift = active(journal) ?: rows(journal, "shifts").lastOrNull()
         if(currentShift!=null) {
             val end=if(currentShift.has("end")) currentShift.optLong("end") else System.currentTimeMillis()
             val estimate=gpsEstimate(currentShift,end)
             label("GPS · szacunkowy czas przejazdów: "+duration(estimate.actualTravelMs)+
-                " · zatwierdzone do wypłaty: "+duration(estimate.payableTravelMs))
+                " · szacowany czas rozliczany: "+duration(estimate.payableTravelMs))
             label("Wykryto "+estimate.completeTrips+" zakończonych przejazdów. Szacunek GPS nie zmienia ewidencji pracy.")
             val tripEvents=try { JSONArray(prefs.getString("gps_trip_events","[]") ?: "[]") } catch(_:Exception) { JSONArray() }
             val observed=mutableListOf<GpsShiftEstimate.Event>()
@@ -2149,8 +2148,11 @@ class MainActivity : Activity() {
             label("Przejazdy poza zmianą: "+duration(review.travelOutsideMs)+
                 ". GPS nie zmienia zapisanych godzin ani wypłat.")
 
-        }
+        } else label("Brak zmiany do sprawdzenia.")
+    }
 
+    private fun report() {
+        base("Mój czas"); screen="report"; nav()
         val from=prefs.getString("reportFrom","").orEmpty(); val to=prefs.getString("reportTo","").orEmpty()
         fun setPeriod(key:String,date:LocalDate) {
             val f=if(key=="reportFrom") date.toString() else from
@@ -2166,6 +2168,15 @@ class MainActivity : Activity() {
                 pickReportDate(if(to.isBlank()) LocalDate.now() else LocalDate.parse(to)) { setPeriod("reportTo",it) }
             }
             button("Wyczyść filtry") { prefs.edit().remove("reportFrom").remove("reportTo").apply(); report() }
+            val smsRangeStart = from.takeIf { it.isNotBlank() }?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+            val smsRangeEnd = to.takeIf { it.isNotBlank() }?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+            if (smsRangeStart != null && smsRangeEnd != null && !smsRangeEnd.isBefore(smsRangeStart)) {
+                button("GENERUJ RAPORT SMS") {
+                    smsFrom = smsRangeStart
+                    smsTo = smsRangeEnd
+                    weeklySms("report")
+                }
+            }
         }
         val journal=data()
         if(journal.optJSONObject("deletedShiftUndo")!=null) button("Przywróć usuniętą zmianę") {
@@ -2713,6 +2724,7 @@ class MainActivity : Activity() {
             target=="gpsPlaceKinds" -> gpsPlaceKinds()
             target=="gpsPay" -> gpsPaySettings()
             target=="gpsCategories" -> gpsTripCategories()
+            target=="gpsTimeSummary" -> gpsTimeSummary()
             target=="language" -> language()
             target=="charts" -> charts()
             target=="queue" -> uploadQueue()

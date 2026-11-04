@@ -416,7 +416,20 @@ class AppFlowTest {
                 a.onBackPressed(); click(a,"GENERUJ RAPORT SMS")
                 assertTrue(all(a).filterIsInstance<Button>().any { it.text.toString().startsWith("Data od:") })
                 a.onBackPressed(); assertTrue(has(a,"Ustawienia"))
-                a.onBackPressed();click(a,"MÓJ CZAS");click(a,"GENERUJ RAPORT SMS");a.onBackPressed();assertTrue(has(a,"Mój czas"))
+                a.onBackPressed()
+                val selectedDay = java.time.LocalDate.now().minusDays(2)
+                a.getSharedPreferences("r3_gate", 0).edit()
+                    .putString("reportFrom", selectedDay.toString()).putString("reportTo", selectedDay.toString()).commit()
+                click(a, "MÓJ CZAS")
+                assertFalse(all(a).any { it is Button && it.isShown && it.text == "GENERUJ RAPORT SMS" })
+                assertFalse(has(a, "GPS · kategorie przejazdów"))
+                clickFilters(a)
+                click(a, "GENERUJ RAPORT SMS")
+                val date = selectedDay.format(java.time.format.DateTimeFormatter.ofPattern("dd-MM-yyyy"))
+                assertTrue(has(a, "Data od: $date"))
+                assertTrue(has(a, "Data do: $date"))
+                a.onBackPressed()
+                assertTrue(has(a, "Mój czas"))
             }
         }
     }
