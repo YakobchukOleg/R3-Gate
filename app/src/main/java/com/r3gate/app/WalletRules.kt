@@ -6,7 +6,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 
 object WalletRules {
-    data class Shift(val start:Long,val end:Long,val rate:BigDecimal)
+    data class Shift(val start:Long,val end:Long,val rate:BigDecimal,val privatePeriods:List<PrivateTimeRules.Interval> = emptyList())
     data class Payment(val from:String,val to:String,val cents:Long,val method:String)
     data class Summary(val earned:Long,val cash:Long,val card:Long,val overlapping:Int) {
         val paid:Long get()=cash+card
@@ -28,7 +28,7 @@ object WalletRules {
         for(s in shifts) {
             val start=maxOf(s.start,from?.atStartOfDay(zone)?.toInstant()?.toEpochMilli() ?: s.start)
             val end=minOf(s.end,to?.plusDays(1)?.atStartOfDay(zone)?.toInstant()?.toEpochMilli() ?: s.end)
-            if(end>start) sum+=s.rate.multiply(BigDecimal.valueOf(end-start)).divide(BigDecimal.valueOf(3600000),12,RoundingMode.HALF_UP)
+            if(end>start) sum+=s.rate.multiply(BigDecimal.valueOf(PrivateTimeRules.worked(start,end,s.privatePeriods))).divide(BigDecimal.valueOf(3600000),12,RoundingMode.HALF_UP)
         }
         return sum.movePointRight(2).setScale(0,RoundingMode.HALF_UP).longValueExact()
     }

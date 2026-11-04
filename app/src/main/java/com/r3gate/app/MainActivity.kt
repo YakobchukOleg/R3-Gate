@@ -289,6 +289,62 @@ class MainActivity : Activity() {
             CoreGpsStageBridge.dismiss(this)
     }
     private fun active(d:JSONObject):JSONObject? = d.optJSONObject("active")
+    private fun privateIntervals(
+        shift: JSONObject,
+        until: Long = shift.optLong("end", System.currentTimeMillis())
+    ): List<PrivateTimeRules.Interval> {
+        val finished = rows(shift, "stages").filter { it.optString("kind") == PrivateTimeRules.KIND }
+            .map { PrivateTimeRules.Interval(it.optLong("start", -1L), it.optLong("end")) }
+        if (shift.has("end") || shift.optString("kind") != PrivateTimeRules.KIND) return finished
+        return finished + PrivateTimeRules.Interval(shift.optLong("stageStart", until), until)
+    }
+
+    private fun workedMillis(
+        shift: JSONObject,
+        start: Long = shift.optLong("start"),
+        end: Long = shift.optLong("end", System.currentTimeMillis())
+    ): Long = PrivateTimeRules.worked(start, end, privateIntervals(shift, end))
+
+    private fun togglePrivateTime() {
+        val d = data()
+        val shift = active(d) ?: return
+        val now = System.currentTimeMillis()
+        if (now <= shift.optLong("stageStart", shift.optLong("start"))) {
+            toast("Sprawdź godzinę urządzenia")
+            return
+        }
+        val resuming = shift.optString("kind") == PrivateTimeRules.KIND
+        closeStage(shift, now)
+        shift.put("stageStart", now)
+        if (resuming) {
+            val pausedKind = shift.optString("pausedKind", "Nieprzypisane")
+            val pausedId = shift.optString("pausedObjectId")
+            val activeObject = rows(d, "objects").singleOrNull { it.optString("id") == pausedId }
+                ?.takeUnless { it.optBoolean("archived") }
+            val canResume = pausedKind != "Obiekt" || activeObject != null
+            shift.put("kind", if (canResume) pausedKind else "Nieprzypisane")
+                .put("object", if (canResume) shift.optString("pausedObject") else "")
+                .put("objectId", if (canResume) pausedId else "")
+            if (canResume) shift.optJSONObject("pausedStageMeta")?.let { shift.put("stageMeta", it) }
+            listOf("pausedKind", "pausedObject", "pausedObjectId", "pausedStageMeta").forEach { shift.remove(it) }
+        } else {
+            shift.put("pausedKind", shift.optString("kind", "Obiekt"))
+                .put("pausedObject", shift.optString("object"))
+                .put("pausedObjectId", shift.optString("objectId"))
+                .put("pausedStageMeta", shift.remove("stageMeta"))
+                .put("kind", PrivateTimeRules.KIND).put("object", "").put("objectId", "")
+        }
+        save(d, if (resuming) "PRIVATE_END" else "PRIVATE_START", fmt.format(Date(now)))
+        if (resuming) {
+            if (GpsWorkdaySession.hasConsent(prefs)) setGpsEnabled(true)
+        } else {
+            if (GpsWorkdaySession.hasConsent(prefs))
+                prefs.edit().putBoolean(GpsWorkdaySession.CONSENT, true).apply()
+            setGpsEnabled(false)
+        }
+        home()
+    }
+
     private fun startShift() {
         if (active(data()) != null) { toast("Dzień pracy już rozpoczęty"); return }
         chooseObject(false) { obj ->
@@ -319,6 +375,7 @@ class MainActivity : Activity() {
         }
     }
     private fun beginStage(kind:String, target:String="") {
+        if(active(data())?.optString("kind")==PrivateTimeRules.KIND) { toast("Najpierw wznów pracę"); return }
         val d=data(); val a=active(d)
         if(a==null) { toast("Najpierw rozpocznij pracę"); return }
         val now=System.currentTimeMillis()
@@ -332,10 +389,12 @@ class MainActivity : Activity() {
         save(d,"STAGE","$kind: "+a.optString("object")); home()
     }
     private fun switchObject() {
+        if(active(data())?.optString("kind")==PrivateTimeRules.KIND) { toast("Najpierw wznów pracę"); return }
         if (active(data()) == null) { toast("Najpierw rozpocznij pracę"); return }
         chooseObject(false) { obj ->
             if (obj != null) {
                 val d = data(); val a = active(d) ?: return@chooseObject
+                if(a.optString("kind")==PrivateTimeRules.KIND) return@chooseObject
                 val now = System.currentTimeMillis()
                 if(a.optString("kind")=="Przejazd") a.optJSONObject("stageMeta")?.put("toObject",objectName(obj))?.put("toObjectId",obj.optString("id"))
                 closeStage(a,now)
@@ -347,6 +406,7 @@ class MainActivity : Activity() {
         }
     }
     private fun toggleTravel() {
+        if(active(data())?.optString("kind")==PrivateTimeRules.KIND) { toast("Najpierw wznów pracę"); return }
         val a=active(data()) ?: run { toast("Najpierw rozpocznij pracę"); return }
         if(a.optString("kind")!="Przejazd") { beginStage("Przejazd"); return }
         confirmAction("Zakończyć przejazd i wybrać miejsce przyjazdu?") { chooseArrival() }
@@ -413,7 +473,7 @@ class MainActivity : Activity() {
             val start = it.optLong("start")
             val end = it.optLong("end")
             val date = Instant.ofEpochMilli(start).atZone(ZoneId.systemDefault()).toLocalDate()
-            sum += end - start
+            sum += workedMillis(it, start, end)
             "${date.format(df)} ${pl[date.dayOfWeek.value - 1]} ${clock.format(Date(start))}–${clock.format(Date(end))}"
         }
         val minutes = sum / 60000
@@ -683,7 +743,7 @@ class MainActivity : Activity() {
         header.addView(text(status,12f,statusColor,true))
         hero.addView(header)
         hero.addView(text(shown?.let {
-            duration((if(a!=null) System.currentTimeMillis() else it.optLong("end"))-it.optLong("start"))
+            duration(workedMillis(it))
         } ?: "00:00",44f,Color.WHITE,true),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(14) })
         hero.addView(text(
             when {
@@ -716,20 +776,21 @@ class MainActivity : Activity() {
                     reviewGpsStageProposal(eventId)
                 },LinearLayout.LayoutParams(-1,dp(48)).apply { bottomMargin=dp(10) })
             }
-            if(privateMode) {
-                root.addView(text("Tryb prywatny — wróć do pracy z menu po zakończeniu przerwy.",13f,muted),
-                    LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
-            }
-            actionRow("↔  ZMIEŃ OBIEKT" to { confirmAction("Zmienić obiekt?") { switchObject() } },
-                (if(a.optString("kind")=="Przejazd") "✓  DOTARŁEM" else "🚗  PRZEJAZD") to { toggleTravel() })
-            actionRow((if(a.optString("kind")=="Zakupy") "✓  ZAKOŃCZ ZAKUPY" else "🛍  ZAKUPY") to { toggleShopping() },
-                "↗  TRASA DO OBIEKTU" to { chooseObject(false) { obj ->
-                    if(obj!=null) openLink("https://www.google.com/maps/dir/?api=1&destination="+
-                        URLEncoder.encode(obj.optString("city")+" "+obj.optString("Adres"),"UTF-8"))
-                } })
-            if(a.optString("kind")=="Zakupy") {
-                root.addView(action("Dane zakupów / paragony") { shoppingRecord(a.optString("shoppingRecordId")) },
-                    LinearLayout.LayoutParams(-1,dp(48)))
+            root.addView(action(if(privateMode) "▶  WZNÓW PRACĘ" else "⏸  PRYWATNIE") {
+                togglePrivateTime()
+            },LinearLayout.LayoutParams(-1,dp(48)).apply { bottomMargin=dp(10) })
+            if(!privateMode) {
+                actionRow("↔  ZMIEŃ OBIEKT" to { confirmAction("Zmienić obiekt?") { switchObject() } },
+                    (if(a.optString("kind")=="Przejazd") "✓  DOTARŁEM" else "🚗  PRZEJAZD") to { toggleTravel() })
+                actionRow((if(a.optString("kind")=="Zakupy") "✓  ZAKOŃCZ ZAKUPY" else "🛍  ZAKUPY") to { toggleShopping() },
+                    "↗  TRASA DO OBIEKTU" to { chooseObject(false) { obj ->
+                        if(obj!=null) openLink("https://www.google.com/maps/dir/?api=1&destination="+
+                            URLEncoder.encode(obj.optString("city")+" "+obj.optString("Adres"),"UTF-8"))
+                    } })
+                if(a.optString("kind")=="Zakupy") {
+                    root.addView(action("Dane zakupów / paragony") { shoppingRecord(a.optString("shoppingRecordId")) },
+                        LinearLayout.LayoutParams(-1,dp(48)))
+                }
             }
         }
         // This is an optional manual action, never an automatic shift transition.
@@ -961,7 +1022,8 @@ class MainActivity : Activity() {
     }
 
     private fun setGpsEnabled(value:Boolean) {
-        if (value && (!GpsWorkdaySession.workdayOpen(prefs) || !GpsWorkdaySession.hasConsent(prefs))) return
+        if (value && (!GpsWorkdaySession.workdayOpen(prefs) || !GpsWorkdaySession.hasConsent(prefs) ||
+            active(data())?.optString("kind") == PrivateTimeRules.KIND)) return
         if(!value) {
             prefs.edit().putBoolean("gps_enabled",false).putBoolean("gps_resume_pending",false).apply()
             CoreGpsStageBridge.dismiss(this)
@@ -1461,7 +1523,7 @@ class MainActivity : Activity() {
     }
     private fun walletShifts(d:JSONObject) = rows(d,"shifts").mapNotNull {
         val rate=WalletRules.rate(it.optString("rate","30.00")) ?: return@mapNotNull null
-        WalletRules.Shift(it.optLong("start"),it.optLong("end"),rate)
+        WalletRules.Shift(it.optLong("start"),it.optLong("end"),rate,privateIntervals(it))
     }
     private fun walletPayments(d:JSONObject) = rows(d,"payments").map { WalletRules.Payment(it.optString("periodFrom"),it.optString("periodTo"),it.optLong("cents"),it.optString("method")) }
     private fun money(cents:Long):String = BigDecimal.valueOf(cents,2).toPlainString().replace('.',',')+" zł"
@@ -1712,7 +1774,7 @@ class MainActivity : Activity() {
         val shifts=rows(data(),"shifts")
         val entries=shifts.flatMap { shift -> HistoryRules.slices(shift.optLong("start"),shift.optLong("end"),ZoneId.systemDefault()).map { shift to it } }
             .filter { DomainRules.inRange(it.second.day,from,to) }
-        label("Łączny czas: "+duration(entries.sumOf { it.second.end-it.second.start }))
+        label("Łączny czas: "+duration(entries.sumOf { workedMillis(it.first,it.second.start,it.second.end) }))
         if(entries.isEmpty()) label("Brak zmian w wybranym okresie")
         for((day,items) in entries.groupBy { it.second.day }.toSortedMap(reverseOrder())) {
             val parent=root
@@ -1724,9 +1786,9 @@ class MainActivity : Activity() {
             root=card
             try {
                 label(dateText(day)+" · "+LocalDate.parse(day).dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL,Locale.forLanguageTag("pl")))
-                label("Czas dnia: "+duration(items.sumOf { it.second.end-it.second.start }))
+                label("Czas dnia: "+duration(items.sumOf { workedMillis(it.first,it.second.start,it.second.end) }))
                 for((shift,slice) in items.sortedByDescending { it.second.start }) {
-                    button(fmt.format(Date(slice.start))+" → "+fmt.format(Date(slice.end))+"  ("+duration(slice.end-slice.start)+")") { shiftDetails(shift.optString("id")) }
+                    button(fmt.format(Date(slice.start))+" → "+fmt.format(Date(slice.end))+"  ("+duration(workedMillis(shift,slice.start,slice.end))+")") { shiftDetails(shift.optString("id")) }
                     button("Edytuj czas") { confirmAction("Edytować godziny tej zmiany?") { editShift(shift.optString("id")) } }
                     button("Usuń zmianę") { deleteShift(shift.optString("id")) }
                 }
@@ -1754,7 +1816,7 @@ class MainActivity : Activity() {
         }
         if(stages.isNotEmpty() && cursor<end) label("Brak przypisanego etapu: "+fmt.format(Date(cursor))+" → "+fmt.format(Date(end))+" · "+duration(end-cursor))
         label("Zakończenie pracy: "+fmt.format(Date(end)))
-        label("Łączny czas: "+duration(end-start))
+        label("Łączny czas: "+duration(workedMillis(shift,start,end)))
         button("Edytuj czas") { confirmAction { editShift(id) } }
         button("Usuń zmianę") { deleteShift(id) }
     }
@@ -2612,7 +2674,7 @@ class MainActivity : Activity() {
             val end=sh.optLong("end",System.currentTimeMillis())
             val stages=rows(sh,"stages").toMutableList()
             if(!sh.has("end")) stages.add(JSONObject().put("start",sh.optLong("stageStart",sh.optLong("start"))).put("end",end).put("kind",sh.optString("kind","Obiekt")).put("objectId",sh.optString("objectId")))
-            TimeAnalytics.Shift(sh.optLong("start"),end,stages.map { st -> TimeAnalytics.Stage(st.optLong("start"),st.optLong("end"),when(st.optString("kind")) { "Obiekt" -> if(st.optString("objectId").isNotBlank() || st.optString("object").isNotBlank()) 0 else 3; "Zakupy" -> 1; "Przejazd" -> 2; else -> 3 }) })
+            TimeAnalytics.Shift(sh.optLong("start"),end,stages.map { st -> TimeAnalytics.Stage(st.optLong("start"),st.optLong("end"),when(st.optString("kind")) { PrivateTimeRules.KIND -> TimeAnalytics.PERSONAL; "Obiekt" -> if(st.optString("objectId").isNotBlank() || st.optString("object").isNotBlank()) 0 else 3; "Zakupy" -> 1; "Przejazd" -> 2; else -> 3 }) })
         }
         val result=TimeAnalytics.calculate(shifts,range.first,range.second,ZoneId.systemDefault())
         label("Statystyka czasu pracy")
@@ -2628,9 +2690,10 @@ class MainActivity : Activity() {
             root.addView(TextView(this).apply { text="● "+TimeChart.names[i]+" — "+duration(n)+" · "+"%.1f%%".format(Locale("pl"),if(sum==0L) 0.0 else n*100.0/sum);textSize=16f;setTextColor(0xFF37474F.toInt());setPadding(0,dp(7),0,dp(7)) })
         }
         if(sum==0L) label("Brak czasu pracy w wybranym okresie.")
-        label("Podział nie zmienia czasu płatnego. Cała zmiana jest czasem pracy.")
+        if(result.personalMillis>0) label("Czas prywatny: "+duration(result.personalMillis)+" · poza czasem pracy")
     }
     private fun toggleShopping() {
+        if(active(data())?.optString("kind")==PrivateTimeRules.KIND) { toast("Najpierw wznów pracę"); return }
         val a=active(data()) ?: run { toast("Najpierw rozpocznij pracę");return }
         if(a.optString("kind")=="Zakupy") {
             confirmAction("Zakończyć zakupy? Wybierz obiekt lub rozpocznij przejazd.") {
@@ -2641,6 +2704,7 @@ class MainActivity : Activity() {
         } else startShopping()
     }
     private fun startShopping() {
+        if(active(data())?.optString("kind")==PrivateTimeRules.KIND) { toast("Najpierw wznów pracę"); return }
         val d=data();val a=active(d) ?: return
         val now=System.currentTimeMillis();val id=UUID.randomUUID().toString()
         if(a.optString("kind")=="Przejazd") a.optJSONObject("stageMeta")?.put("toObject","Zakupy")
