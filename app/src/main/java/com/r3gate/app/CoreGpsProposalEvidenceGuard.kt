@@ -14,7 +14,7 @@ object CoreGpsProposalEvidenceGuard {
         journal: Collection<CoreGpsJournalAdapter.Raw>
     ): Boolean {
         if (proposal.eventId.isBlank() || proposal.timestampMs <= 0L ||
-            proposal.source != "gps-v1") return false
+            proposal.source != "gps-v1" || proposal.confidence != CoreGpsProposalInbox.Confidence.HIGH) return false
         val matches = journal.filter { raw ->
             val identity = raw.eventId?.takeIf { it.isNotBlank() }
                 ?: raw.objectId?.takeIf { it.isNotBlank() }?.let {
@@ -31,7 +31,10 @@ object CoreGpsProposalEvidenceGuard {
         return matches.all {
             it.event == expected && it.timeMs == proposal.timestampMs &&
                 it.objectId == proposal.objectId &&
-                !it.objectId.isNullOrBlank()
+                !it.objectId.isNullOrBlank() &&
+                CoreGpsJournalIntegrity.validMetadata(it) && it.confidence == proposal.confidence &&
+                it.metadata?.evidenceStartMs == proposal.evidenceStartMs &&
+                it.metadata?.evidenceEndMs == proposal.evidenceEndMs
         }
     }
 }

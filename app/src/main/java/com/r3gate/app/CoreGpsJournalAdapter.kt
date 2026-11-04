@@ -8,7 +8,22 @@ package com.r3gate.app
  * the GPS journal and confirmed work records are never edited.
  */
 object CoreGpsJournalAdapter {
-    data class Raw(val event: String, val timeMs: Long, val objectId: String?, val eventId: String?)
+    data class Metadata(
+        val timestampMs: Long,
+        val source: String,
+        val confirmation: String,
+        val confidence: CoreGpsProposalInbox.Confidence,
+        val evidenceStartMs: Long?,
+        val evidenceEndMs: Long?
+    )
+
+    data class Raw(
+        val event: String, val timeMs: Long, val objectId: String?, val eventId: String?,
+        val metadata: Metadata? = null
+    ) {
+        val confidence: CoreGpsProposalInbox.Confidence
+            get() = metadata?.confidence ?: CoreGpsProposalInbox.Confidence.HIGH
+    }
 
     fun eventId(kind: String, timeMs: Long, objectId: String): String =
         "gps-v1:${kind.length}:$kind:$timeMs:${objectId.length}:$objectId"
@@ -41,13 +56,17 @@ object CoreGpsJournalAdapter {
                 else -> return@mapNotNull null
             }
             val objectId = raw.objectId?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
-            val candidate = CoreGpsProposalInbox.Event(
+            if (!CoreGpsJournalIntegrity.validMetadata(raw) ||
+                raw.confidence == CoreGpsProposalInbox.Confidence.LOW ||
+                CoreGpsStageRules.proposal(kind, objectId, shift, knownActiveObjectIds) == null ||
+                stageStartMs <= 0L || raw.timeMs !in stageStartMs..nowMs ||
+                nowMs - raw.timeMs > CoreGpsStageRules.MAX_REVIEW_AGE_MS) return@mapNotNull null
+            CoreGpsProposalInbox.Event(
                 identity!!, kind, raw.timeMs, objectId,
-                confidence = CoreGpsProposalInbox.Confidence.HIGH
+                confidence = raw.confidence,
+                evidenceStartMs = raw.metadata?.evidenceStartMs,
+                evidenceEndMs = raw.metadata?.evidenceEndMs
             )
-            candidate.takeIf {
-                CoreGpsStageRules.shouldNotify(it, shift, knownActiveObjectIds, stageStartMs, nowMs)
-            }
         }.sortedWith(compareBy<CoreGpsProposalInbox.Event> { it.timestampMs }.thenBy { it.eventId })
     }
 }

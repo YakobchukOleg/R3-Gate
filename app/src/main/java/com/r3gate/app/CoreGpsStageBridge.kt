@@ -83,7 +83,22 @@ object CoreGpsStageBridge {
             }
             val time = CoreGpsJournalIntegrity.exactTime(item.opt("time") as? Number)
                 ?: return null
-            rows.add(CoreGpsJournalAdapter.Raw(event, time, objectId, eventId))
+            val metadata = if (listOf("timestampMs", "source", "confirmation", "confidence",
+                    "evidenceStartMs", "evidenceEndMs").any(item::has)) {
+                val timestamp = CoreGpsJournalIntegrity.exactTime(item.opt("timestampMs") as? Number)
+                    ?: return null
+                val source = item.opt("source") as? String ?: return null
+                val confirmation = item.opt("confirmation") as? String ?: return null
+                val confidence = CoreGpsProposalInbox.Confidence.entries.find {
+                    it.name == item.opt("confidence")
+                } ?: return null
+                val start = if (item.has("evidenceStartMs"))
+                    CoreGpsJournalIntegrity.exactTime(item.opt("evidenceStartMs") as? Number) ?: return null else null
+                val end = if (item.has("evidenceEndMs"))
+                    CoreGpsJournalIntegrity.exactTime(item.opt("evidenceEndMs") as? Number) ?: return null else null
+                CoreGpsJournalAdapter.Metadata(timestamp, source, confirmation, confidence, start, end)
+            } else null
+            rows.add(CoreGpsJournalAdapter.Raw(event, time, objectId, eventId, metadata))
         }
         return CoreGpsJournalIntegrity.validated(rows)
     }
