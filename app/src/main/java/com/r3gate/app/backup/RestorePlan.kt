@@ -24,19 +24,21 @@ object RestorePlan {
         .digest(value.toByteArray(Charsets.UTF_8))
         .joinToString("") { "%02x".format(it) }
 
-    fun prepare(openArchive: () -> InputStream, currentJournal: String): Preview {
+    fun prepare(openArchive: () -> InputStream, currentJournal: String, stagedJournal: String? = null): Preview {
         val current = JournalValidator.inspect(currentJournal)
         require(current.canRestore) { "Current journal is invalid; replacement requires recovery review" }
         val incoming = ArchivePreflight.verify(openArchive)
         val oldHash = digest(currentJournal)
-        val newHash = digest(incoming.journalJson)
+        val journal = stagedJournal ?: incoming.journalJson
+        require(JournalValidator.inspect(journal).canRestore) { "Invalid staged journal" }
+        val newHash = digest(journal)
         return Preview(
             if (oldHash == newHash) Decision.NO_CHANGES else Decision.REPLACE_REQUIRES_CONFIRMATION,
             oldHash, newHash,
             incoming.validation.objectCount,
             incoming.validation.archivedCount,
             incoming.validation.warnings,
-            incoming.journalJson
+            journal
         )
     }
 

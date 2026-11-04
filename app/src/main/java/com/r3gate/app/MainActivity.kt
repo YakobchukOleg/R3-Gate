@@ -1,5 +1,13 @@
 package com.r3gate.app
 
+import com.r3gate.app.backup.BackupFilePicker
+import com.r3gate.app.backup.JournalCsvExport
+import com.r3gate.app.backup.JournalPdfExport
+import com.r3gate.app.backup.JournalRestoreStore
+import com.r3gate.app.backup.PhotoArchiveAndroid
+import com.r3gate.app.backup.PhotoRestoreAndroid
+import com.r3gate.app.backup.RestorePlan
+
 import android.app.*
 import android.location.LocationManager
 import android.location.LocationListener
@@ -1788,6 +1796,10 @@ class MainActivity : Activity() {
         label(prefs.getString("backupStatus","Kopia Google Disk nie została jeszcze wykonana").orEmpty())
         button("Eksportuj dziennik na Google Disk") { confirmAction("Zapisać kopię dziennika w WorkMeter / Backup na osobistym Google Disk?") { pendingUpload="backup"; authorizeDrive() } }
         button("Zapisz kopię lokalną JSON") { confirmAction { startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type="application/json"; putExtra(Intent.EXTRA_TITLE,BackupFileNaming.fileName(java.time.LocalDateTime.now())) },100) } }
+        button("Zapisz kopię ZIP ze zdjęciami") { chooseBackupOutput(BackupFilePicker.Kind.BACKUP, 104, "backup") }
+        button("Przywróć kopię ZIP") { startActivityForResult(BackupFilePicker.openBackupIntent(), 105) }
+        button("Eksportuj czas pracy do CSV") { chooseBackupOutput(BackupFilePicker.Kind.CSV, 106, "czas-pracy") }
+        button("Eksportuj czas pracy do PDF") { chooseBackupOutput(BackupFilePicker.Kind.PDF, 107, "czas-pracy") }
         button("Importuj dziennik JSON") { confirmAction { startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type="application/json" },101) } }
         button("Importuj kopię z Google Disk") {
             pendingUpload="import"; authorizeDrive()
@@ -1831,6 +1843,7 @@ class MainActivity : Activity() {
         }
         if(resultCode!=RESULT_OK) return
         val uri=dataIntent?.data?:return
+        if (requestCode in 104..107) { handleBackupFile(requestCode, uri); return }
         try {
             if(requestCode==100) { contentResolver.openOutputStream(uri)?.use { it.write(exportData().toString(2).toByteArray(Charsets.UTF_8)) }; toast("Kopia zapisana") }
             if(requestCode==101) {
@@ -1841,6 +1854,77 @@ class MainActivity : Activity() {
                 }.show()
             }
         } catch (_:Exception) { toast("Błąd pliku JSON") }
+    }
+
+    private fun chooseBackupOutput(kind: BackupFilePicker.Kind, request: Int, name: String) {
+        startActivityForResult(BackupFilePicker.createIntent(kind, BackupFilePicker.suggestName(kind, report = name)), request)
+    }
+
+    private fun handleBackupFile(request: Int, uri: Uri) {
+        if (request == 105) {
+            if (uploading || active(data()) != null) {
+                toast("Zakończ zmianę i przesyłanie przed przywróceniem kopii.")
+                return
+            }
+            val open = { checkNotNull(contentResolver.openInputStream(uri)) }
+            val current = prefs.getString("data", "{}") ?: "{}"
+            val prepared = try {
+                PhotoRestoreAndroid.prepare(this, open)
+            } catch (_: Exception) {
+                toast("Nie można odczytać kopii ZIP")
+                return
+            }
+            val preview = try {
+                RestorePlan.prepare(open, current, prepared.journalJson)
+            } catch (_: Exception) {
+                prepared.discard()
+                toast("Nie można zweryfikować kopii ZIP")
+                return
+            }
+            if (preview.decision == RestorePlan.Decision.NO_CHANGES) {
+                prepared.discard()
+                toast("Brak zmian")
+                return
+            }
+            AlertDialog.Builder(this, R.style.WorkMeterDialogTheme)
+                .setTitle("Przywrócić kopię ZIP?")
+                .setMessage("Obecny dziennik zostanie zastąpiony. Obiekty: ${preview.objects}. Zdjęcia: ${prepared.remappedCount}.")
+                .setNegativeButton("Anuluj") { _, _ -> prepared.discard() }
+                .setOnCancelListener { prepared.discard() }
+                .setPositiveButton("Przywróć") { _, _ ->
+                    if (uploading || active(data()) != null) {
+                        prepared.discard()
+                        toast("Zakończ zmianę i przesyłanie przed przywróceniem kopii.")
+                    } else {
+                        try {
+                            JournalRestoreStore.restore(this, preview, confirmed = true)
+                            migrate()
+                            migrateWallet()
+                            GateWidget.refresh(this)
+                            logs()
+                            toast("Kopia przywrócona")
+                        } catch (_: Exception) {
+                            toast("Nie udało się zakończyć przywracania kopii")
+                        }
+                    }
+                }.show()
+            return
+        }
+        try {
+            val journal = exportData().toString()
+            BackupFilePicker.write(contentResolver, uri) { output ->
+                val report = JournalCsvExport.Report.WORK_TIME
+                val period = JournalCsvExport.Period()
+                when (request) {
+                    104 -> PhotoArchiveAndroid.write(journal, contentResolver, output)
+                    106 -> JournalCsvExport.write(journal, report, period, output)
+                    107 -> JournalPdfExport.write(journal, report, period, output)
+                }
+            }
+            toast("Plik zapisany")
+        } catch (_: Exception) {
+            toast("Nie można zapisać pliku")
+        }
     }
 
     private fun exportData():JSONObject = DriveBackupWorker.snapshot(this)
