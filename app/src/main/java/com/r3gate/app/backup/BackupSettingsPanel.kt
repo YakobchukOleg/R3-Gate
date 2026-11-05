@@ -40,6 +40,7 @@ class BackupSettingsPanel(
     )
 
     sealed interface Action {
+        data object Refresh : Action
         data object CreateLocal : Action
         data object ExportFile : Action
         data object ImportFile : Action
@@ -74,7 +75,11 @@ class BackupSettingsPanel(
         if (state.busy) text("Trwa wykonywanie operacji…")
         val status = state.status
         if (status == null) {
-            text("Wczytywanie kopii zapasowych…")
+            if (state.busy || state.message == null) {
+                text("Wczytywanie kopii zapasowych…")
+            } else {
+                button("Spróbuj ponownie", enabled = true) { onAction(Action.Refresh) }
+            }
             return
         }
 

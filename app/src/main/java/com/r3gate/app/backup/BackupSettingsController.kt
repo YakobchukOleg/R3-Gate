@@ -62,6 +62,7 @@ class BackupSettingsController(
         checkMain()
         if (closed || busy) return
         when (action) {
+            BackupSettingsPanel.Action.Refresh -> load(null)
             BackupSettingsPanel.Action.CreateLocal -> task({ LocalBackups.createNow(application) }) {
                 load("Zapisano lokalnie.")
             }

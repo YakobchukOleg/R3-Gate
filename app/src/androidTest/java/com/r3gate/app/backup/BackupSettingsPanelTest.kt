@@ -148,4 +148,13 @@ class BackupSettingsPanelTest {
         assertEquals(0, commits)
         assertEquals(1, discards)
     }
+    @Test fun initialLoadFailureOffersRetryInsteadOfPermanentLoading() = instrumentation.runOnMainSync {
+        val actions = mutableListOf<BackupSettingsPanel.Action>()
+        val panel = BackupSettingsPanel(context, appearance(), actions::add)
+        panel.render(BackupSettingsPanel.State(null, message = "Nie udało się wczytać kopii."))
+        assertFalse(views(panel).filterIsInstance<TextView>().any { it.text.toString() == "Wczytywanie kopii zapasowych…" })
+        button(panel, "Spróbuj ponownie").performClick()
+        assertEquals(listOf(BackupSettingsPanel.Action.Refresh), actions)
+    }
+
 }
