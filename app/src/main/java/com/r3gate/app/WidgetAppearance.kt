@@ -8,5 +8,5 @@ internal data class WidgetAppearance(
     val showGps: Boolean = true
 ) {
     fun backgroundAlpha(defaultTransparency: Int): Int =
-        255 * (100 - (transparency ?: defaultTransparency).coerceIn(0, 100)) / 100
+        255 * (100 - (transparency ?: defaultTransparency).coerceIn(0, 50)) / 100
 }

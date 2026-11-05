@@ -464,10 +464,10 @@ class AppFlowTest {
                     }
                 }
 
-                checkAction(R.id.wstopbutton, width >= 220 || height >= 112)
-                checkAction(R.id.wcamera, width >= 220)
-                checkAction(R.id.wtravel, width >= 220 && height >= 144)
-                checkAction(R.id.wshopping, width >= 220 && height >= 144)
+                checkAction(R.id.wstopbutton, true)
+                checkAction(R.id.wcamera, height >= 110)
+                checkAction(R.id.wtravel, height >= 110)
+                checkAction(R.id.wshopping, height >= 110)
             }
         }
     }
@@ -503,15 +503,14 @@ class AppFlowTest {
                 settings(a); click(a,"Wygląd widżetu")
                 all(a).filterIsInstance<android.widget.SeekBar>().first().progress=100
                 val widget=GateWidget.render(a).apply(a,android.widget.FrameLayout(a))
-                assertEquals(0,widget.findViewById<android.widget.ImageView>(R.id.wbackground).imageAlpha)
+                assertEquals(127,widget.findViewById<android.widget.ImageView>(R.id.wbackground).imageAlpha)
                 val timer = widget.findViewById<android.widget.Chronometer>(R.id.wduration)
-                assertEquals(android.graphics.Color.BLACK, timer.shadowColor)
-                assertTrue(timer.shadowRadius > 0f)
+                assertEquals(1f,timer.alpha,0f)
                 assertEquals(1f,widget.findViewById<TextView>(R.id.wduration).alpha,0f)
                 assertEquals(255,widget.findViewById<Button>(R.id.wstopbutton).background.alpha)
             }
             scenario.recreate()
-            scenario.onActivity { a -> assertEquals(100,all(a).filterIsInstance<android.widget.SeekBar>().first().progress) }
+            scenario.onActivity { a -> assertEquals(50,all(a).filterIsInstance<android.widget.SeekBar>().first().progress) }
             shot("11-widget-settings")
             scenario.onActivity { a ->
                 a.onBackPressed(); assertTrue(has(a,"Ustawienia")); a.onBackPressed(); assertTrue(has(a,"WorkMeter"))
@@ -521,15 +520,12 @@ class AppFlowTest {
         }
     }
 
-    @Test fun incorrectStartPinDoesNotOpenObjectPickerOrStartTracking() {
+    @Test fun cancellingStartConfirmationDoesNotOpenDayOrTracking() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            scenario.onActivity { click(it, "🟢 ROZPOCZNIJ PRACĘ") }
-            pin("0000")
+            scenario.onActivity { click(it,"🟢 ROZPOCZNIJ PRACĘ") }
+            dialogClick("Nie")
             assertFalse(stored().has("active"))
-            val prefs = instrumentation.targetContext.getSharedPreferences("r3_gate", 0)
-            assertFalse(prefs.getBoolean("gps_enabled", false))
-            androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.withHint("Szukaj miasta"))
-                .check(androidx.test.espresso.assertion.ViewAssertions.doesNotExist())
+            assertFalse(instrumentation.targetContext.getSharedPreferences("r3_gate",0).getBoolean("gps_enabled",false))
         }
     }
 
@@ -539,11 +535,11 @@ class AppFlowTest {
         store(d)
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { a -> click(a,"🟢 ROZPOCZNIJ PRACĘ") }
-            pin()
+            dialogClick("Tak")
             androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.withText("LOD-02 · Łódź · 1"))
                 .inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog())
-                .check(androidx.test.espresso.assertion.ViewAssertions.doesNotExist())
-            androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.withHint("Szukaj miasta"))
+                .check(androidx.test.espresso.assertion.ViewAssertions.matches(androidx.test.espresso.matcher.ViewMatchers.isDisplayed()))
+            androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.withHint("Szukaj"))
                 .inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog())
                 .perform(androidx.test.espresso.action.ViewActions.typeText("lodz"),androidx.test.espresso.action.ViewActions.closeSoftKeyboard())
             shot("12-object-search")
@@ -663,7 +659,7 @@ class AppFlowTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { a -> click(a,"GRAFIKI");assertTrue(has(a,"Podział czasu pracy"));assertTrue(all(a).filterIsInstance<TextView>().any { it.text.contains("66,7%") }) }
             shot("17-charts")
-            scenario.onActivity { a -> a.onBackPressed();click(a,"ZDJĘCIA");assertTrue(all(a).filterIsInstance<WorkRecordListCard>().any { it.contentDescription?.contains("W KOLEJCE") == true });click(a,"KOLEJKA WYSYŁANIA");assertTrue(has(a,"PONÓW WYSYŁANIE")) }
+            scenario.onActivity { a -> a.onBackPressed();click(a,"ZDJĘCIA");assertTrue(all(a).filterIsInstance<WorkRecordListCard>().any { it.contentDescription?.contains("W KOLEJCE") == true });click(a,"WYŚLIJ / KOLEJKA");assertTrue(has(a,"PONÓW WYSYŁANIE")) }
             shot("18-queue")
             scenario.onActivity { a -> a.onBackPressed();a.onBackPressed();click(a,"⚙");click(a,"Język aplikacji");assertTrue(has(a,"Polski ✓")) }
         }
@@ -716,7 +712,7 @@ class AppFlowTest {
         prefs.edit().putString("driveEmail","test@example.com").commit()
         val d=stored();d.put("links",JSONArray().put(JSONObject().put("id","refresh").put("date",java.time.LocalDate.now().toString()).put("objectId","object-test").put("photos",JSONArray().put("file:///test.jpg"))));store(d)
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            scenario.onActivity { a -> click(a,"ZDJĘCIA");click(a,"KOLEJKA WYSYŁANIA");assertFalse(has(a,"Brak zdjęć oczekujących na wysłanie.")) }
+            scenario.onActivity { a -> click(a,"ZDJĘCIA");click(a,"WYŚLIJ / KOLEJKA");assertFalse(has(a,"Brak zdjęć oczekujących na wysłanie.")) }
             val completed=stored()
             val account=MessageDigest.getInstance("SHA-256").digest("test@example.com".toByteArray()).joinToString("") { "%02x".format(it) }.take(24)+"|"
             completed.getJSONArray("links").getJSONObject(0).put("driveFiles",JSONObject().put(account+"file:///test.jpg","remote-file"));store(completed)
