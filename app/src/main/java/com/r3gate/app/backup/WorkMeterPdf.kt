@@ -26,7 +26,6 @@ object WorkMeterPdf {
     ) {
         require(title.isNotBlank() && headings.isNotEmpty()) { "Missing PDF title or headings" }
         require(headings.size <= 8) { "Too many PDF columns" }
-        val pdf = PdfDocument()
         val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.BLACK
             typeface = Typeface.create("sans-serif", Typeface.NORMAL)
@@ -43,15 +42,30 @@ object WorkMeterPdf {
         val usable = WIDTH - 2 * MARGIN
         val col = usable / headings.size
 
-        fun clipped(value: String, paint: Paint): String {
-            val clean = value.replace('\n', ' ').replace('\r', ' ')
-            if (paint.measureText(clean) <= col - 9) return clean
-            val count = paint.breakText(clean, true, col - 24, null)
-            return clean.take(count.coerceAtLeast(0)) + "…"
+        fun wrapped(value: String, paint: Paint, width: Float) =
+            PdfTextLayout.wrap(value, width, paint::measureText)
+        val titlePaint = Paint(bold).apply { textSize = 17f }
+        val titleLines = wrapped(title, titlePaint, usable)
+        val headerLines = headings.map { wrapped(it, bold, col - 9) }
+        val headerHeight = titleLines.size * 22f + 36f + headerLines.maxOf { it.size } * LINE
+        require(MARGIN + headerHeight + LINE <= BOTTOM) { "PDF header leaves no room for data" }
+        require(wrapped("$footer  •  Strona 999999", text, usable).size <= 2) { "PDF footer is too long" }
+
+        val pdf = PdfDocument()
+
+        fun draw(value: String, x: Float, baseline: Float, paint: Paint, width: Float) {
+            val size = paint.measureText(value)
+            val oldScale = paint.textScaleX
+            if (size > width) paint.textScaleX = oldScale * width / size
+            try { canvas!!.drawText(value, x, baseline, paint) }
+            finally { paint.textScaleX = oldScale }
         }
         fun endPage() {
             val current = page ?: return
-            canvas?.drawText("$footer  •  Strona $number", MARGIN, HEIGHT - 25f, text)
+            val lines = wrapped("$footer  •  Strona $number", text, usable)
+            lines.forEachIndexed { index, line ->
+                draw(line, MARGIN, HEIGHT - 25f - (lines.size - 1 - index) * 10f, text, usable)
+            }
             pdf.finishPage(current)
             page = null
         }
@@ -62,14 +76,16 @@ object WorkMeterPdf {
             page = current
             canvas = current.canvas
             y = MARGIN + 15
-            canvas!!.drawText(title, MARGIN, y, bold.apply { textSize = 17f })
-            bold.textSize = 10f
-            y += 28f
-            headings.forEachIndexed { index, label ->
-                canvas!!.drawText(clipped(label, bold), MARGIN + index * col, y, bold)
+            for (line in titleLines) { draw(line, MARGIN, y, titlePaint, usable); y += 22f }
+            y += 6f
+            val count = headerLines.maxOf { it.size }
+            for (line in 0 until count) {
+                headerLines.forEachIndexed { index, cell ->
+                    cell.getOrNull(line)?.let { draw(it, MARGIN + index * col, y, bold, col - 9) }
+                }
+                y += LINE
             }
-            y += 13f
-            canvas!!.drawLine(MARGIN, y, WIDTH - MARGIN, y,
+            canvas!!.drawLine(MARGIN, y - 4f, WIDTH - MARGIN, y - 4f,
                 Paint().apply { color = Color.LTGRAY; strokeWidth = 1f })
             y += LINE
         }
@@ -77,11 +93,15 @@ object WorkMeterPdf {
             startPage()
             for (fields in rows) {
                 require(fields.size == headings.size) { "Invalid PDF column count" }
-                if (y + LINE > BOTTOM) startPage()
-                fields.forEachIndexed { index, value ->
-                    canvas!!.drawText(clipped(value, text), MARGIN + index * col, y, text)
+                val cells = fields.map { wrapped(it, text, col - 9) }
+                for (line in 0 until cells.maxOf { it.size }) {
+                    if (y + LINE > BOTTOM) startPage()
+                    cells.forEachIndexed { index, cell ->
+                        cell.getOrNull(line)?.let { draw(it, MARGIN + index * col, y, text, col - 9) }
+                    }
+                    y += LINE
                 }
-                y += LINE
+                y += 4f
             }
             endPage()
             pdf.writeTo(destination)

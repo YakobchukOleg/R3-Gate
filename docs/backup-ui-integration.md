@@ -156,3 +156,13 @@ the controller verifies the authorized Drive account off the UI thread before cl
 an access problem. This never advances the timestamp of the last verified ZIP.
 Quota and file problems remain until addressed. Older records without an action remain
 readable with a generic check-files action.
+
+## Complete PDF cells (2026-11-05)
+
+PDF columns and headings wrap without inserting ellipses or dropping characters.
+A long row continues on subsequent pages with repeated headings. Explicit line breaks,
+Polish text and Unicode code points remain intact. An indivisible oversized glyph is
+scaled inside its cell. A header that leaves no room for body data is rejected before
+writing a document. This changes export presentation only; journal/time/pay data are
+not modified. The Android regression emits `backup-pdf-wrapped-row.pdf` as a synthetic
+CI fixture for text extraction and visual review.
