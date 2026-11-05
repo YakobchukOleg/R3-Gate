@@ -10,6 +10,8 @@ import java.io.Closeable
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
+internal class BackupRestoreBlocked(message: String) : IllegalStateException(message)
+
 /**
  * Owns backup work and restore sessions for one settings screen.
  * Construct, invoke and close on the main thread. File and network work runs on one worker thread.
@@ -25,6 +27,8 @@ class BackupSettingsController(
         /** Reuse existing Drive authorization. Return the access token in memory only. */
         fun authorizeDrive(authorized: (String?) -> Unit)
         fun chooseDriveCopy(copies: List<DriveBackups.Copy>, selected: (DriveBackups.Copy?) -> Unit)
+        /** Worker-thread guard immediately before a confirmed replacement. Throw to keep current data. */
+        fun beforeRestore() = Unit
         /** Reload the authoritative app data after a confirmed restore. */
         fun restored()
     }
@@ -172,7 +176,9 @@ class BackupSettingsController(
         view.preview(summary, confirmed = {
             if (!busy && !closed) {
                 previewVisible = false
+                val restoreHost = requireNotNull(host)
                 task({
+                    restoreHost.beforeRestore()
                     val session = photos
                     val previous = recovery
                     photos = null
@@ -221,6 +227,7 @@ class BackupSettingsController(
                     busy = false
                     result.fold(completed) { failure ->
                         val message = when (failure) {
+                            is BackupRestoreBlocked -> requireNotNull(failure.message)
                             is SecurityException -> "Brak dostępu. Wybierz plik lub połącz ponownie Google Drive."
                             is JournalRestoreConflict -> "Dane zmieniły się podczas przywracania. Sprawdź historię i ponów operację."
                             is IllegalArgumentException -> "Nie można wykonać operacji. Sprawdź dane i wybrany plik."

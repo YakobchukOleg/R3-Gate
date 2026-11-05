@@ -14,12 +14,17 @@
     </receiver>
     <service android:name=".GpsTrackingService" android:exported="false" android:foregroundServiceType="location"/>
     <service android:name="androidx.work.impl.foreground.SystemForegroundService" android:foregroundServiceType="dataSync" tools:node="merge"/>
+    <activity android:name=".backup.BackupSettingsActivity" android:exported="false"/>
     <activity android:name=".MainActivity" android:exported="true">
       <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
     </activity>
     <provider android:name="androidx.core.content.FileProvider" android:authorities="com.r3gate.app.photos" android:exported="false" android:grantUriPermissions="true">
       <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/photo_paths"/>
     </provider>
+    <activity android:name=".WidgetAppearanceActivity" android:exported="true"
+        android:label="@string/widget_configure">
+      <intent-filter><action android:name="android.appwidget.action.APPWIDGET_CONFIGURE"/></intent-filter>
+    </activity>
     <receiver android:name=".GateWidget" android:exported="true">
       <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE"/></intent-filter>
       <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_info"/>

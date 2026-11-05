@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent" android:layout_height="match_parent"
-    android:background="@android:color/transparent">
+    android:id="@+id/wroot" android:background="@android:color/transparent">
     <ImageView android:id="@+id/wbackground" android:layout_width="match_parent"
         android:layout_height="match_parent" android:src="@drawable/widget_bg"
         android:scaleType="fitXY" android:importantForAccessibility="no"/>
@@ -10,43 +10,47 @@
         android:paddingTop="6dp" android:paddingBottom="6dp">
         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
             android:orientation="horizontal" android:gravity="center_vertical">
-            <TextView android:id="@+id/wtitle" android:fontFamily="@font/clash_grotesk"
+            <TextView android:id="@+id/wtitle" style="@style/WorkMeterWidgetText" android:fontFamily="@font/clash_grotesk"
                 android:layout_width="0dp" android:layout_weight="1"
                 android:layout_height="wrap_content" android:text="WorkMeter"
                 android:textColor="#FFFFFF" android:textStyle="bold" android:textSize="14sp"/>
-            <TextView android:id="@+id/wstatus" android:fontFamily="@font/clash_grotesk"
+            <TextView android:id="@+id/wstatus" style="@style/WorkMeterWidgetText" android:fontFamily="@font/clash_grotesk"
                 android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="● OFFLINE" android:textColor="#D1DDE0" android:textSize="11sp"/>
         </LinearLayout>
         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
             android:orientation="horizontal" android:gravity="center_vertical"
             android:layout_marginTop="1dp">
-            <Chronometer android:id="@+id/wduration" android:fontFamily="@font/clash_grotesk"
+            <Chronometer android:id="@+id/wduration" style="@style/WorkMeterWidgetText" android:fontFamily="@font/clash_grotesk"
                 android:layout_width="0dp" android:layout_weight="1"
                 android:layout_height="wrap_content" android:textColor="#FFFFFF"
                 android:textStyle="bold" android:textSize="29sp"/>
-            <Chronometer android:id="@+id/wstage" android:fontFamily="@font/clash_grotesk"
+            <Chronometer android:id="@+id/wstage" style="@style/WorkMeterWidgetText" android:fontFamily="@font/clash_grotesk"
                 android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:textColor="#FFC7B8" android:textSize="10sp" android:visibility="gone"/>
         </LinearLayout>
-        <TextView android:id="@+id/wobject" android:fontFamily="@font/clash_grotesk"
+        <TextView android:id="@+id/wobject" style="@style/WorkMeterWidgetText" android:fontFamily="@font/clash_grotesk"
             android:layout_width="match_parent" android:layout_height="wrap_content"
             android:text="Gotowy do pracy" android:textColor="#F0F4F5"
             android:textSize="12sp" android:maxLines="1" android:ellipsize="end"/>
-        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        <TextView android:id="@+id/wgps" style="@style/WorkMeterWidgetText" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:maxLines="1" android:ellipsize="end"
+            android:textColor="#FFFFFF" android:textSize="12sp" android:visibility="gone"/>
+        <LinearLayout android:id="@+id/wdetails" android:layout_width="match_parent" android:layout_height="wrap_content"
             android:orientation="horizontal" android:layout_marginTop="1dp">
-            <TextView android:id="@+id/wstart" android:fontFamily="@font/clash_grotesk"
+            <TextView android:id="@+id/wstart" style="@style/WorkMeterWidgetText" android:fontFamily="@font/clash_grotesk"
                 android:layout_width="0dp" android:layout_weight="1"
                 android:layout_height="wrap_content" android:textColor="#D1DDE0"
                 android:textSize="10sp" android:text="Rozpoczęcie: —" android:maxLines="1"/>
-            <TextView android:id="@+id/wend" android:fontFamily="@font/clash_grotesk"
+            <TextView android:id="@+id/wend" style="@style/WorkMeterWidgetText" android:fontFamily="@font/clash_grotesk"
                 android:layout_width="0dp" android:layout_weight="1"
                 android:layout_height="wrap_content" android:gravity="end"
                 android:textColor="#D1DDE0" android:textSize="10sp"
                 android:text="Zakończenie: —" android:maxLines="1"/>
         </LinearLayout>
-        <FrameLayout android:layout_width="match_parent" android:layout_height="30dp"
-            android:layout_marginTop="4dp">
+        <LinearLayout android:id="@+id/wprimary" android:layout_width="match_parent"
+            android:layout_height="30dp" android:orientation="horizontal" android:layout_marginTop="4dp">
+        <FrameLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="match_parent">
             <Button android:id="@+id/wstartbutton" android:fontFamily="@font/clash_grotesk"
                 android:layout_width="match_parent" android:layout_height="30dp"
                 android:minHeight="0dp" android:padding="0dp"
@@ -60,6 +64,11 @@
                 android:textColor="#FFFFFF" android:text="■ ZAKOŃCZ PRACĘ"
                 android:textSize="11sp" android:visibility="gone"/>
         </FrameLayout>
+        <Button android:id="@+id/wcamera" android:layout_width="44dp" android:layout_height="match_parent"
+            android:layout_marginStart="5dp" android:padding="0dp" android:minHeight="0dp"
+            android:background="@drawable/widget_button" android:backgroundTint="@null"
+            android:text="📷" android:contentDescription="@string/widget_camera" android:visibility="gone"/>
+        </LinearLayout>
         <LinearLayout android:id="@+id/wactions" android:layout_width="match_parent"
             android:layout_height="wrap_content" android:orientation="horizontal"
             android:layout_marginTop="3dp" android:visibility="gone">

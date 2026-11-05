@@ -14,11 +14,18 @@ object GpsGeofenceEvidence {
                 p.latitude.isFinite() && p.latitude in -90.0..90.0 &&
                 p.longitude.isFinite() && p.longitude in -180.0..180.0
         }
+        // Duplicate IDs make the previous geofence ambiguous: never infer a
+        // departure or a new arrival from contradictory saved coordinates.
+        if(!confirmedId.isNullOrBlank() && validPlaces.count { it.id==confirmedId }!=1)
+            return Observation(Status.UNCERTAIN)
         // Missing or corrupt saved sites are not evidence of physical departure.
         if(!confirmedId.isNullOrBlank() && validPlaces.none { it.id==confirmedId })
             return Observation(Status.UNCERTAIN)
         if(validPlaces.isEmpty()) return Observation(Status.UNCERTAIN)
         val inside=GpsWorkRules.nearest(point,validPlaces)
+        // A duplicate identity is not a unique destination, even on the first visit.
+        if(inside!=null && validPlaces.count { it.id==inside.place.id }>1)
+            return Observation(Status.UNCERTAIN)
         // A fix may be well inside a neighboring site yet still overlap the
         // previously confirmed site's uncertainty circle. Never switch sites
         // until it is clear we actually left the previous one.

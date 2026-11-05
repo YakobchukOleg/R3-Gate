@@ -8,7 +8,8 @@ object GpsServiceStatusRules {
         if(resumePending && !enabled) return Status.RESUME_AFTER_REBOOT
         if(!enabled) return Status.OFF
         if(!hasPermission) return Status.PERMISSION_REQUIRED
-        if(lastFixMs<=0 || nowMs<lastFixMs || nowMs-lastFixMs>staleAfterMs)
+        if(staleAfterMs<=0 || nowMs<=0 || lastFixMs<=0 || nowMs<lastFixMs ||
+            nowMs-lastFixMs>staleAfterMs)
             return Status.NO_RECENT_FIX
         return Status.RECENT_FIX
     }

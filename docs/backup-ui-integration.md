@@ -201,3 +201,30 @@ instant bounds. Overnight rows and object stages are clipped to the selected per
 DST days use actual elapsed time. No stored intervals or billing formula are changed.
 Ambiguous object IDs keep the saved label rather than choosing one duplicate object.
 The new stage format and clarified gross heading should be accounted for by CSV consumers.
+
+
+## Shared settings destination (2026-11-06)
+
+`MainActivity` now opens the non-exported `BackupSettingsActivity` from
+**Ustawienia → Kopia zapasowa i synchronizacja**, the backups menu module and
+an entry in the existing legacy log screen. Legacy JSON tools remain available.
+This destination uses `WorkMeterAppearance`, `WorkMeterTheme` and the shared
+button styling; it adds no independent colors or theme preferences.
+
+The activity supplies real SAF launch/result/cancellation callbacks, Google Identity
+Drive authorization, account lookup and the dated cloud-copy selection dialog.
+Authorization tokens stay in memory. Duplicate/late document results have no callback
+and cannot start an additional write. Destroying the screen closes its controller and
+discards an unconfirmed preview. After recreation an interrupted external picker/auth
+operation is safely abandoned and can be retried; no success is reported and no token
+or restore decision is serialized. Confirmed restore still requires the controller's
+explicit preview action. The host refuses replacement while the current workday is
+open or an unfinished photo upload exists, with Polish guidance. This supplements,
+but does not replace, the documented requirement to serialize all journal writers.
+
+The restored callback refreshes the widget and Core GPS proposals. MainActivity reads
+current preferences on return. Instrumentation covers real settings navigation,
+all three app palettes, screen recreation/back, actual activity-result CSV/PDF writes,
+SAF cancellation/write failure, import-preview rejection and open-day protection.
+Synthetic screenshots for the three palettes are collected with the CI artifacts.
+Real Google account and physical-phone acceptance remain required.
