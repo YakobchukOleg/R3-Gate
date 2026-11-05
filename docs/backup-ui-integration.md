@@ -78,3 +78,8 @@ Recovery rejects an edited journal or replaced checkpoint after preview. It save
 a separate rollback checkpoint before writing, leaving the original recovery copy
 intact. This checkpoint contains journal data and local photo references, so it is
 an on-device recovery option and requires those original files to remain available.
+
+Drive browsing checks cancellation between result pages. Import checks the connected
+account throughout the download and again before returning a restore preview. A
+downloaded file is discarded after truncation, excess bytes, checksum mismatch,
+revoked access or cancellation. Partial imports do not change the journal.

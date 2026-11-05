@@ -7,11 +7,12 @@ import java.net.URLEncoder
 import java.time.Instant
 
 internal class DriveBackupCatalog(private val drive: DriveStore, private val token: String) {
-    fun list(): List<Copy> {
+    fun list(checkActive: () -> Unit = {}): List<Copy> {
         val copies = linkedMapOf<String, Copy>()
         val seen = mutableSetOf<String>()
         var page: String? = null
         do {
+            checkActive()
             val response = drive.json("GET", listUrl(page), token)
             val files = response.optJSONArray("files")
             if (files != null) for (index in 0 until files.length()) {
@@ -20,6 +21,7 @@ internal class DriveBackupCatalog(private val drive: DriveStore, private val tok
             page = response.optString("nextPageToken").takeIf(String::isNotBlank)
             if (page != null && !seen.add(page)) throw IOException("Drive returned a repeated page token")
         } while (page != null)
+        checkActive()
         return copies.values.sortedByDescending(Copy::modifiedAt)
     }
 
