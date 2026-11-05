@@ -101,3 +101,21 @@ entry instead of uploading concurrently.
 of a periodic task's current waiting state. It is scoped to the selected account,
 survives reopening settings, and is cleared after a verified upload. Show its message
 as an actionable problem. `driveDetail` remains the most recent operation detail.
+
+## Settings panel for the shared UI host
+
+`BackupSettingsPanel` renders local/cloud status, local schedule, ZIP export,
+imports and existing copies. Its `Appearance` interface receives the shared theme's
+surface, text, button and input styling. No backup-specific palette or theme setting
+is created. Pass a themed context from the common screen.
+
+The host loads `BackupStatus.read` and `LocalBackups.copies` off the UI thread,
+then calls `render`. Handle each emitted `Action` with the existing adapters:
+create/export through `LocalBackups`, schedule through `updateSchedule`,
+cloud creation through `DriveBackupWorker.manual`, and imports through the
+existing file picker/Drive authorization flow. A local selection emits a preview
+request only. After preparing a restore session, call `preview` with its verified
+summary. On explicit confirmation call `Session.commit` off the UI thread,
+and on cancellation call `Session.discard`. Keep the session in the navigation
+host and discard it on navigation away. Repeated confirmation is suppressed.
+Connecting this panel to the common navigation remains a UI-owner task.
