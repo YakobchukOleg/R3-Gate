@@ -5,6 +5,15 @@ import org.junit.Test
 
 class WorkMeterHomeStateTest {
     @Test
+    fun arrivalCopyRequiresCredibleGpsEvidence() {
+        assertEquals("Wybierz cel", WorkMeterHomeState.TRAVEL.primaryActionLabel(false))
+        assertEquals("Potwierdź przyjazd", WorkMeterHomeState.TRAVEL.primaryActionLabel(true))
+        WorkMeterHomeState.entries.filter { it != WorkMeterHomeState.TRAVEL }.forEach {
+            assertEquals(it.actionLabel, it.primaryActionLabel(false))
+            assertEquals(it.actionLabel, it.primaryActionLabel(true))
+        }
+    }
+    @Test
     fun selectsAnActionFromTheCurrentStage() {
         assertEquals(WorkMeterHomeState.CLOSED, WorkMeterHomeState.from(false, "Przejazd", "old"))
         assertEquals(WorkMeterHomeState.ON_SITE, WorkMeterHomeState.from(true, "", "legacy"))

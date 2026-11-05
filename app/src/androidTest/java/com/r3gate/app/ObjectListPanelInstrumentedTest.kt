@@ -45,8 +45,8 @@ class ObjectListPanelInstrumentedTest {
 
     private fun goToObjects(activity: Activity) {
         val button = views(activity).filterIsInstance<Button>()
-            .firstOrNull { it.text.toString().contains("OBIEKTY") }
-        assertNotNull("Home button OBIEKTY should exist", button)
+            .firstOrNull { it.contentDescription == "Obiekty" }
+        assertNotNull("Permanent Obiekty navigation should exist", button)
         button!!.performClick()
         assertEquals(1, views(activity).filterIsInstance<ObjectListPanel>().size)
     }
@@ -72,7 +72,7 @@ class ObjectListPanelInstrumentedTest {
                 goToObjects(activity)
                 assertTrue(texts(activity).any { it.contains("TCZ-01") })
                 val archiveToggle = views(activity).filterIsInstance<TextView>()
-                    .firstOrNull { it.text.toString() == "Wszystkie" && it.isClickable }
+                    .firstOrNull { it.contentDescription == "Pokaż archiwum obiektów" && it.isClickable }
                 assertNotNull("Archive filter", archiveToggle)
                 archiveToggle!!.performClick()
                 assertTrue(texts(activity).any { it.contains("GDA-02") })
@@ -89,7 +89,7 @@ class ObjectListPanelInstrumentedTest {
             scenario.onActivity { activity ->
                 goToObjects(activity)
                 val search = views(activity).filterIsInstance<android.widget.EditText>()
-                    .firstOrNull { it.contentDescription == "Szukaj obiektu" }
+                    .firstOrNull { it.contentDescription == "Szukaj obiektu: miasto, firma, nazwa, ulica lub adres" }
                 assertNotNull("Search field", search)
                 search!!.setText("nieznany-adres")
                 assertTrue(texts(activity).contains("Brak obiektów dla wybranych filtrów."))
@@ -107,7 +107,7 @@ class ObjectListPanelInstrumentedTest {
             scenario.onActivity { activity ->
                 goToObjects(activity)
                 views(activity).filterIsInstance<android.widget.EditText>()
-                    .first { it.contentDescription == "Szukaj obiektu" }.setText("tczew")
+                    .first { it.contentDescription == "Szukaj obiektu: miasto, firma, nazwa, ulica lub adres" }.setText("tczew")
                 views(activity).first { it.contentDescription == "Wyłącz grupowanie" }.performClick()
                 views(activity).first { it.isClickable && it.contentDescription?.contains("TCZ-01") == true }.performClick()
                 activity.onBackPressed()
@@ -115,7 +115,7 @@ class ObjectListPanelInstrumentedTest {
             scenario.recreate()
             scenario.onActivity { activity ->
                 val search = views(activity).filterIsInstance<android.widget.EditText>()
-                    .first { it.contentDescription == "Szukaj obiektu" }
+                    .first { it.contentDescription == "Szukaj obiektu: miasto, firma, nazwa, ulica lub adres" }
                 assertEquals("tczew", search.text.toString())
                 assertTrue(views(activity).any { it.contentDescription == "Grupuj według miast" })
             }
@@ -296,7 +296,7 @@ class ObjectListPanelInstrumentedTest {
                 openActiveDetails(activity)
                 openObjectRecords(activity, "Materiały")
                 val add=views(activity).filterIsInstance<Button>()
-                    .first { it.text.toString()=="+ Dodaj" }
+                    .first { it.text.toString() in listOf("+ Dodaj","Dodaj zdjęcie") }
                 add.performClick()
                 val labels=texts(activity)
                 assertTrue(labels.contains("Materiał na obiekcie"))
@@ -314,7 +314,7 @@ class ObjectListPanelInstrumentedTest {
                 openActiveDetails(activity)
                 openObjectRecords(activity, "Zdjęcia")
                 val add=views(activity).filterIsInstance<Button>()
-                    .first { it.text.toString()=="+ Dodaj" }
+                    .first { it.text.toString() in listOf("+ Dodaj","Dodaj zdjęcie") }
                 add.performClick()
                 val labels=texts(activity)
                 assertTrue(labels.contains("Zdjęcia i dokumentacja"))

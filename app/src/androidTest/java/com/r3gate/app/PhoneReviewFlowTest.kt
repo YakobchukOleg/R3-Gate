@@ -35,6 +35,24 @@ class PhoneReviewFlowTest {
     }
     private fun answer(text: String) { onView(withText(text)).inRoot(isDialog()).perform(click()); instrumentation.waitForIdleSync() }
     private fun action(a: MainActivity,text: String) { all(a.window.decorView).filterIsInstance<Button>().first { it.text.toString()==text }.performClick() }
+    @Test fun homeUsesOneNavigationEntryPerDestinationAcrossThemesWithoutEditingRecords() {
+        val journal=data().put("walletSettings",JSONObject().put("defaultRate","30.00").put("openingCents",0))
+        prefs.edit().putString("data",journal.toString()).commit()
+        for(theme in WorkMeterTheme.entries) {
+            prefs.edit().putString(WorkMeterTheme.PREF_KEY,theme.key).commit()
+            val before=data().toString()
+            ActivityScenario.launch(MainActivity::class.java).use { scenario -> scenario.onActivity { a ->
+                val buttons=all(a.window.decorView).filterIsInstance<Button>()
+                for(destination in WorkMeterDestination.entries) {
+                    assertEquals(destination.label,1,buttons.count { it.contentDescription==destination.label })
+                }
+                assertFalse(buttons.any { it.text.toString() in listOf("🏢  OBIEKTY","◷  MÓJ CZAS","☷  WIĘCEJ · MENU P1–P4") })
+                assertTrue(all(a.window.decorView).filterIsInstance<TextView>().any { it.text.toString()=="Czas dnia" })
+            } }
+            assertEquals(before,data().toString())
+            assertEquals("protected-finance",prefs.getString("pin",null))
+        }
+    }
     @Test fun startAndStopRequireConfirmationAndNeverPinOrPrematureMutation() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { action(it,"Rozpocznij dzień") }
@@ -74,7 +92,7 @@ class PhoneReviewFlowTest {
                 if(kind.isEmpty()) d.remove("active") else d.put("active",JSONObject().put("id","day").put("objectId","site")
                     .put("object","TCZ-01 · R3 Gate").put("kind",kind).put("start",System.currentTimeMillis()-60_000))
                 prefs.edit().putString("data",d.toString()).commit()
-                for((w,h) in listOf(144 to 68,144 to 144,300 to 90,300 to 180,300 to 260)) for(scale in listOf(1f,1.3f)) {
+                for((w,h) in listOf(144 to 68,144 to 144,300 to 90,300 to 180,300 to 260)) for(scale in listOf(1f,1.3f,2f)) {
                     val configuration=Configuration(context.resources.configuration).apply { fontScale=scale }
                     val ctx=context.createConfigurationContext(configuration)
                     val parent=FrameLayout(ctx)
@@ -90,14 +108,18 @@ class PhoneReviewFlowTest {
                     }
                     inside(if(kind.isEmpty()) R.id.wstartbutton else R.id.wstopbutton)
                     if(h>=110) { inside(R.id.wcamera); if(kind.isNotEmpty() && kind!="Prywatnie") { inside(R.id.wswitch); inside(R.id.wtravel); inside(R.id.wshopping) } }
-                    val timer=view.findViewById<View>(R.id.wduration)
+                    val timer=view.findViewById<TextView>(R.id.wduration)
                     assertTrue("Unreadable timer at $w x $h scale $scale",timer.height>=18*density && timer.width>=40*density)
+                    val timerBounds=android.graphics.Rect(0,0,timer.width,timer.height)
+                    view.offsetDescendantRectToMyCoords(timer,timerBounds)
+                    assertTrue("Timer outside widget $w $h $scale $timerBounds",timerBounds.top>=0 && timerBounds.bottom<=height)
+                    assertTrue("Clipped digits $w $h $scale",timer.paint.measureText(timer.text.toString())<=timer.width+1f)
                     assertFalse(view.findViewById<TextView>(R.id.wstatus).text.contains("ONLINE"))
                     assertEquals(128,view.findViewById<android.widget.ImageView>(R.id.wbackground).imageAlpha)
-                    if(kind=="Obiekt" && scale==1f) {
+                    if(kind=="Obiekt" && scale in listOf(1f,2f)) {
                         val bitmap=android.graphics.Bitmap.createBitmap(width,height,android.graphics.Bitmap.Config.ARGB_8888)
                         view.draw(android.graphics.Canvas(bitmap))
-                        val file=java.io.File(context.getExternalFilesDir(null),"widget-${theme.key}-${w}x${h}.png")
+                        val file=java.io.File(context.getExternalFilesDir(null),"widget-${theme.key}-${w}x${h}"+(if(scale==2f) "-200" else "")+".png")
                         file.outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it) }; bitmap.recycle()
                         instrumentation.uiAutomation.executeShellCommand("cp "+file.absolutePath+" /sdcard/Download/"+file.name).use {
                             java.io.FileInputStream(it.fileDescriptor).use { stream -> stream.readBytes() }

@@ -15,8 +15,9 @@ object JournalPdfExport {
     ) {
         val table = JournalCsvExport.table(json, report, period)
         val title = when (report) {
-            JournalCsvExport.Report.WORK_TIME -> "Raport czasu pracy"
+            JournalCsvExport.Report.WORK_TIME -> "Przedziały dni pracy (brutto)"
             JournalCsvExport.Report.BY_OBJECT -> "Zestawienie czasu na obiektach"
+            JournalCsvExport.Report.STAGES -> "Etapy pracy i przejazdy"
             JournalCsvExport.Report.MATERIALS -> "Zestawienie materiałów"
         }
         WorkMeterPdf.write(destination, title, table.headers, table.rows.asSequence())

@@ -59,7 +59,7 @@ class ObjectListPanel(
             setHintTextColor(muted)
             setPadding(dp(14), dp(8), dp(14), dp(8))
             background = rounded(palette.surface, 16)
-            contentDescription = "Szukaj obiektu"
+            contentDescription = "Szukaj obiektu: miasto, firma, nazwa, ulica lub adres"
             setText(initialQuery)
         }
         addView(search, LayoutParams(LayoutParams.MATCH_PARENT, dp(52)))
@@ -133,7 +133,7 @@ class ObjectListPanel(
         val grouped = filterState.grouped
         archiveToggle.isSelected = archived
         groupToggle.isSelected = grouped
-        archiveToggle.text = if (archived) "Archiwum ✓" else "Wszystkie"
+        archiveToggle.text = if (archived) "Archiwum ✓" else "Aktywne"
         groupToggle.text = if (grouped) "▤ Grupuj: miasta" else "☷ Lista"
         archiveToggle.contentDescription = if (archived) "Pokaż aktywne obiekty" else "Pokaż archiwum obiektów"
         groupToggle.contentDescription = if (grouped) "Wyłącz grupowanie" else "Grupuj według miast"

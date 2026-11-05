@@ -41,20 +41,26 @@ class AppFlowTest {
             "🔴 ZAKOŃCZ PRACĘ" -> "■  ZAKOŃCZ PRACĘ"
             "🔄 ZMIEŃ OBIEKT" -> "↔  ZMIEŃ OBIEKT"
             "🚗 PRZEJAZD" -> "Rozpocznij przejazd"
-            "DOTARŁEM" -> "Potwierdź przyjazd"
+            "DOTARŁEM" -> if (all(a).filterIsInstance<Button>().any { it.text.toString()=="Potwierdź przyjazd" }) "Potwierdź przyjazd" else "Wybierz cel"
             "ZAKUPY" -> "🛍  ZAKUPY"
             "ZAKOŃCZ ZAKUPY" -> "Zakończ zakupy"
             "ZDJĘCIA" -> "📷  ZDJĘCIA"
             "MATERIAŁY" -> "📦  MATERIAŁY"
             "NOTATKI" -> "📝  NOTATKI"
-            "OBIEKTY" -> "🏢  OBIEKTY"
-            "MÓJ CZAS" -> "◷  MÓJ CZAS"
+            "OBIEKTY" -> "▦\nObiekty"
+            "MÓJ CZAS" -> "◷\nMój czas"
             "GRAFIKI" -> "▥  GRAFIKI"
             else -> text
         }
         val button=all(a).filterIsInstance<Button>().firstOrNull { it.text.toString()==display }
         assertNotNull("Missing button: "+display,button)
-        button!!.performClick()
+        val selected=button!!
+        generateSequence(selected.parent as? View) { it.parent as? View }.filter { it.visibility==View.GONE }
+            .toList().asReversed().forEach { panel ->
+                val parent=panel.parent as ViewGroup
+                (parent.getChildAt(parent.indexOfChild(panel)-1) as Button).performClick()
+            }
+        selected.performClick()
     }
     private fun clickDescription(activity: Activity, description: String) {
         val view = all(activity).single { it.isClickable && it.contentDescription == description }
@@ -97,13 +103,13 @@ class AppFlowTest {
             }
             shot("03-active-notes")
             scenario.onActivity { a ->
-                val note = all(a).filterIsInstance<Button>().single { it.text.contains("Zabrać kabel") }
-                assertTrue(note.text.startsWith("● "))
+                val note = all(a).filterIsInstance<WorkRecordListCard>().single { it.contentDescription.toString().contains("Zabrać kabel") }
+                assertTrue(note.contentDescription.toString().endsWith("Aktualna"))
                 note.performClick()
                 click(a,"Wykonano")
-                assertFalse(all(a).filterIsInstance<Button>().any { it.text.toString().contains("Zabrać kabel") })
+                assertFalse(all(a).filterIsInstance<WorkRecordListCard>().any { it.contentDescription.toString().contains("Zabrać kabel") })
                 a.onBackPressed(); click(a,"Historia / Logi — wszystkie wpisy")
-                assertTrue(all(a).filterIsInstance<Button>().any { it.text.toString().contains("✓ Zabrać kabel") })
+                assertTrue(all(a).filterIsInstance<WorkRecordListCard>().any { it.contentDescription.toString().contains("Zabrać kabel") && it.contentDescription.toString().endsWith("Wykonano") })
                 a.onBackPressed(); a.onBackPressed(); assertTrue(has(a,"WorkMeter"))
             }
         }
@@ -177,7 +183,9 @@ class AppFlowTest {
         instrumentation.waitForIdleSync()
     }
     private fun dialogClick(text:String) {
-        androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.withText(text))
+        androidx.test.espresso.Espresso.onView(org.hamcrest.Matchers.anyOf(
+            androidx.test.espresso.matcher.ViewMatchers.withText(text),
+            androidx.test.espresso.matcher.ViewMatchers.withContentDescription(text)))
             .inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog())
             .perform(androidx.test.espresso.action.ViewActions.click())
         instrumentation.waitForIdleSync()
@@ -227,7 +235,7 @@ class AppFlowTest {
             assertEquals(departure,stored().getJSONObject("active").getLong("stageStart"))
             shot("05-travel-active")
             scenario.onActivity { a -> click(a,"DOTARŁEM") }
-            dialogClick("Tak"); dialogClick("+ Nowy obiekt")
+            dialogClick("Tak"); dialogClick("＋ Dodaj obiekt")
             scenario.onActivity { a ->
                 val inputs=all(a).filterIsInstance<EditText>()
                 inputs[0].setText("Kopytkowo"); inputs[2].setText("25"); inputs[3].setText("Nowy")
@@ -287,13 +295,13 @@ class AppFlowTest {
         store(d)
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { a -> click(a,"MÓJ CZAS")
-                assertTrue(all(a).filterIsInstance<TextView>().any { it.text.toString().startsWith("28-10-2026 08:00") })
-                click(a,"Usuń zmianę")
+                assertTrue(all(a).filterIsInstance<TextView>().any { it.text.toString().startsWith("08:00 → 09:00") })
+                click(a,"⋮")
             }
-            dialogClick("Nie")
+            dialogClick("Usuń zmianę"); dialogClick("Anuluj")
             assertEquals(1,stored().getJSONArray("shifts").length())
-            scenario.onActivity { a -> click(a,"Usuń zmianę") }
-            dialogClick("Tak")
+            scenario.onActivity { a -> click(a,"⋮") }
+            dialogClick("Usuń zmianę"); dialogClick("Usuń")
             assertEquals(0,stored().getJSONArray("shifts").length())
             scenario.onActivity { a ->
                 a.onBackPressed(); click(a,"NOTATKI"); click(a,"+ Dodaj notatkę")
@@ -302,7 +310,7 @@ class AppFlowTest {
                 click(a,"Zapisz"); click(a,"Historia / Logi — wszystkie wpisy")
                 clickFilters(a)
                 click(a,"Zakupy / paragony: wszystkie notatki")
-                assertTrue(all(a).filterIsInstance<Button>().any { it.text.toString().contains("Paragon — kabel") })
+                assertTrue(all(a).filterIsInstance<WorkRecordListCard>().any { it.contentDescription.toString().contains("Paragon — kabel") })
             }
             assertTrue(stored().getJSONArray("notes").getJSONObject(0).getBoolean("shopping"))
             shot("07-shopping-notes")
@@ -315,7 +323,7 @@ class AppFlowTest {
     }
     private fun assertCollapsed(a:Activity,add:String="+ Dodaj") {
         val buttons=all(a).filterIsInstance<Button>().filter { it.isShown }
-        assertEquals(listOf("← Wstecz","Filtry ▾",add),buttons.take(3).map { it.text.toString() })
+        assertEquals(listOf("← Wstecz","Filtry ▾",add),buttons.take(3).map { if(it.text.toString()=="Dodaj zdjęcie") "+ Dodaj" else it.text.toString() })
         assertFalse(buttons.any { it.text.toString().startsWith("Data od:") || it.text.toString().startsWith("Sortowanie:") || it.text=="Wyczyść filtry" })
     }
     @Test fun filtersAreCollapsedAcrossScreensAndKeepSelection() {
@@ -349,7 +357,7 @@ class AppFlowTest {
                 clickFilters(a)
                 assertTrue(all(a).filterIsInstance<Button>().any { it.isShown && it.text.toString().startsWith("Zakupy / paragony:") })
                 a.onBackPressed(); click(a,"Aktualne (1)"); assertCollapsed(a)
-                assertTrue(all(a).filterIsInstance<Button>().any { it.isShown && it.text.toString().contains("Aktywna uwaga") })
+                assertTrue(all(a).filterIsInstance<WorkRecordListCard>().any { it.isShown && it.contentDescription.toString().contains("Aktywna uwaga") })
                 a.onBackPressed(); a.onBackPressed(); click(a,"OBIEKTY")
                 assertFalse(all(a).filterIsInstance<Button>().any { it.isShown && it.text.toString().startsWith("Filtry") })
                 clickDescription(a, "Pokaż archiwum obiektów"); clickDescription(a, "Pokaż aktywne obiekty"); clickDescription(a, "KOP-01 · Test · Kopytkowo · 24, Aktywny")
@@ -384,12 +392,12 @@ class AppFlowTest {
                 click(a,"O aplikacji"); assertTrue(has(a,"Wersja: 2.7.0")); a.onBackPressed()
                 click(a,"Portfel / rozliczenia (PIN)")
                 assertFalse(has(a,"Portfel"))
-                assertFalse(has(a,"Wybrany okres"))
+                assertFalse(all(a).filterIsInstance<TextView>().any { it.text.toString().startsWith("Wybrany okres · ") })
                 assertFalse(has(a,"Naliczone: 240,00 zł"))
             }
             pin()
             scenario.onActivity { a ->
-                assertTrue(has(a,"Wybrany okres"))
+                assertTrue(all(a).filterIsInstance<TextView>().any { it.text.toString().startsWith("Wybrany okres · ") })
                 assertTrue(has(a,"Cała historia"))
                 assertTrue(has(a,"Naliczone: 240,00 zł")); click(a,"+ Dodaj wypłatę")
                 all(a).filterIsInstance<EditText>().first { it.hint=="Kwota (zł)" }.setText("100")
@@ -536,7 +544,7 @@ class AppFlowTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { a -> click(a,"🟢 ROZPOCZNIJ PRACĘ") }
             dialogClick("Tak")
-            androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.withText("LOD-02 · Łódź · 1"))
+            androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.withContentDescription("LOD-02 · Łódź · 1"))
                 .inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog())
                 .check(androidx.test.espresso.assertion.ViewAssertions.matches(androidx.test.espresso.matcher.ViewMatchers.isDisplayed()))
             androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.withHint("Szukaj"))
@@ -581,8 +589,9 @@ class AppFlowTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { a ->
                 click(a,"MÓJ CZAS")
-                val rows=all(a).filterIsInstance<Button>().map { it.text.toString() }.filter { it.contains("→") }
-                assertTrue(rows[0].startsWith("29-10-2026"));assertTrue(rows[2].startsWith("27-10-2026"))
+                val days=all(a).filterIsInstance<TextView>().map { it.text.toString() }.filter { it.matches(Regex("\\d{2}-\\d{2}-\\d{4} · .*")) }
+                assertEquals(3,days.size)
+                assertTrue(days[0].startsWith("29-10-2026"));assertTrue(days[2].startsWith("27-10-2026"))
                 a.getSharedPreferences("r3_gate",0).edit().putString("reportFrom",day.toString()).putString("reportTo",day.toString()).commit()
                 a.onBackPressed();click(a,"MÓJ CZAS")
                 assertTrue(has(a,"Łączny czas: 01:00"))
@@ -659,7 +668,7 @@ class AppFlowTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { a -> click(a,"GRAFIKI");assertTrue(has(a,"Podział czasu pracy"));assertTrue(all(a).filterIsInstance<TextView>().any { it.text.contains("66,7%") }) }
             shot("17-charts")
-            scenario.onActivity { a -> a.onBackPressed();click(a,"ZDJĘCIA");assertTrue(all(a).filterIsInstance<WorkRecordListCard>().any { it.contentDescription?.contains("LOKALNIE") == true });click(a,"WYŚLIJ / KOLEJKA");assertTrue(has(a,"PONÓW WYSYŁANIE")) }
+            scenario.onActivity { a -> a.onBackPressed();click(a,"ZDJĘCIA");assertTrue(all(a).filterIsInstance<WorkRecordListCard>().any { it.contentDescription?.contains("LOKALNIE") == true });click(a,"WYŚLIJ / KOLEJKA");assertTrue(has(a,"Wyślij / Kolejka")) }
             shot("18-queue")
             scenario.onActivity { a -> a.onBackPressed();a.onBackPressed();click(a,"⚙");click(a,"Język aplikacji");assertTrue(has(a,"Polski ✓")) }
         }
@@ -724,7 +733,10 @@ class AppFlowTest {
     @Test fun settingsKeepScrollPositionAfterBackgroundingAndRecreation() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             var expectedScroll = 0
-            scenario.onActivity { activity -> settings(activity) }
+            scenario.onActivity { activity ->
+                settings(activity)
+                all(activity).filterIsInstance<Button>().single { it.text.toString().startsWith("Dane i kopie") }.performClick()
+            }
             instrumentation.waitForIdleSync()
             scenario.onActivity { activity ->
                 val scroll = all(activity).filterIsInstance<android.widget.ScrollView>().first()
@@ -754,12 +766,12 @@ class AppFlowTest {
                 assertEquals(tabs, buttons.map { it.contentDescription?.toString() }.filter { it in tabs })
                 buttons.first { it.contentDescription == "Finanse" }.performClick()
                 assertFalse(has(activity, "Portfel"))
-                assertFalse(has(activity, "Wybrany okres"))
+                assertFalse(all(activity).filterIsInstance<TextView>().any { it.text.toString().startsWith("Wybrany okres · ") })
             }
             pin()
             scenario.onActivity { activity ->
                 assertTrue(has(activity, "Portfel"))
-                assertTrue(has(activity, "Wybrany okres"))
+                assertTrue(all(activity).filterIsInstance<TextView>().any { it.text.toString().startsWith("Wybrany okres · ") })
             }
         }
     }

@@ -8,6 +8,9 @@ internal enum class WorkMeterHomeState(val actionLabel: String) {
     PERSONAL("Wznów pracę"),
     UNASSIGNED("Wybierz obiekt");
 
+    fun primaryActionLabel(arrivalReady: Boolean): String =
+        if (this == TRAVEL && !arrivalReady) "Wybierz cel" else actionLabel
+
     companion object {
         fun from(dayOpen: Boolean, kind: String, objectId: String): WorkMeterHomeState = when {
             !dayOpen -> CLOSED

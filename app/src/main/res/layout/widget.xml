@@ -6,10 +6,14 @@
       <TextView android:id="@+id/wstatus" android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="12sp" android:textColor="#FFFFFF" android:fontFamily="@font/clash_grotesk" android:maxLines="1" android:ellipsize="end" android:includeFontPadding="false" />
       <TextView android:id="@+id/wobject" android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="11sp" android:textColor="#FFFFFF" android:fontFamily="@font/clash_grotesk" android:maxLines="1" android:ellipsize="end" android:includeFontPadding="false" />
       <TextView android:id="@+id/wgps" android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="10sp" android:textColor="#FFFFFF" android:fontFamily="@font/clash_grotesk" android:maxLines="1" android:ellipsize="end" android:includeFontPadding="false" />
-      <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:gravity="center_vertical" android:orientation="horizontal">
-        <Chronometer android:id="@+id/wduration" android:layout_width="0dp" android:layout_height="wrap_content" android:fontFamily="@font/clash_grotesk" android:textColor="#FFFFFF" android:textSize="26sp" android:includeFontPadding="false" android:maxLines="1" android:layout_weight="1" />
-        <TextView android:id="@+id/wday" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="11sp" android:textColor="#FFFFFF" />
+      <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:orientation="horizontal" android:paddingTop="0dp" android:paddingBottom="0dp">
+        <Chronometer android:id="@+id/wduration" android:minHeight="18dp" android:letterSpacing="0" android:layout_width="0dp" android:layout_height="wrap_content" android:fontFamily="monospace" android:textColor="#FFFFFF" android:textSize="26sp" android:includeFontPadding="false" android:maxLines="1" android:layout_weight="1" />
+        <LinearLayout android:id="@+id/wstagecolumn" android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="vertical" android:gravity="end">
+          <TextView android:id="@+id/wday" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="10sp" android:textColor="#FFFFFF" android:includeFontPadding="false" />
+          <Chronometer android:id="@+id/wstage" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="16sp" android:textColor="#FFFFFF" android:includeFontPadding="false" android:fontFamily="monospace" />
+        </LinearLayout>
       </LinearLayout>
+      <TextView android:id="@+id/wdetails" android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="10sp" android:textColor="#FFFFFF" android:includeFontPadding="false" android:maxLines="3" android:ellipsize="end" />
     </LinearLayout>
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
       <FrameLayout android:id="@+id/wprimary" android:layout_width="0dp" android:layout_weight="1" android:layout_height="48dp">
@@ -27,8 +31,6 @@
       <TextView android:id="@+id/wtitle" android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="12sp" android:textColor="#FFFFFF" android:fontFamily="@font/clash_grotesk" android:maxLines="1" android:ellipsize="end" android:includeFontPadding="false" />
       <TextView android:id="@+id/wstart" android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="12sp" android:textColor="#FFFFFF" android:fontFamily="@font/clash_grotesk" android:maxLines="1" android:ellipsize="end" android:includeFontPadding="false" />
       <TextView android:id="@+id/wend" android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="12sp" android:textColor="#FFFFFF" android:fontFamily="@font/clash_grotesk" android:maxLines="1" android:ellipsize="end" android:includeFontPadding="false" />
-      <Chronometer android:id="@+id/wstage" android:layout_width="0dp" android:layout_height="0dp" />
-      <TextView android:id="@+id/wdetails" android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="12sp" android:textColor="#FFFFFF" android:fontFamily="@font/clash_grotesk" android:maxLines="1" android:ellipsize="end" android:includeFontPadding="false" />
     </LinearLayout>
   </LinearLayout>
 </FrameLayout>

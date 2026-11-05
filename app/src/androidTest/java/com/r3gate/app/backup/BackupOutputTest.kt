@@ -143,4 +143,38 @@ class BackupOutputTest {
         assertEquals(0, destination.size())
     }
 
+    @Test fun oneLongPdfRowContinuesAcrossPagesWithoutEllipsis() {
+        val context=androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
+        val file=java.io.File(context.getExternalFilesDir(null),"backup-pdf-wrapped-row.pdf")
+        val body=(1..100).joinToString("\n") { "Łódź · materiał $it" }+"\nKONIEC-żółć-100"
+        file.outputStream().use { output ->
+            WorkMeterPdf.write(output,"Raport materiałów",listOf("Obiekt i opis"),sequenceOf(listOf(body)))
+        }
+        android.os.ParcelFileDescriptor.open(file,android.os.ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
+            android.graphics.pdf.PdfRenderer(descriptor).use { renderer ->
+                assertTrue("A single long row must span pages",renderer.pageCount>=3)
+                renderer.openPage(renderer.pageCount-1).use { page -> assertEquals(595,page.width) }
+            }
+        }
+        androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation
+            .executeShellCommand("cp "+file.absolutePath+" /sdcard/Download/backup-pdf-wrapped-row.pdf").use {
+                java.io.FileInputStream(it.fileDescriptor).use { input -> input.readBytes() }
+            }
+    }
+    @Test fun pdfWrapsLongPolishHeadersAndTitle() {
+        val output=ByteArrayOutputStream()
+        WorkMeterPdf.write(output,"Raport czasu pracy oraz materiałów na wszystkich obiektach w wybranym okresie",
+            listOf("Pełny adres i nazwa obiektu", "Opis zużytych materiałów oraz jednostka"),
+            sequenceOf(listOf("Łódź, Jana Stanisławskiego 5", "Przewód elektryczny 3 × 2,5 mm²")))
+        assertTrue(output.size()>100)
+        assertTrue(output.toString(Charsets.ISO_8859_1.name()).startsWith("%PDF-"))
+    }
+    @Test fun oversizedPdfHeaderIsRejectedBeforeWriting() {
+        val output=ByteArrayOutputStream()
+        try {
+            WorkMeterPdf.write(output,"Raport",listOf("nagłówek\n".repeat(100)),emptySequence())
+            fail("Header consumed the entire page")
+        } catch (_:IllegalArgumentException) { assertEquals(0,output.size()) }
+    }
+
 }
