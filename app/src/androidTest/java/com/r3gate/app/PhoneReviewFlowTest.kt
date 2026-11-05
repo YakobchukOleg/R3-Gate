@@ -36,6 +36,8 @@ class PhoneReviewFlowTest {
     private fun answer(text: String) { onView(withText(text)).inRoot(isDialog()).perform(click()); instrumentation.waitForIdleSync() }
     private fun action(a: MainActivity,text: String) { all(a.window.decorView).filterIsInstance<Button>().first { it.text.toString()==text }.performClick() }
     @Test fun homeUsesOneNavigationEntryPerDestinationAcrossThemesWithoutEditingRecords() {
+        val journal=data().put("walletSettings",JSONObject().put("defaultRate","30.00").put("openingCents",0))
+        prefs.edit().putString("data",journal.toString()).commit()
         for(theme in WorkMeterTheme.entries) {
             prefs.edit().putString(WorkMeterTheme.PREF_KEY,theme.key).commit()
             val before=data().toString()
