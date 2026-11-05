@@ -217,6 +217,7 @@ class BackupSettingsController(
                     result.fold(completed) { failure ->
                         val message = when (failure) {
                             is SecurityException -> "Brak dostępu. Wybierz plik lub połącz ponownie Google Drive."
+                            is JournalRestoreConflict -> "Dane zmieniły się podczas przywracania. Sprawdź historię i ponów operację."
                             is IllegalArgumentException -> "Nie można użyć tej kopii. Sprawdź plik i jego wersję."
                             else -> "Nie udało się wykonać operacji. Sprawdź dostęp i spróbuj ponownie."
                         }

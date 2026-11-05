@@ -53,16 +53,10 @@ object JournalRestoreStore {
         if (replacement == current) return Outcome.UNCHANGED
 
         val checkpoint = JournalRecoveryCheckpoint.save(checkpointDirectory, current)
-        require(journal(preferences) == current) { "Journal changed while preparing recovery checkpoint" }
-        if (!preferences.edit().putString("data", replacement).commit() ||
-            preferences.getString("data", null) != replacement) {
-            val recovery = JournalRecoveryCheckpoint.readVerified(checkpoint)
-            check(preferences.edit().putString("data", recovery).commit() &&
-                preferences.getString("data", null) == recovery) {
-                "Restore and rollback failed; verified recovery archive retained"
-            }
-            error("Restore failed; old journal restored from recovery archive")
-        }
+        JournalReplacement.commit(current, replacement,
+            read = { journal(preferences) },
+            write = { value -> preferences.edit().putString("data", value).commit() },
+            recovery = { JournalRecoveryCheckpoint.readVerified(checkpoint) })
         return Outcome.RESTORED
     }
 

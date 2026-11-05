@@ -166,3 +166,14 @@ scaled inside its cell. A header that leaves no room for body data is rejected b
 writing a document. This changes export presentation only; journal/time/pay data are
 not modified. The Android regression emits `backup-pdf-wrapped-row.pdf` as a synthetic
 CI fixture for text extraction and visual review.
+
+## Restore failure and concurrent edits (2026-11-05)
+
+The final journal write is checked against its observed in-memory value even when
+SharedPreferences reports failure or throws. A cached replacement is rolled back only
+to the verified original checkpoint. If a different journal is observed, including
+during checkpoint verification, rollback preserves that newer journal and reports a
+conflict. Failed rollback is never reported as success; the checkpoint remains.
+These checks do not turn SharedPreferences and photo files into an ACID transaction
+or make uncoordinated writers atomically compare-and-swap. Core integration still must
+serialize journal mutations or quiesce active writers around confirmed replacement.
