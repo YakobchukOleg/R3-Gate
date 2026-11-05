@@ -177,3 +177,27 @@ conflict. Failed rollback is never reported as success; the checkpoint remains.
 These checks do not turn SharedPreferences and photo files into an ACID transaction
 or make uncoordinated writers atomically compare-and-swap. Core integration still must
 serialize journal mutations or quiesce active writers around confirmed replacement.
+
+## File reports in the shared Backup panel (2026-11-05)
+
+The existing panel/controller now offers CSV and PDF with a report selector: closed shift
+intervals, on-site totals, materials, and recorded stages/trip endpoints. Existing generic
+SAF host callbacks suffice; no MainActivity change is required. The panel exports all
+saved history and excludes the still-open day from time reports. Integrators may supply
+an immutable `BackupReportExport.Request.period` for an existing date-filtered screen.
+
+Reports are rendered completely in private cache before opening the target document.
+A validation failure leaves an existing destination untouched; temporary reports are
+removed after success or failure. Actual provider write failures remain failures and
+may leave a partial external document; no atomic SAF replacement is promised.
+Report generation never writes journal, GPS, wallet or cloud-success preferences.
+Rates, payments, PIN and other protected finance fields are not part of these public reports.
+
+`WORK_TIME` is explicitly **gross stored shift intervals**, not payroll or net work time;
+its duration heading now says so. `STAGES` retains personal/office/shopping/travel labels,
+including saved travel endpoints; absent stage history is marked unassigned. Periods are
+inclusive calendar dates in the existing Europe/Warsaw export zone, converted to half-open
+instant bounds. Overnight rows and object stages are clipped to the selected period;
+DST days use actual elapsed time. No stored intervals or billing formula are changed.
+Ambiguous object IDs keep the saved label rather than choosing one duplicate object.
+The new stage format and clarified gross heading should be accounted for by CSV consumers.

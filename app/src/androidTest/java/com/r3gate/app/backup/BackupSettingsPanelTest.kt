@@ -208,4 +208,21 @@ class BackupSettingsPanelTest {
         assertTrue(views(panel).filterIsInstance<TextView>().any { it.text.contains("Brak miejsca") })
     }
 
+    @Test fun reportSelectionEmitsTheChosenFormatAndStagesWithoutRestoringData() = instrumentation.runOnMainSync {
+        val actions=mutableListOf<BackupSettingsPanel.Action>()
+        val panel=BackupSettingsPanel(context,appearance()) { actions.add(it) }
+        panel.render(state())
+        views(panel).filterIsInstance<Spinner>().single { it.contentDescription=="Rodzaj raportu" }.setSelection(JournalCsvExport.Report.STAGES.ordinal)
+        views(panel).filterIsInstance<Button>().single { it.text=="Eksportuj CSV" }.performClick()
+        val request=(actions.single() as BackupSettingsPanel.Action.ExportReport).request
+        assertEquals(BackupFilePicker.Kind.CSV,request.kind);assertEquals(JournalCsvExport.Report.STAGES,request.report)
+    }
+    @Test fun busyReportControlsCannotStartAnotherExport() = instrumentation.runOnMainSync {
+        val actions=mutableListOf<BackupSettingsPanel.Action>()
+        val panel=BackupSettingsPanel(context,appearance()) { actions.add(it) };panel.render(state().copy(busy=true))
+        assertTrue(views(panel).filterIsInstance<Button>().filter { it.text.toString().startsWith("Eksportuj") }.all { !it.isEnabled })
+        assertFalse(views(panel).filterIsInstance<Spinner>().single { it.contentDescription=="Rodzaj raportu" }.isEnabled)
+        assertTrue(actions.isEmpty())
+    }
+
 }

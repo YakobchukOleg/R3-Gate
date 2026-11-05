@@ -76,6 +76,11 @@ class BackupSettingsController(
                 BackupFilePicker.createIntent(BackupFilePicker.Kind.BACKUP,
                     BackupFilePicker.suggestName(BackupFilePicker.Kind.BACKUP))
             ) { uri -> task({ LocalBackups.exportCurrent(application, uri) }) { load("Zapisano plik ZIP.") } }
+            is BackupSettingsPanel.Action.ExportReport -> document(
+                BackupFilePicker.createIntent(action.request.kind,action.request.suggestedName())
+            ) { uri -> task({ BackupReportExport.write(application,uri,action.request) }) {
+                load("Zapisano raport ${action.request.kind.name}.")
+            } }
             BackupSettingsPanel.Action.ImportFile -> document(BackupFilePicker.openBackupIntent()) { uri ->
                 prepare { LocalBackups.prepareImport(application, uri) }
             }
@@ -218,7 +223,7 @@ class BackupSettingsController(
                         val message = when (failure) {
                             is SecurityException -> "Brak dostępu. Wybierz plik lub połącz ponownie Google Drive."
                             is JournalRestoreConflict -> "Dane zmieniły się podczas przywracania. Sprawdź historię i ponów operację."
-                            is IllegalArgumentException -> "Nie można użyć tej kopii. Sprawdź plik i jego wersję."
+                            is IllegalArgumentException -> "Nie można wykonać operacji. Sprawdź dane i wybrany plik."
                             else -> "Nie udało się wykonać operacji. Sprawdź dostęp i spróbuj ponownie."
                         }
                         state = state.copy(busy = false, message = message)
