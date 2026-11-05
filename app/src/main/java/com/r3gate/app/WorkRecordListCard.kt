@@ -30,7 +30,7 @@ class WorkRecordListCard(
         isFocusable=true
         setOnClickListener { onOpen() }
         val top=LinearLayout(context).apply {
-            orientation=HORIZONTAL
+            orientation=VERTICAL
             gravity=Gravity.CENTER_VERTICAL
         }
         top.addView(TextView(context).apply {
@@ -38,10 +38,12 @@ class WorkRecordListCard(
             textSize=16f
             setTextColor(palette.textPrimary)
             setTypeface(null,Typeface.BOLD)
-        },LayoutParams(0,LayoutParams.WRAP_CONTENT,1f))
+        },LayoutParams(LayoutParams.MATCH_PARENT,LayoutParams.WRAP_CONTENT))
         top.addView(TextView(context).apply {
             text=model.badge
             textSize=12f
+            maxLines=3
+            ellipsize=android.text.TextUtils.TruncateAt.END
             setTextColor(palette.accentText)
             setPadding(dp(9),dp(5),dp(9),dp(5))
             background=GradientDrawable().apply {

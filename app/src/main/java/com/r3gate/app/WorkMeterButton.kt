@@ -33,7 +33,7 @@ internal fun workMeterButton(
 
     val shape = GradientDrawable().apply {
         setColor(fill)
-        cornerRadius = dp(14).toFloat()
+        cornerRadius = dp(12).toFloat()
         if (role == WorkMeterButtonRole.SECONDARY) setStroke(dp(1), palette.border)
     }
     val ripple = ColorStateList.valueOf((ink and 0x00FFFFFF) or 0x22000000)
@@ -48,6 +48,7 @@ internal fun workMeterButton(
         background = RippleDrawable(ripple, shape, null)
         backgroundTintList = null
         elevation = 0f
+        stateListAnimator = null
         setPadding(dp(12), dp(6), dp(12), dp(6))
         setOnClickListener { onClick() }
     }

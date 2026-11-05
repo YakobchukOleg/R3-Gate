@@ -92,7 +92,7 @@ class PhoneReviewFlowTest {
                 if(kind.isEmpty()) d.remove("active") else d.put("active",JSONObject().put("id","day").put("objectId","site")
                     .put("object","TCZ-01 · R3 Gate").put("kind",kind).put("start",System.currentTimeMillis()-60_000))
                 prefs.edit().putString("data",d.toString()).commit()
-                for((w,h) in listOf(144 to 68,144 to 144,300 to 90,300 to 180,300 to 260)) for(scale in listOf(1f,1.3f)) {
+                for((w,h) in listOf(144 to 68,144 to 144,300 to 90,300 to 180,300 to 260)) for(scale in listOf(1f,1.3f,2f)) {
                     val configuration=Configuration(context.resources.configuration).apply { fontScale=scale }
                     val ctx=context.createConfigurationContext(configuration)
                     val parent=FrameLayout(ctx)

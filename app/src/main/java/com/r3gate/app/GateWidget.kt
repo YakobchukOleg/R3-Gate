@@ -119,8 +119,8 @@ class GateWidget : AppWidgetProvider() {
                 else -> "Nieprzypisane"
             }
             v.setTextViewText(R.id.wstatus,"● "+stage)
-            v.setTextViewText(R.id.wstartbutton,if(mini) "" else "Rozpocznij")
-            v.setTextViewText(R.id.wstopbutton,if(mini) "" else if(wide) "Zakończ pracę" else "Zakończ")
+            v.setTextViewText(R.id.wstartbutton,if(mini) "" else if(widthDp<220) "Start" else "Rozpocznij")
+            v.setTextViewText(R.id.wstopbutton,if(mini) "" else if(widthDp<220) "Stop" else if(wide) "Zakończ pracę" else "Zakończ")
             v.setContentDescription(R.id.wstartbutton,"Rozpocznij dzień pracy")
             v.setContentDescription(R.id.wstopbutton,"Zakończ dzień pracy")
             v.setContentDescription(R.id.wswitch,"Zmień obiekt")
@@ -131,14 +131,14 @@ class GateWidget : AppWidgetProvider() {
             if(mini) v.setInt(R.id.wstartbutton,"setBackgroundResource",R.drawable.widget_round_start)
             val palette=theme.palette
             // The opaque foreground panel preserves text contrast on photo wallpapers.
-            for(id in listOf(R.id.wstatus,R.id.wduration,R.id.wobject)) v.setTextColor(id,palette.onHeader)
+            for(id in listOf(R.id.wstatus,R.id.wduration,R.id.wobject,R.id.wgps)) v.setTextColor(id,palette.onHeader)
             for(id in listOf(R.id.wtravel,R.id.wshopping)) v.setTextColor(id,0xFF304953.toInt())
             if(!shortWide) v.setTextColor(R.id.wswitch,0xFF304953.toInt())
             if(wide) for((id,icon) in listOf(R.id.wswitch to R.drawable.ic_widget_object,R.id.wtravel to R.drawable.ic_widget_car,R.id.wshopping to R.drawable.ic_widget_cart)) v.setTextViewCompoundDrawables(id,if(widthDp<220) icon else 0,0,0,0)
             v.setContentDescription(R.id.wtravel,if(travel) "Dojechałem — wybierz obiekt" else "Rozpocznij przejazd")
             v.setContentDescription(R.id.wshopping,if(a?.optString("kind")=="Zakupy") "Zakończ zakupy" else "Rozpocznij zakupy")
             v.setViewPadding(R.id.wcontent,if(widthDp<170) 0 else (8*context.resources.displayMetrics.density).toInt(),(2*context.resources.displayMetrics.density).toInt(),if(widthDp<170) 0 else (8*context.resources.displayMetrics.density).toInt(),(2*context.resources.displayMetrics.density).toInt())
-            if(wide) v.setTextViewTextSize(R.id.wduration,android.util.TypedValue.COMPLEX_UNIT_DIP,if(heightDp<175) 22f else if(heightDp<200) 24f else 32f)
+            v.setTextViewTextSize(R.id.wduration,android.util.TypedValue.COMPLEX_UNIT_SP,if(wide) (if(heightDp<200) (if(fontScale>1.5f) 18f else 22f) else 28f) else if(widthDp<300) 20f else 24f)
             val stageColor=when { a==null -> WorkMeterTheme.TRAVEL; personal -> WorkMeterTheme.PERSONAL; travel -> WorkMeterTheme.TRAVEL; a.optString("kind")=="Zakupy" -> WorkMeterTheme.SHOPPING; else -> WorkMeterTheme.ON_SITE }
             val stageText=android.text.SpannableString("● "+stage+if(wide && widthDp>=250 && showConfirmedObject) " · "+confirmedTag else "")
             stageText.setSpan(android.text.style.ForegroundColorSpan(stageColor),0,1,android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
@@ -147,12 +147,26 @@ class GateWidget : AppWidgetProvider() {
             v.setInt(R.id.wsummary,"setBackgroundResource",backing)
             v.setViewVisibility(R.id.wgps,if(wide && heightDp>=220 && (fontScale<=1.5f || heightDp>=280) && appearance.showGps) View.VISIBLE else View.GONE)
             if(wide && heightDp>=220 && (fontScale<=1.5f || heightDp>=280) && appearance.showGps) v.setTextViewText(R.id.wgps,GpsServiceStatusUi.read(context))
-            if(mini || shortWide) v.setTextViewTextSize(R.id.wduration,android.util.TypedValue.COMPLEX_UNIT_DIP,if(widthDp<300) 20f else 24f)
             if(wide && heightDp<175) v.setTextViewTextSize(R.id.wstatus,android.util.TypedValue.COMPLEX_UNIT_SP,10f)
             v.setViewVisibility(R.id.wday,if(wide && widthDp>=250 && roomForDetails) View.VISIBLE else View.GONE)
             val today=java.time.LocalDate.now()
-            val daily=TimeAnalytics.calculate(TimeAnalyticsSnapshot.shifts(d,System.currentTimeMillis()),today,today,java.time.ZoneId.systemDefault()).workMillis/60_000
-            v.setTextViewText(R.id.wday,"Dziś %02d:%02d".format(Locale.ROOT,daily/60,daily%60))
+            val analytics=TimeAnalytics.calculate(TimeAnalyticsSnapshot.shifts(d,System.currentTimeMillis()),today,today,java.time.ZoneId.systemDefault())
+            v.setTextViewText(R.id.wday,"Czas etapu")
+            if(wide) {
+                val showStage=widthDp>=250 && roomForDetails && a!=null && (fontScale<=1.5f || heightDp>=220)
+                v.setViewVisibility(R.id.wstagecolumn,if(showStage) View.VISIBLE else View.GONE)
+                val elapsed=WorkMeterHomeState.stageElapsed(System.currentTimeMillis(),a?.optLong("start") ?: 0L,a?.optLong("stageStart") ?: 0L)
+                v.setChronometer(R.id.wstage,SystemClock.elapsedRealtime()-elapsed,null,a!=null)
+                v.setTextColor(R.id.wstage,palette.onHeader)
+                val expanded=heightDp>=220 && (fontScale<=1.3f || heightDp>=320)
+                v.setViewVisibility(R.id.wdetails,if(expanded) View.VISIBLE else View.GONE)
+                fun hours(ms:Long):String { val m=ms/60_000; return "%02d:%02d".format(Locale.ROOT,m/60,m%60) }
+                val breakdown=TimeChartCategory.entries.take(TimeAnalytics.WORK_CATEGORY_COUNT).filter { analytics.totals[it.ordinal]>0 }
+                    .joinToString(" · ") { it.label+" "+hours(analytics.totals[it.ordinal]) }
+                v.setTextViewText(R.id.wdetails,if(breakdown.isEmpty()) "Brak czasu pracy dzisiaj" else "Etapy dzisiaj\n"+breakdown+
+                    if(analytics.personalMillis>0) "\nPrywatnie (bez wynagrodzenia) "+hours(analytics.personalMillis) else "")
+                v.setTextColor(R.id.wdetails,palette.onHeader)
+            }
             v.setTextColor(R.id.wday,palette.onHeader)
 
             v.setTextViewText(R.id.wstart,"Rozpoczęcie: "+if(start>0) time.format(Date(start)) else "—")
