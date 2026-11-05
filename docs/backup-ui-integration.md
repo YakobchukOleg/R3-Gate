@@ -89,3 +89,10 @@ unversioned and supported legacy journals. Active shift references and nested st
 are included in preflight. Duplicate explicit record IDs are shown as warnings and
 preserved for review. The restore summary's warning count includes these conflicts,
 so render it as general data warnings rather than only missing object references.
+
+Schedule reconciliation now cancels an existing daily Drive job when Drive is
+disconnected or daily backup is disabled. Local scheduling remains independent.
+The scheduling APIs return WorkManager's operation so callers and Android tests can
+wait for persistence without polling. Manual and periodic Drive backup workers share
+one process-wide upload slot. An overlapping worker retries with its existing queue
+entry instead of uploading concurrently.

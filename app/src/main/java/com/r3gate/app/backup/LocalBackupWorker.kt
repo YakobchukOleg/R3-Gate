@@ -6,6 +6,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.Worker
 import androidx.work.WorkerParameters
+import androidx.work.Operation
 import androidx.work.workDataOf
 import java.io.FileNotFoundException
 import java.io.IOException
@@ -52,15 +53,14 @@ internal class LocalBackupWorker(context: Context, parameters: WorkerParameters)
         const val DIRECTORY = "local-backups"
         const val WORK = "workmeter-local-backup"
 
-        fun schedule(context: Context) {
+        fun schedule(context: Context): Operation {
             val settings = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
             val manager = WorkManager.getInstance(context)
             if (!settings.getBoolean(ENABLED, false)) {
-                manager.cancelUniqueWork(WORK)
-                return
+                return manager.cancelUniqueWork(WORK)
             }
             val hours = settings.getInt(INTERVAL_HOURS, 24).coerceIn(1, 168).toLong()
-            manager.enqueueUniquePeriodicWork(WORK, ExistingPeriodicWorkPolicy.UPDATE,
+            return manager.enqueueUniquePeriodicWork(WORK, ExistingPeriodicWorkPolicy.UPDATE,
                 PeriodicWorkRequestBuilder<LocalBackupWorker>(hours, TimeUnit.HOURS).build())
         }
     }

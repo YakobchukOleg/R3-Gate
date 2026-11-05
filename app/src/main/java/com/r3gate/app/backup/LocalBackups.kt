@@ -35,13 +35,13 @@ object LocalBackups {
         return Status(schedule, timestamp, latest, preferences.getString(LocalBackupWorker.STATUS_ERROR, null))
     }
 
-    fun updateSchedule(context: Context, schedule: Schedule) {
+    fun updateSchedule(context: Context, schedule: Schedule): androidx.work.Operation {
         check(settings(context).edit().putBoolean(LocalBackupWorker.ENABLED, schedule.enabled)
             .putInt(LocalBackupWorker.INTERVAL_HOURS, schedule.intervalHours)
             .putInt(LocalBackupWorker.RETENTION, schedule.retention).commit()) {
             "Cannot save local backup settings"
         }
-        LocalBackupWorker.schedule(context)
+        return LocalBackupWorker.schedule(context)
     }
 
     fun copies(context: Context): List<Copy> = files(context).map(::describe)

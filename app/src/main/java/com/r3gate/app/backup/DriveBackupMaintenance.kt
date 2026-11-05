@@ -9,8 +9,11 @@ internal object DriveBackupMaintenance {
 
     private val active = mutableSetOf<UUID>()
 
-    fun <T> whileActive(id: UUID, run: () -> T): T {
-        synchronized(this) { check(active.add(id)) }
+    fun <T : Any> whileActive(id: UUID, run: () -> T): T? {
+        synchronized(this) {
+            if (active.isNotEmpty()) return null
+            active.add(id)
+        }
         return try {
             run()
         } finally {

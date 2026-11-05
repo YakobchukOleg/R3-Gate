@@ -21,7 +21,7 @@ import java.util.concurrent.TimeoutException
 
 class DriveBackupWorker(context:Context,params:WorkerParameters):Worker(context,params) {
     private val prefs=applicationContext.getSharedPreferences("r3_gate",Context.MODE_PRIVATE)
-    override fun doWork(): Result = DriveBackupMaintenance.whileActive(id, ::runBackup)
+    override fun doWork(): Result = DriveBackupMaintenance.whileActive(id, ::runBackup) ?: Result.retry()
 
     private fun runBackup(): Result {
         val email = prefs.getString("driveEmail", "").orEmpty()
@@ -154,15 +154,19 @@ class DriveBackupWorker(context:Context,params:WorkerParameters):Worker(context,
                 .put("wtSettings",JSONObject().put("widgetTransparency",p.getInt("widgetTransparency",0)))
                 .put("backupCreatedAt",java.time.Instant.now().toString())
         }
-        fun schedule(context:Context) {
+        fun schedule(context:Context): Operation {
             com.r3gate.app.backup.LocalBackupWorker.schedule(context)
             val p=context.getSharedPreferences("r3_gate",Context.MODE_PRIVATE)
-            if(!p.getBoolean("driveConnected",false) || p.getString("driveEmail","").isNullOrBlank() || !p.getBoolean("dailyBackupEnabled",true)) return
+            val manager = WorkManager.getInstance(context)
+            if (!p.getBoolean("driveConnected", false) || p.getString("driveEmail", "").isNullOrBlank() ||
+                !p.getBoolean("dailyBackupEnabled", true)) {
+                return manager.cancelUniqueWork(BackupStatus.DAILY_TAG)
+            }
             val request=PeriodicWorkRequestBuilder<DriveBackupWorker>(1,TimeUnit.DAYS)
                 .setInputData(workDataOf("backupAccount" to p.getString("driveEmail", "").orEmpty()))
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL,30,TimeUnit.SECONDS).addTag(BackupStatus.DRIVE_TAG).addTag(BackupStatus.DAILY_TAG).build()
-            WorkManager.getInstance(context).enqueueUniquePeriodicWork(BackupStatus.DAILY_TAG,ExistingPeriodicWorkPolicy.UPDATE,request)
+            return manager.enqueueUniquePeriodicWork(BackupStatus.DAILY_TAG,ExistingPeriodicWorkPolicy.UPDATE,request)
         }
         fun manual(context:Context) {
             val prefs = context.getSharedPreferences("r3_gate", Context.MODE_PRIVATE)
