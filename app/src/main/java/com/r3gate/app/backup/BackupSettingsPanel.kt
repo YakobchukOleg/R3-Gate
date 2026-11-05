@@ -44,6 +44,7 @@ class BackupSettingsPanel(
         data object CreateLocal : Action
         data object ExportFile : Action
         data object ImportFile : Action
+        data class ExportReport(val request: BackupReportExport.Request) : Action
         data object ConnectDrive : Action
         data object CreateDrive : Action
         data object ImportDrive : Action
@@ -59,6 +60,7 @@ class BackupSettingsPanel(
         val spacing = dp(16)
         setPadding(spacing, spacing, spacing, spacing)
     }
+    private var selectedReport=JournalCsvExport.Report.WORK_TIME
     private val date = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm", Locale.forLanguageTag("pl"))
         .withZone(ZoneId.systemDefault())
 
@@ -93,6 +95,8 @@ class BackupSettingsPanel(
         text("Kopie lokalne są przechowywane w aplikacji. Zapisz ZIP do pliku, aby zachować go po odinstalowaniu.")
         button("Utwórz kopię lokalną", !state.busy, primary = true) { onAction(Action.CreateLocal) }
         button("Eksportuj ZIP do pliku", !state.busy) { onAction(Action.ExportFile) }
+
+        reports(state.busy)
 
         text("Automatyczne kopie", heading = true)
         schedule(local.schedule, state.busy)
@@ -167,6 +171,41 @@ class BackupSettingsPanel(
         scrollTo(0, 0)
     }
 
+    private fun reports(busy: Boolean) {
+        text("Raporty do pliku", heading = true)
+        text("Cała zapisana historia. Raporty czasu obejmują zakończone dni i nie wyliczają wynagrodzenia.")
+        val reports=JournalCsvExport.Report.entries
+        val picker=Spinner(context).apply {
+            adapter=object: ArrayAdapter<String>(context,android.R.layout.simple_spinner_item,reports.map(BackupReportExport::title)) {
+                init { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
+                private fun style(view: View): View = view.also {
+                    appearance.surface(it); appearance.text(it as TextView); it.setSingleLine(false)
+                    it.minimumHeight=dp(48)
+                }
+                override fun getView(position: Int, convertView: View?, parent: ViewGroup): View =
+                    style(super.getView(position,convertView,parent))
+                override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View =
+                    style(super.getDropDownView(position,convertView,parent))
+            }
+            setSelection(reports.indexOf(selectedReport))
+            isEnabled=!busy; minimumHeight=dp(48); contentDescription="Rodzaj raportu"
+            appearance.input(this)
+            onItemSelectedListener=object: android.widget.AdapterView.OnItemSelectedListener {
+                override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
+                override fun onItemSelected(parent: android.widget.AdapterView<*>?,view: View?,position: Int,id: Long) {
+                    selectedReport=reports[position]
+                }
+            }
+        }
+        content.addView(picker,row())
+        for(kind in listOf(BackupFilePicker.Kind.CSV,BackupFilePicker.Kind.PDF)) {
+            button("Eksportuj ${kind.name}",!busy) {
+                selectedReport=reports[picker.selectedItemPosition]
+                onAction(Action.ExportReport(BackupReportExport.Request(kind,selectedReport)))
+            }
+        }
+    }
+
     private fun schedule(current: LocalBackups.Schedule, busy: Boolean) {
         val enabled = Switch(context).apply {
             text = "Automatyczna kopia lokalna"
@@ -186,7 +225,7 @@ class BackupSettingsPanel(
                 override fun getView(position: Int, convertView: View?, parent: ViewGroup): View =
                     super.getView(position, convertView, parent).also { appearance.text(it as TextView) }
                 override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View =
-                    super.getDropDownView(position, convertView, parent).also { appearance.text(it as TextView) }
+                    super.getDropDownView(position, convertView, parent).also { appearance.surface(it); appearance.text(it as TextView) }
             }
             setSelection(hours.indexOf(current.intervalHours))
             isEnabled = !busy

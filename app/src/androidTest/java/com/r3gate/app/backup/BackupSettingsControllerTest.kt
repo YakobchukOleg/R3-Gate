@@ -39,9 +39,11 @@ class BackupSettingsControllerTest {
         var uri: Uri? = null
         var restoredCount = 0
         var documentRequests = 0
+        var lastDocumentIntent: Intent?=null
         var replay = false
         var authorizations = 0
         override fun chooseDocument(intent: Intent, selected: (Uri?) -> Unit) {
+            lastDocumentIntent=intent
             documentRequests++
             selected(uri)
             if (replay) selected(uri)
@@ -246,6 +248,30 @@ class BackupSettingsControllerTest {
             original.forEach { (key, value) -> editor.putString(key, value) }
             editor.commit()
         }
+    }
+
+    @Test fun csvReportUsesExistingDocumentHostAndLeavesJournalUnchanged() {
+        val file=File.createTempFile("backup-report-controller-",".csv",context.cacheDir)
+        try {
+            host.uri=Uri.fromFile(file);host.replay=true
+            waitForText("Eksportuj CSV");click("Eksportuj CSV");waitForText("Zapisano raport CSV.")
+            assertTrue(file.readText().contains("Godziny przedziału (brutto)"));assertEquals(initial,prefs.getString("data",null))
+            assertEquals("text/csv",host.lastDocumentIntent?.type);assertEquals(1,host.documentRequests);assertEquals(0,host.restoredCount)
+            assertTrue(host.lastDocumentIntent?.getStringExtra(Intent.EXTRA_TITLE).orEmpty().startsWith("WorkMeter-SOLO-"))
+        }finally{file.delete()}
+    }
+    @Test fun pdfReportUsesPdfMimeAndProducesPdfBytes() {
+        val file=File.createTempFile("backup-report-controller-",".pdf",context.cacheDir)
+        try {
+            host.uri=Uri.fromFile(file);waitForText("Eksportuj PDF");click("Eksportuj PDF");waitForText("Zapisano raport PDF.")
+            assertTrue(file.readBytes().toString(Charsets.ISO_8859_1).startsWith("%PDF-"));assertEquals("application/pdf",host.lastDocumentIntent?.type)
+            assertEquals(initial,prefs.getString("data",null));assertEquals(0,host.restoredCount)
+        }finally{file.delete()}
+    }
+    @Test fun cancelledReportPickerDoesNotClaimSavedReport() {
+        host.uri=null;waitForText("Eksportuj CSV");click("Eksportuj CSV");waitForText("Eksportuj CSV")
+        instrumentation.runOnMainSync { assertFalse(views(controller.view).filterIsInstance<TextView>().any { it.text=="Zapisano raport CSV." }) }
+        assertEquals(initial,prefs.getString("data",null));assertEquals(1,host.documentRequests)
     }
 
 }
