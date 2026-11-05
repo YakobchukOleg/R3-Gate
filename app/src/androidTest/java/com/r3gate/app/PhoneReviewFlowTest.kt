@@ -35,6 +35,22 @@ class PhoneReviewFlowTest {
     }
     private fun answer(text: String) { onView(withText(text)).inRoot(isDialog()).perform(click()); instrumentation.waitForIdleSync() }
     private fun action(a: MainActivity,text: String) { all(a.window.decorView).filterIsInstance<Button>().first { it.text.toString()==text }.performClick() }
+    @Test fun homeUsesOneNavigationEntryPerDestinationAcrossThemesWithoutEditingRecords() {
+        for(theme in WorkMeterTheme.entries) {
+            prefs.edit().putString(WorkMeterTheme.PREF_KEY,theme.key).commit()
+            val before=data().toString()
+            ActivityScenario.launch(MainActivity::class.java).use { scenario -> scenario.onActivity { a ->
+                val buttons=all(a.window.decorView).filterIsInstance<Button>()
+                for(destination in WorkMeterDestination.entries) {
+                    assertEquals(destination.label,1,buttons.count { it.contentDescription==destination.label })
+                }
+                assertFalse(buttons.any { it.text.toString() in listOf("🏢  OBIEKTY","◷  MÓJ CZAS","☷  WIĘCEJ · MENU P1–P4") })
+                assertTrue(all(a.window.decorView).filterIsInstance<TextView>().any { it.text.toString()=="Czas dnia" })
+            } }
+            assertEquals(before,data().toString())
+            assertEquals("protected-finance",prefs.getString("pin",null))
+        }
+    }
     @Test fun startAndStopRequireConfirmationAndNeverPinOrPrematureMutation() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { action(it,"Rozpocznij dzień") }

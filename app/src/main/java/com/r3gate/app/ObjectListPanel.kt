@@ -59,7 +59,7 @@ class ObjectListPanel(
             setHintTextColor(muted)
             setPadding(dp(14), dp(8), dp(14), dp(8))
             background = rounded(palette.surface, 16)
-            contentDescription = "Szukaj obiektu"
+            contentDescription = "Szukaj obiektu: miasto, firma, nazwa, ulica lub adres"
             setText(initialQuery)
         }
         addView(search, LayoutParams(LayoutParams.MATCH_PARENT, dp(52)))

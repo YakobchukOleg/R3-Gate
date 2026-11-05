@@ -41,14 +41,14 @@ class AppFlowTest {
             "🔴 ZAKOŃCZ PRACĘ" -> "■  ZAKOŃCZ PRACĘ"
             "🔄 ZMIEŃ OBIEKT" -> "↔  ZMIEŃ OBIEKT"
             "🚗 PRZEJAZD" -> "Rozpocznij przejazd"
-            "DOTARŁEM" -> "Potwierdź przyjazd"
+            "DOTARŁEM" -> if (all(a).filterIsInstance<Button>().any { it.text.toString()=="Potwierdź przyjazd" }) "Potwierdź przyjazd" else "Wybierz cel"
             "ZAKUPY" -> "🛍  ZAKUPY"
             "ZAKOŃCZ ZAKUPY" -> "Zakończ zakupy"
             "ZDJĘCIA" -> "📷  ZDJĘCIA"
             "MATERIAŁY" -> "📦  MATERIAŁY"
             "NOTATKI" -> "📝  NOTATKI"
-            "OBIEKTY" -> "🏢  OBIEKTY"
-            "MÓJ CZAS" -> "◷  MÓJ CZAS"
+            "OBIEKTY" -> "▦\nObiekty"
+            "MÓJ CZAS" -> "◷\nMój czas"
             "GRAFIKI" -> "▥  GRAFIKI"
             else -> text
         }
@@ -227,7 +227,7 @@ class AppFlowTest {
             assertEquals(departure,stored().getJSONObject("active").getLong("stageStart"))
             shot("05-travel-active")
             scenario.onActivity { a -> click(a,"DOTARŁEM") }
-            dialogClick("Tak"); dialogClick("+ Nowy obiekt")
+            dialogClick("Tak"); dialogClick("＋ Dodaj obiekt")
             scenario.onActivity { a ->
                 val inputs=all(a).filterIsInstance<EditText>()
                 inputs[0].setText("Kopytkowo"); inputs[2].setText("25"); inputs[3].setText("Nowy")

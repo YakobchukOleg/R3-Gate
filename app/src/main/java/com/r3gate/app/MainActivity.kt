@@ -1042,6 +1042,8 @@ class MainActivity : Activity() {
         val status=when { privateMode -> "PRYWATNIE";a!=null -> "DZIEŃ OTWARTY";else -> "DZIEŃ ZAMKNIĘTY" }
         header.addView(text(status,12f,palette.onHeader,true))
         hero.addView(header)
+        hero.addView(text(if (a == null && recent != null) "Czas ostatniego dnia" else "Czas dnia",12f,palette.onHeader),
+            LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(10) })
         hero.addView(text(shown?.let {
             duration(workedMillis(it))
         } ?: "00:00",44f,palette.onHeader,true),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(14) })
@@ -1069,7 +1071,7 @@ class MainActivity : Activity() {
         })
         root.addView(hero,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(14) })
 
-        root.addView(action(state.actionLabel, WorkMeterButtonRole.PRIMARY) {
+        root.addView(action(state.primaryActionLabel(gpsHomeArrivalReady(a)), WorkMeterButtonRole.PRIMARY) {
             when (state) {
                 WorkMeterHomeState.CLOSED -> startShift()
                 WorkMeterHomeState.ON_SITE, WorkMeterHomeState.TRAVEL -> toggleTravel()
@@ -1125,10 +1127,7 @@ class MainActivity : Activity() {
         actionRow("📷  ZDJĘCIA" to { openScreen("list:links:") },
             "📦  MATERIAŁY" to { openScreen("list:materials:") })
         actionRow("📝  NOTATKI" to { openScreen("notes") },
-            "🏢  OBIEKTY" to { openScreen("objects") })
-        section("PRZEGLĄD")
-        actionRow("◷  MÓJ CZAS" to { report() }, "▥  GRAFIKI" to { charts() })
-        root.addView(action("☷  WIĘCEJ · MENU P1–P4") { menu() },LinearLayout.LayoutParams(-1,dp(50)))
+            "▥  GRAFIKI" to { charts() })
     }
 
     private fun openHomeRecord(kind: String) {
@@ -2743,6 +2742,7 @@ class MainActivity : Activity() {
         val layout=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(dp(20),dp(8),dp(20),dp(8)) }
         val searchRow=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; gravity=Gravity.CENTER_VERTICAL }
         val query=EditText(ContextThemeWrapper(this,dialogStyle)).apply { hint="Szukaj"; setSingleLine(); inputType=InputType.TYPE_CLASS_TEXT; imeOptions=android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH }
+        query.contentDescription="Szukaj obiektu: miasto, firma, nazwa, ulica lub adres"
         searchRow.addView(query,LinearLayout.LayoutParams(0,dp(48),1f))
         val results=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL }
         val dialog=AlertDialog.Builder(this,dialogStyle).setTitle(if(arrival) "Dokąd przyjechałeś?" else "Wybierz obiekt")
@@ -2771,7 +2771,6 @@ class MainActivity : Activity() {
         if(optional) layout.addView(makeButton("Bez obiektu") { dialog.dismiss(); selected(null) })
         if(arrival) {
             layout.addView(makeButton("🛒 Zakupy") { dialog.dismiss(); startShopping() })
-            layout.addView(makeButton("+ Nowy obiekt") { dialog.dismiss(); screen="home"; newForm("objects") })
         }
         layout.addView(object:ScrollView(this) {
             override fun onMeasure(widthMeasureSpec:Int,heightMeasureSpec:Int) {
