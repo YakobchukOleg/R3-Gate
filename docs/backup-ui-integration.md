@@ -119,3 +119,15 @@ summary. On explicit confirmation call `Session.commit` off the UI thread,
 and on cancellation call `Session.discard`. Keep the session in the navigation
 host and discard it on navigation away. Repeated confirmation is suppressed.
 Connecting this panel to the common navigation remains a UI-owner task.
+
+## Screen controller
+
+`BackupSettingsController` owns `view`, runs backup work on a single worker
+thread and handles local ZIP creation/export, schedule updates, import previews,
+confirmed restoration and recovery. The host supplies existing document picking
+and Drive authorization, cloud-copy selection, and a callback to reload Core data.
+Host callbacks must return on the main thread. Pass the common appearance/context,
+add `controller.view` to the settings destination, then call `refresh`.
+Call `close` when leaving the screen. It discards a prepared restore session after
+any current operation finishes. A restore already explicitly confirmed may finish.
+Tokens remain in memory. Duplicate document/auth/selection callbacks are ignored.

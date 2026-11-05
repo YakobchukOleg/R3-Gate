@@ -62,7 +62,7 @@ object PhotoRestoreCoordinator {
                 )
                 try {
                     val result = JournalRestoreStore.restore(context, modified, true)
-                    if (result == JournalRestoreStore.Outcome.UNCHANGED) prepared.discard()
+                    if (result == JournalRestoreStore.Outcome.UNCHANGED || prepared.staged.files.isEmpty()) prepared.discard()
                     finished = true
                     result
                 } catch (failure: Exception) {
