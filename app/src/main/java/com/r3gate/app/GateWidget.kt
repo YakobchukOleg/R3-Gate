@@ -99,9 +99,7 @@ class GateWidget : AppWidgetProvider() {
             val travel=a?.optString("kind")=="Przejazd"
             val personal=a?.optString("kind")=="Prywatnie"
             v.setTextViewText(R.id.wobject,when { a==null -> "Gotowy do pracy"; travel -> "W drodze"; personal -> "Czas prywatny"; a.optString("kind")=="Zakupy" -> "Zakupy"; else -> a.optString("object").substringBefore(" · ") })
-            v.setTextViewText(R.id.wtravel,if(travel) "DOTARŁEM" else "PRZEJAZD")
-            v.setInt(R.id.wtravel,"setBackgroundResource",if(travel) R.drawable.widget_active else R.drawable.widget_button)
-            v.setTextColor(R.id.wtravel, if (travel) theme.palette.onError else 0xFF37474F.toInt())
+            v.setInt(R.id.wtravel,"setBackgroundResource",R.drawable.widget_button)
             v.setTextColor(R.id.wstopbutton, theme.palette.onError)
             v.setViewVisibility(R.id.wstartbutton,if(a==null) android.view.View.VISIBLE else android.view.View.GONE)
             v.setViewVisibility(R.id.wstopbutton,if(a!=null) android.view.View.VISIBLE else android.view.View.GONE)
@@ -109,7 +107,9 @@ class GateWidget : AppWidgetProvider() {
             v.setViewVisibility(R.id.wprimary, View.VISIBLE)
             v.setViewVisibility(R.id.wactions,if(secondaryActions && appearance.showActions && a!=null && !personal) View.VISIBLE else View.GONE)
             v.setViewVisibility(R.id.wswitch,if((secondaryActions && appearance.showActions && a!=null && !personal) || (shortWide && a!=null && !personal)) View.VISIBLE else View.GONE)
-            v.setViewVisibility(R.id.wobject,if(wide && roomForDetails && appearance.showObject) View.VISIBLE else View.GONE)
+            val confirmedTag=a?.optString("object").orEmpty().substringBefore(" · ")
+            val showConfirmedObject=appearance.showObject && a!=null && WorkPlaceRules.isOnSiteStage(a.optString("kind")) && a.optString("objectId").isNotBlank() && confirmedTag.isNotBlank()
+            v.setViewVisibility(R.id.wobject,if(wide && widthDp<250 && roomForDetails && showConfirmedObject) View.VISIBLE else View.GONE)
             val stage=when {
                 a==null -> "Brak zmiany"
                 travel -> "Przejazd"
@@ -140,7 +140,7 @@ class GateWidget : AppWidgetProvider() {
             v.setViewPadding(R.id.wcontent,if(widthDp<170) 0 else (8*context.resources.displayMetrics.density).toInt(),(2*context.resources.displayMetrics.density).toInt(),if(widthDp<170) 0 else (8*context.resources.displayMetrics.density).toInt(),(2*context.resources.displayMetrics.density).toInt())
             if(wide) v.setTextViewTextSize(R.id.wduration,android.util.TypedValue.COMPLEX_UNIT_DIP,if(heightDp<175) 22f else if(heightDp<200) 24f else 32f)
             val stageColor=when { a==null -> WorkMeterTheme.TRAVEL; personal -> WorkMeterTheme.PERSONAL; travel -> WorkMeterTheme.TRAVEL; a.optString("kind")=="Zakupy" -> WorkMeterTheme.SHOPPING; else -> WorkMeterTheme.ON_SITE }
-            val stageText=android.text.SpannableString("● "+stage)
+            val stageText=android.text.SpannableString("● "+stage+if(wide && widthDp>=250 && showConfirmedObject) " · "+confirmedTag else "")
             stageText.setSpan(android.text.style.ForegroundColorSpan(stageColor),0,1,android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             v.setTextViewText(R.id.wstatus,stageText)
             val backing=when(theme) { WorkMeterTheme.SLATE_SAGE -> R.drawable.widget_bg; WorkMeterTheme.NORDIC_BLUE -> R.drawable.widget_bg_nordic; WorkMeterTheme.GRAPHITE_DARK -> R.drawable.widget_bg_graphite }

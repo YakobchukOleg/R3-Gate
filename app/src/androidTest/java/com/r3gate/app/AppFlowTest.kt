@@ -261,7 +261,7 @@ class AppFlowTest {
             scenario.onActivity { a ->
                 val widgetView=GateWidget.render(a).apply(a,android.widget.FrameLayout(a))
                 assertEquals("Obiekt",widgetView.findViewById<TextView>(R.id.wswitch).text.toString())
-                assertEquals("● Na obiekcie",widgetView.findViewById<TextView>(R.id.wstatus).text.toString())
+                assertTrue(widgetView.findViewById<TextView>(R.id.wstatus).text.toString().contains("Na obiekcie · GDA-01"))
                 assertEquals("Zakupy",widgetView.findViewById<TextView>(R.id.wshopping).text.toString())
                 val widgetHeight=(160*a.resources.displayMetrics.density).toInt()
                 widgetView.measure(View.MeasureSpec.makeMeasureSpec(a.resources.displayMetrics.widthPixels,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(widgetHeight,View.MeasureSpec.EXACTLY))

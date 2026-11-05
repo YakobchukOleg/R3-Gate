@@ -14,7 +14,7 @@ internal enum class WorkMeterHomeState(val actionLabel: String) {
             kind == "Przejazd" -> TRAVEL
             kind == "Zakupy" -> SHOPPING
             kind == "Prywatnie" -> PERSONAL
-            (kind.isBlank() || kind == "Obiekt") && objectId.isNotBlank() -> ON_SITE
+            (kind.isBlank() || WorkPlaceRules.isOnSiteStage(kind)) && objectId.isNotBlank() -> ON_SITE
             else -> UNASSIGNED
         }
 

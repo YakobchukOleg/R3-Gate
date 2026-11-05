@@ -179,4 +179,18 @@ class PhoneReviewFlowTest {
         }
     }
 
+    @Test fun integratedBackupSettingsCanLoadAndReturnWithoutChangingTheJournal() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { a ->
+                val before=data().toString()
+                all(a.window.decorView).single { it.isClickable && it.contentDescription=="Ustawienia" }.performClick()
+                action(a,"Kopie zapasowe i odzyskiwanie")
+                assertEquals(1,all(a.window.decorView).filterIsInstance<com.r3gate.app.backup.BackupSettingsPanel>().size)
+                a.onBackPressed()
+                assertTrue(all(a.window.decorView).filterIsInstance<TextView>().any { it.text.toString()=="Ustawienia" })
+                assertEquals(before,data().toString())
+            }
+        }
+    }
+
 }

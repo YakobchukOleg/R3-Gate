@@ -9,6 +9,7 @@ class WorkMeterHomeStateTest {
         assertEquals(WorkMeterHomeState.CLOSED, WorkMeterHomeState.from(false, "Przejazd", "old"))
         assertEquals(WorkMeterHomeState.ON_SITE, WorkMeterHomeState.from(true, "", "legacy"))
         assertEquals(WorkMeterHomeState.ON_SITE, WorkMeterHomeState.from(true, "Obiekt", "site"))
+        assertEquals(WorkMeterHomeState.ON_SITE, WorkMeterHomeState.from(true, "Biuro", "office"))
         assertEquals(WorkMeterHomeState.TRAVEL, WorkMeterHomeState.from(true, "Przejazd", ""))
         assertEquals(WorkMeterHomeState.SHOPPING, WorkMeterHomeState.from(true, "Zakupy", ""))
         assertEquals(WorkMeterHomeState.PERSONAL, WorkMeterHomeState.from(true, "Prywatnie", ""))

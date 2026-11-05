@@ -766,8 +766,11 @@ class MainActivity : Activity() {
                     .setNegativeButton("Anuluj") { _, _ -> selected(null) }.setOnCancelListener { selected(null) }.show()
             }
             override fun restored() {
+                walletUnlocked=false
+                cancelStartAttempt?.invoke(); cancelStartAttempt=null
+                setGpsEnabled(false)
                 GateWidget.refresh(this@MainActivity); CoreGpsStageBridge.refresh(this@MainActivity)
-                toast("Przywrócono dane lokalne")
+                toast("Przywrócono dane lokalne. Śledzenie GPS zatrzymane.")
             }
         }
         backupController=com.r3gate.app.backup.BackupSettingsController(this,appearance,host).also {
