@@ -202,4 +202,21 @@ class BackupSettingsControllerTest {
             target.delete()
         }
     }
+    @Test fun refreshWhilePreviewVisiblePreservesTheConfirmationStep() {
+        val file = archive()
+        try {
+            host.uri = Uri.fromFile(file)
+            click("Importuj z pliku")
+            waitForText("Znaleziono kopię zapasową")
+            instrumentation.runOnMainSync { controller.refresh() }
+            waitForText("Znaleziono kopię zapasową")
+            assertEquals(initial, prefs.getString("data", null))
+            click("Anuluj")
+            waitForText("Anulowano przywracanie.")
+            assertEquals(previousStages, stages())
+        } finally {
+            file.delete()
+        }
+    }
+
 }

@@ -35,6 +35,7 @@ class BackupSettingsController(
     private var host: Host? = host
     @Volatile private var closed = false
     private var busy = false
+    private var previewVisible = false
     private var state = BackupSettingsPanel.State(null)
     private var photos: PhotoRestoreCoordinator.Session? = null
     private var recovery: JournalRestoreStore.RecoveryPreview? = null
@@ -43,7 +44,7 @@ class BackupSettingsController(
 
     fun refresh(message: String? = null) {
         checkMain()
-        if (closed || busy) return
+        if (closed || busy || previewVisible) return
         load(message)
     }
 
@@ -151,28 +152,35 @@ class BackupSettingsController(
     }
 
     private fun showPreview(summary: RestoreSummary) {
+        previewVisible = true
         view.preview(summary, confirmed = {
-            if (!busy && !closed) task({
-                val session = photos
-                val previous = recovery
-                photos = null
-                recovery = null
-                if (session != null) {
-                    try {
-                        session.commit(application, confirmed = true)
-                    } catch (failure: Exception) {
-                        runCatching { session.discard() }
-                        throw failure
+            if (!busy && !closed) {
+                previewVisible = false
+                task({
+                    val session = photos
+                    val previous = recovery
+                    photos = null
+                    recovery = null
+                    if (session != null) {
+                        try {
+                            session.commit(application, confirmed = true)
+                        } catch (failure: Exception) {
+                            runCatching { session.discard() }
+                            throw failure
+                        }
+                    } else {
+                        JournalRestoreStore.recover(application, requireNotNull(previous), confirmed = true)
                     }
-                } else {
-                    JournalRestoreStore.recover(application, requireNotNull(previous), confirmed = true)
+                }) {
+                    host?.restored()
+                    if (!closed) load("Przywrócono dane.")
                 }
-            }) {
-                host?.restored()
-                if (!closed) load("Przywrócono dane.")
             }
         }, cancelled = {
-            if (!busy && !closed) task({ discardPending() }) { load("Anulowano przywracanie.") }
+            if (!busy && !closed) {
+                previewVisible = false
+                task({ discardPending() }) { load("Anulowano przywracanie.") }
+            }
         })
     }
 
