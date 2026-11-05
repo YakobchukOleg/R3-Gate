@@ -260,9 +260,9 @@ class AppFlowTest {
             assertEquals("object-test",active.getJSONArray("stages").getJSONObject(0).getString("objectId"))
             scenario.onActivity { a ->
                 val widgetView=GateWidget.render(a).apply(a,android.widget.FrameLayout(a))
-                assertEquals("ZMIEŃ OBIEKT",widgetView.findViewById<TextView>(R.id.wswitch).text.toString())
-                assertEquals(0xFF6EE0AD.toInt(),widgetView.findViewById<TextView>(R.id.wstatus).currentTextColor)
-                assertEquals("ZAKUPY",widgetView.findViewById<TextView>(R.id.wshopping).text.toString())
+                assertEquals("Obiekt",widgetView.findViewById<TextView>(R.id.wswitch).text.toString())
+                assertEquals("● Na obiekcie",widgetView.findViewById<TextView>(R.id.wstatus).text.toString())
+                assertEquals("Zakupy",widgetView.findViewById<TextView>(R.id.wshopping).text.toString())
                 val widgetHeight=(160*a.resources.displayMetrics.density).toInt()
                 widgetView.measure(View.MeasureSpec.makeMeasureSpec(a.resources.displayMetrics.widthPixels,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(widgetHeight,View.MeasureSpec.EXACTLY))
                 widgetView.layout(0,0,a.resources.displayMetrics.widthPixels,widgetHeight)
@@ -381,7 +381,7 @@ class AppFlowTest {
                 assertFalse(all(a).filterIsInstance<Button>().any { it.text=="GOOGLE DRIVE" || it.text=="ZAROBEK (pokaż)" })
                 settings(a); assertTrue(has(a,"Ustawienia"))
                 assertTrue(has(a,"GENERUJ RAPORT SMS")); assertTrue(has(a,"Logi / eksport / import")); assertTrue(has(a,"Google Disk"))
-                click(a,"O aplikacji"); assertTrue(has(a,"Wersja: 2.3.2")); a.onBackPressed()
+                click(a,"O aplikacji"); assertTrue(has(a,"Wersja: 2.7.0")); a.onBackPressed()
                 click(a,"Portfel / rozliczenia (PIN)")
                 assertFalse(has(a,"Portfel"))
                 assertFalse(has(a,"Wybrany okres"))
@@ -659,7 +659,7 @@ class AppFlowTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { a -> click(a,"GRAFIKI");assertTrue(has(a,"Podział czasu pracy"));assertTrue(all(a).filterIsInstance<TextView>().any { it.text.contains("66,7%") }) }
             shot("17-charts")
-            scenario.onActivity { a -> a.onBackPressed();click(a,"ZDJĘCIA");assertTrue(all(a).filterIsInstance<WorkRecordListCard>().any { it.contentDescription?.contains("W KOLEJCE") == true });click(a,"WYŚLIJ / KOLEJKA");assertTrue(has(a,"PONÓW WYSYŁANIE")) }
+            scenario.onActivity { a -> a.onBackPressed();click(a,"ZDJĘCIA");assertTrue(all(a).filterIsInstance<WorkRecordListCard>().any { it.contentDescription?.contains("LOKALNIE") == true });click(a,"WYŚLIJ / KOLEJKA");assertTrue(has(a,"PONÓW WYSYŁANIE")) }
             shot("18-queue")
             scenario.onActivity { a -> a.onBackPressed();a.onBackPressed();click(a,"⚙");click(a,"Język aplikacji");assertTrue(has(a,"Polski ✓")) }
         }

@@ -96,6 +96,7 @@ class MainActivity : Activity() {
                 android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS)
         }
         migrate()
+        PhotoQueue.preserveLegacyRequests(this)
         if (!GpsWorkdaySession.workdayOpen(prefs) &&
             (prefs.getBoolean("gps_enabled",false) || prefs.getBoolean("gps_resume_pending",false))) {
             if (GpsWorkdaySession.hasConsent(prefs)) prefs.edit().putBoolean(GpsWorkdaySession.CONSENT,true).apply()
@@ -1901,7 +1902,18 @@ class MainActivity : Activity() {
         val value=TextView(this).apply { setTextColor(palette.textPrimary); text=prefs.getInt("widgetTransparency",0).coerceIn(0,50).toString()+"% · maks. 50%" }
         root.addView(value)
         val previewFrame=FrameLayout(this).apply { setBackgroundColor(0xFF90A4AE.toInt()); setPadding(dp(8),dp(8),dp(8),dp(8)) }
-        val preview=GateWidget.render(this, interactive = false).apply(this,previewFrame)
+        var previewSize=300 to 180
+        lateinit var preview: View
+        fun drawPreview() {
+            previewFrame.removeAllViews()
+            preview=GateWidget.render(this,WidgetLayoutProfile.forBounds(previewSize.first,previewSize.second),
+                interactive=false,widthDp=previewSize.first,heightDp=previewSize.second).apply(this,previewFrame)
+            previewFrame.addView(preview,FrameLayout.LayoutParams(dp(previewSize.first),dp(previewSize.second)))
+        }
+        drawPreview()
+        for(size in listOf(144 to 68,180 to 170,300 to 90,300 to 180,300 to 260)) button("Podgląd ${size.first} × ${size.second} dp") {
+            previewSize=size; drawPreview()
+        }
         val slider=SeekBar(this).apply { max=50; progress=prefs.getInt("widgetTransparency",0).coerceIn(0,50); contentDescription="Przezroczystość tła widżetu" }
         slider.setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(bar:SeekBar?,progress:Int,fromUser:Boolean) {
@@ -1912,8 +1924,8 @@ class MainActivity : Activity() {
             override fun onStopTrackingTouch(bar:SeekBar?) { GateWidget.refresh(this@MainActivity) }
         })
         root.addView(slider,LinearLayout.LayoutParams(-1,dp(44)))
-        label("0% — pełne tło. 100% — przezroczyste tło. Tekst i przyciski pozostają widoczne.")
-        previewFrame.addView(preview,FrameLayout.LayoutParams(-1,-2)); root.addView(previewFrame)
+        label("0% — pełne tło. Do 50% — przezroczyste tło z kontrastową podkładką tekstu.")
+        root.addView(previewFrame)
         label("Rozmiar zmienisz, przytrzymując widżet na pulpicie i przeciągając jego ramkę.")
     }
     private fun walletConfig(d:JSONObject):JSONObject = d.optJSONObject("walletSettings") ?: JSONObject().put("defaultRate","30.00").put("openingCents",0).also { d.put("walletSettings",it) }
@@ -2280,7 +2292,7 @@ class MainActivity : Activity() {
         val start=shift.optLong("start"); val end=shift.optLong("end")
         label("Rozpoczęcie pracy: "+fmt.format(Date(start)))
         val stages=rows(shift,"stages").sortedBy { it.optLong("start") }
-        if(stages.isEmpty()) label("Brak zapisanej historii etapów dla tej zmiany. Nie można odtworzyć obiektów ani przejazdów.")
+        if(stages.isEmpty()) financeCard("Nieprzypisane", "Brak zapisanej historii etapów dla tej zmiany. Nie można odtworzyć obiektów ani przejazdów.",fmt.format(Date(start))+" → "+fmt.format(Date(end)),"Czas: "+duration(end-start))
         var cursor=start
         for(stage in stages) {
             val from=maxOf(start,stage.optLong("start")); val to=minOf(end,stage.optLong("end"))
@@ -2296,7 +2308,7 @@ class MainActivity : Activity() {
             val lines=mutableListOf(fmt.format(Date(from))+" → "+fmt.format(Date(to)),"Czas: "+duration(to-from))
             if(kind=="Przejazd") lines.add("Z: "+stage.optString("fromObject","—")+"\nDo: "+stage.optString("toObject","—"))
             if(kind==PrivateTimeRules.KIND) lines.add("Czas prywatny · poza wynagrodzeniem")
-            financeCard(name.substringBefore(" · "),*lines.toTypedArray())
+            financeCard(name.split(" · ").take(2).joinToString(" · "),*lines.toTypedArray())
             cursor=maxOf(cursor,to)
         }
         if(stages.isNotEmpty() && cursor<end) financeCard("Nieprzypisane",fmt.format(Date(cursor))+" → "+fmt.format(Date(end)),"Czas: "+duration(end-cursor))
@@ -3621,15 +3633,10 @@ class MainActivity : Activity() {
         }
         if(range==null) { label("Data do nie może być wcześniejsza niż Data od."); return }
         label("Wybrany okres: "+dateText(range.first.toString())+" — "+dateText(range.second.toString()))
-        val shifts=(rows(data(),"shifts")+listOfNotNull(active(data()))).map { sh ->
-            val end=sh.optLong("end",System.currentTimeMillis())
-            val stages=rows(sh,"stages").toMutableList()
-            if(!sh.has("end")) stages.add(JSONObject().put("start",sh.optLong("stageStart",sh.optLong("start"))).put("end",end).put("kind",sh.optString("kind","Obiekt")).put("objectId",sh.optString("objectId")))
-            TimeAnalytics.Shift(sh.optLong("start"),end,stages.map { st -> TimeAnalytics.Stage(st.optLong("start"),st.optLong("end"),when(st.optString("kind")) { PrivateTimeRules.KIND -> TimeAnalytics.PERSONAL; "Biuro" -> TimeAnalytics.OFFICE; "Obiekt" -> if(st.optString("objectId").isNotBlank() || st.optString("object").isNotBlank()) 0 else 3; "Zakupy" -> 1; "Przejazd" -> 2; else -> 3 }) })
-        }
+        val shifts=TimeAnalyticsSnapshot.shifts(data(),System.currentTimeMillis())
         val result=TimeAnalytics.calculate(shifts,range.first,range.second,ZoneId.systemDefault())
         label("Czas według godzin")
-        TimeChartCategory.entries.forEach { category ->
+        TimeChartCategory.entries.take(TimeAnalytics.WORK_CATEGORY_COUNT).forEach { category ->
             if(result.totals[category.ordinal]>0 || category in listOf(TimeChartCategory.ON_SITE,TimeChartCategory.TRAVEL,TimeChartCategory.SHOPPING)) {
                 val legend=TextView(this).apply { text="● "+category.label; setTextColor(palette.textPrimary); textSize=14f; setPadding(0,dp(4),0,dp(4)) }
                 val colored=android.text.SpannableString(legend.text)
@@ -3639,7 +3646,7 @@ class MainActivity : Activity() {
         }
         root.addView(TimeChart(this,result,false) { hour ->
             val title="%02d:00–%02d:00".format(hour,hour+1)
-            val lines=result.hours[hour].mapIndexed { index,ms -> TimeChartCategory.entries[index].label+": "+duration(ms) }
+            val lines=result.hours[hour].mapIndexed { index,ms -> TimeChartCategory.entries[index].label+": "+(ms/60_000)+" min" }
             AlertDialog.Builder(this,dialogStyle).setTitle(title).setMessage(lines.joinToString("\n"))
                 .setPositiveButton("Zamknij",null).show()
         },LinearLayout.LayoutParams(-1,dp(230)))
@@ -3716,8 +3723,13 @@ class MainActivity : Activity() {
     }
     private fun uploadQueue() {
         base("Kolejka wysyłania");screen="queue";nav()
-        button("WYŚLIJ TERAZ") { sendQueue() }
         button("PONÓW WYSYŁANIE") { sendQueue() }
+        if(!prefs.getBoolean("driveConnected",false)) button("Połącz Google Drive") { pendingUpload="queue"; authorizeDrive() }
+        val statuses=listOf("links","materials","notes","expenses").flatMap { key -> rows(data(),key).map { PhotoQueue.status(this,key,it) } }
+        label("Wysłano: ${statuses.sumOf { it.sent }} · Do wysłania: ${statuses.sumOf { it.pending }} · Błędy: ${statuses.sumOf { it.failed }}")
+        val network=getSystemService(android.net.ConnectivityManager::class.java)
+        val internet=network?.getNetworkCapabilities(network.activeNetwork)?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED)==true
+        label(if(internet) "Internet dostępny" else "Brak potwierdzonego dostępu do internetu — zdjęcia pozostają lokalnie.")
         var count=0
         for(key in listOf("links","materials","notes","expenses")) for(row in rows(data(),key)) {
             if(arr(row,"photos").length()==0) continue
@@ -3731,8 +3743,9 @@ class MainActivity : Activity() {
         label("Zdjęcia pozostają na telefonie. Kolejka jest wznawiana po odzyskaniu internetu.")
     }
     private fun sendQueue() {
-        if(prefs.getBoolean("driveConnected",false)) { PhotoQueue.enqueueAll(this);uploadQueue() }
-        else { uploadQueue(); toast("Połącz Google Drive, aby wysłać zdjęcia"); pendingUpload="queue";authorizeDrive() }
+        if(prefs.getBoolean("driveConnected",false)) PhotoQueue.enqueueAll(this)
+        uploadQueue()
+        if(!prefs.getBoolean("driveConnected",false)) toast("Połącz Google Drive, aby wysłać zdjęcia")
     }
     private fun shareFolder(id:String,token:String) {
         if(!prefs.getBoolean("shareConfirmed_"+id,false)) return

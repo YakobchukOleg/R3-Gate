@@ -71,7 +71,9 @@ class DriveUploadWorker(context:Context,params:WorkerParameters):Worker(context,
             val row=rows(data(),key).find { it.optString("id")==id } ?: return finishJob("Wpis został usunięty",true)
             val obj=rows(data(),"objects").find { it.optString("id")==row.optString("objectId") }
             if(key !in listOf("notes","expenses") && obj==null && row.optString("storage")!="car") return finishJob("Wybierz obiekt przed wysłaniem zdjęć",true)
-            val photoList=(0 until arr(row,"photos").length()).map { arr(row,"photos").getString(it) }
+            val savedPhotos=(0 until arr(row,"photos").length()).map { arr(row,"photos").getString(it) }
+            val requested=JSONArray(prefs.getString("uploadRequestedPhotos_"+reference,arr(row,"photos").toString()))
+            val photoList=PhotoSendSelection.eligible(savedPhotos,(0 until requested.length()).map(requested::optString).toSet())
             val accountKey=hash(email).take(24)+"|"
             val authorization=Tasks.await(Identity.getAuthorizationClient(applicationContext).authorize(AuthorizationRequest.builder().setRequestedScopes(listOf(Scope(scope))).build()),60,TimeUnit.SECONDS)
             if(authorization.hasResolution() || authorization.accessToken.isNullOrBlank()) return finishJob("Połącz ponownie Google Disk — dotknij, aby wznowić",true)
@@ -162,7 +164,15 @@ class DriveUploadWorker(context:Context,params:WorkerParameters):Worker(context,
     private fun driveFolder(name:String,parent:String?,token:String)=drive.folder(name,parent,token)
     companion object {
         fun enqueue(context:Context,reference:String,email:String) {
-            context.getSharedPreferences("r3_gate",Context.MODE_PRIVATE).edit().putBoolean("uploadQueued_"+reference,true).remove("uploadError_"+reference).remove("uploadFailedPhotos_"+reference).apply()
+            val prefs=context.getSharedPreferences("r3_gate",Context.MODE_PRIVATE)
+            val parts=reference.split(":",limit=2)
+            if(parts.size!=2) return
+            val saved=runCatching { JSONObject(prefs.getString("data","{}")!!) }.getOrDefault(JSONObject())
+            val entries=saved.optJSONArray(parts[0]) ?: return
+            val row=(0 until entries.length()).mapNotNull(entries::optJSONObject).singleOrNull { it.optString("id")==parts[1] } ?: return
+            if(!prefs.edit().putBoolean("uploadQueued_"+reference,true)
+                .putString("uploadRequestedPhotos_"+reference,row.optJSONArray("photos")?.toString() ?: "[]")
+                .remove("uploadError_"+reference).remove("uploadFailedPhotos_"+reference).commit()) return
             val request=OneTimeWorkRequestBuilder<DriveUploadWorker>()
                 .setInputData(workDataOf("reference" to reference,"email" to email))
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())

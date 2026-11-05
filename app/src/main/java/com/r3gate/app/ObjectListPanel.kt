@@ -52,7 +52,7 @@ class ObjectListPanel(
         addView(add, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(8) })
 
         val search = EditText(context).apply {
-            hint = "Szukaj nazwy, miasta, firmy…"
+            hint = "Szukaj"
             setSingleLine(true)
             textSize = 14f
             setTextColor(ink)
@@ -84,6 +84,7 @@ class ObjectListPanel(
             setOnClickListener { filterState = ObjectFilterUiState.toggleArchive(filterState); filtersChanged() }
         }
         groupToggle.apply {
+            visibility=View.GONE
             textSize = 13f
             gravity = Gravity.CENTER
             minimumHeight = dp(48)
