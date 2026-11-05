@@ -173,5 +173,3 @@ class DriveUploadWorker(context:Context,params:WorkerParameters):Worker(context,
     }
 }
 
-internal class DriveHttpException(val status:Int):java.io.IOException("Drive HTTP $status")
-

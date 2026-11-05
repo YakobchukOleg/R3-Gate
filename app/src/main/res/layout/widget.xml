@@ -5,7 +5,7 @@
     <ImageView android:id="@+id/wbackground" android:layout_width="match_parent"
         android:layout_height="match_parent" android:src="@drawable/widget_bg"
         android:scaleType="fitXY" android:importantForAccessibility="no"/>
-    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+    <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent" android:gravity="center_vertical"
         android:orientation="vertical" android:paddingLeft="14dp" android:paddingRight="14dp"
         android:paddingTop="4dp" android:paddingBottom="4dp">
         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -49,22 +49,22 @@
                 android:text="Zakończenie: —" android:maxLines="1"/>
         </LinearLayout>
         <LinearLayout android:id="@+id/wprimary" android:layout_width="match_parent"
-            android:layout_height="30dp" android:orientation="horizontal" android:layout_marginTop="4dp">
+            android:layout_height="48dp" android:orientation="horizontal" android:layout_marginTop="4dp">
         <FrameLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="match_parent">
             <Button android:id="@+id/wstartbutton" android:fontFamily="@font/clash_grotesk"
-                android:layout_width="match_parent" android:layout_height="30dp"
+                android:layout_width="match_parent" android:layout_height="48dp"
                 android:minHeight="0dp" android:padding="0dp"
                 android:background="@drawable/widget_button" android:backgroundTint="@null"
                 android:textColor="#304953" android:text="▶ ROZPOCZNIJ PRACĘ"
                 android:textSize="11sp"/>
             <Button android:id="@+id/wstopbutton" android:fontFamily="@font/clash_grotesk"
-                android:layout_width="match_parent" android:layout_height="30dp"
+                android:layout_width="match_parent" android:layout_height="48dp"
                 android:minHeight="0dp" android:padding="0dp"
                 android:background="@drawable/widget_active" android:backgroundTint="@null"
                 android:textColor="#FFFFFF" android:text="■ ZAKOŃCZ PRACĘ"
                 android:textSize="11sp" android:visibility="gone"/>
         </FrameLayout>
-        <Button android:id="@+id/wcamera" android:layout_width="44dp" android:layout_height="match_parent"
+        <Button android:id="@+id/wcamera" android:layout_width="48dp" android:layout_height="match_parent"
             android:layout_marginStart="5dp" android:padding="0dp" android:minHeight="0dp"
             android:background="@drawable/widget_button" android:backgroundTint="@null"
             android:text="📷" android:contentDescription="@string/widget_camera" android:visibility="gone"/>
@@ -74,18 +74,18 @@
             android:layout_marginTop="3dp" android:visibility="gone">
             <Button android:id="@+id/wswitch" android:fontFamily="@font/clash_grotesk"
                 android:layout_width="0dp" android:layout_weight="1"
-                android:layout_height="26dp" android:minHeight="0dp" android:padding="0dp"
+                android:layout_height="48dp" android:minHeight="0dp" android:padding="0dp"
                 android:background="@drawable/widget_button" android:backgroundTint="@null"
                 android:textColor="#304953" android:text="OBIEKT ↔" android:textSize="10sp"/>
             <Button android:id="@+id/wtravel" android:fontFamily="@font/clash_grotesk"
                 android:layout_width="0dp" android:layout_weight="1"
-                android:layout_height="26dp" android:layout_marginStart="5dp"
+                android:layout_height="48dp" android:layout_marginStart="5dp"
                 android:minHeight="0dp" android:padding="0dp"
                 android:background="@drawable/widget_button" android:backgroundTint="@null"
                 android:textColor="#304953" android:text="PRZEJAZD" android:textSize="10sp"/>
             <Button android:id="@+id/wshopping" android:fontFamily="@font/clash_grotesk"
                 android:layout_width="0dp" android:layout_weight="1"
-                android:layout_height="26dp" android:layout_marginStart="5dp"
+                android:layout_height="48dp" android:layout_marginStart="5dp"
                 android:minHeight="0dp" android:padding="0dp"
                 android:background="@drawable/widget_button" android:backgroundTint="@null"
                 android:textColor="#304953" android:text="ZAKUPY" android:textSize="10sp"/>

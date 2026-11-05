@@ -2660,38 +2660,28 @@ class MainActivity : Activity() {
         val options = selectableObjects()
         val layout=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(dp(20),dp(8),dp(20),dp(8)) }
         val searchRow=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; gravity=Gravity.CENTER_VERTICAL }
-        val query=EditText(ContextThemeWrapper(this,dialogStyle)).apply { hint="Szukaj miasta"; setSingleLine(); inputType=InputType.TYPE_CLASS_TEXT; imeOptions=android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH }
+        val query=EditText(ContextThemeWrapper(this,dialogStyle)).apply { hint="Szukaj"; setSingleLine(); inputType=InputType.TYPE_CLASS_TEXT; imeOptions=android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH }
         searchRow.addView(query,LinearLayout.LayoutParams(0,dp(48),1f))
         val results=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL }
         val dialog=AlertDialog.Builder(this,dialogStyle).setTitle(if(arrival) "Dokąd przyjechałeś?" else "Wybierz obiekt")
             .setView(layout).setNegativeButton(if(arrival) "Anuluj — przejazd trwa" else "Anuluj",null).create()
         fun renderResults() {
             results.removeAllViews()
-            val matches=options.filter { WorkdayObjectSearch.matchesCity(it.optString("city"), query.text.toString(), startDay) }.sortedWith { x,y -> ObjectSearch.compareTags(x.optString("TAG"),y.optString("TAG")) }
+            val matches=options.filter { obj -> ObjectSearch.matchesFields(listOf("TAG", "name", "organization", "Opis", "city", "Adres", "street", "building", "postcode").map { obj.optString(it) }, query.text.toString()) }.sortedWith { x,y -> ObjectSearch.compareTags(x.optString("TAG"),y.optString("TAG")) }
             for(obj in matches) results.addView(makeButton(objectName(obj)) {
                 val current=objectById(obj.optString("id"))?.takeUnless { it.optBoolean("archived") }
                 if(current==null) { toast("Obiekt nie jest już dostępny"); dialog.dismiss() }
                 else { dialog.dismiss(); selected(current) }
             },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(6) })
-            if(matches.isEmpty()) results.addView(TextView(this).apply { text=if (startDay && query.text.isBlank()) "Wpisz nazwę miasta, aby zobaczyć obiekty" else "Brak obiektów dla tego miasta"; setTextColor(palette.textPrimary); setPadding(0,dp(12),0,dp(12)) })
-        }
-        if (startDay) {
-            val cities = options.map { it.optString("city").trim() }.filter { it.isNotEmpty() }
-                .distinct().sortedWith(String.CASE_INSENSITIVE_ORDER)
-            if (cities.isNotEmpty()) searchRow.addView(makeButton("Miasta ▾") {
-                AlertDialog.Builder(this, dialogStyle).setTitle("Wybierz miasto")
-                    .setItems(cities.toTypedArray()) { _, index -> query.setText(cities[index]) }.show()
-            }, LinearLayout.LayoutParams(-2, -2))
-        } else {
-            searchRow.addView(makeButton("⌕") { renderResults(); (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(query.windowToken,0) }.apply { contentDescription="Szukaj"; textSize=24f; background=background(palette.primary); setTextColor(palette.onPrimary) },LinearLayout.LayoutParams(dp(48),dp(48)))
+            if(matches.isEmpty()) results.addView(TextView(this).apply { text="Brak obiektów dla tego wyszukiwania"; setTextColor(palette.textPrimary); setPadding(0,dp(12),0,dp(12)) })
         }
         query.setOnEditorActionListener { _,action,_ -> if(action==android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) { renderResults(); true } else false }
         query.addTextChangedListener(object:TextWatcher { override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int) {} ; override fun onTextChanged(s:CharSequence?,start:Int,before:Int,count:Int) { renderResults() }; override fun afterTextChanged(s:Editable?) {} })
-        if (startDay) {
+        run {
             layout.addView(workMeterButton(this, "＋ Dodaj obiekt", WorkMeterButtonRole.PRIMARY) {
                 dialog.dismiss()
                 newForm("objects")
-                startAfterObjectSave = true
+                startAfterObjectSave = startDay
             })
         }
         layout.addView(searchRow)

@@ -28,9 +28,9 @@ object ObjectListUiModel {
             .filter { it.archived == showArchived }
             .filter { city == null || it.city.equals(city, ignoreCase = true) }
             .filter { item ->
-                query.isBlank() || listOf(
+                ObjectSearch.matchesFields(listOf(
                     item.tag, item.name, item.organization, item.city, item.address
-                ).any { ObjectSearch.matches(it, query) }
+                ), query)
             }
             .sortedWith { a, b -> ObjectSearch.compareTags(a.tag, b.tag).takeIf { it != 0 } ?: a.id.compareTo(b.id) }
             .map {
