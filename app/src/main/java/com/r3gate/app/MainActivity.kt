@@ -1087,7 +1087,7 @@ class MainActivity : Activity() {
                 a.optString("kind")=="Przejazd" -> "W drodze"
                 a.optString("kind")=="Zakupy" -> "Zakupy"
                 a.optString("kind")=="Biuro" -> "Biuro · "+a.optString("object")
-                else -> a.optString("object").ifBlank { "Bez przypisanego obiektu" }
+                else -> a.optString("object").ifBlank { "Nie przypisano obiektu" }
             },14f,palette.onHeader,true),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(5) })
         hero.addView(text(
             "Rozpoczęcie: "+(shown?.let { fmt.format(Date(it.optLong("start"))) } ?: "—"),
@@ -1846,7 +1846,6 @@ class MainActivity : Activity() {
         filters("settingsData",caption="Dane i kopie") {
             button("Google Disk") { driveSettings() }
             button("Logi / eksport / import") { logs() }
-            button("Centrum kopii / eksport / import") { logs() }
             button("Kopie zapasowe i odzyskiwanie") { backupScreen() }
         }
         filters("settingsSections",caption="Ustawienia działów") {
@@ -3054,9 +3053,14 @@ class MainActivity : Activity() {
             val filtered=f.optString("from").isNotBlank() || f.optString("to").isNotBlank() ||
                 f.optString("objectId").isNotBlank() || f.optBoolean("shoppingOnly")
             val header=WorkRecordListUi.header(listKind,list.size,filtered)
-            label(header.heading)
-            label(header.description)
-            label(header.countLabel)
+            for((index,value) in listOf(header.heading,header.description,header.countLabel).withIndex()) {
+                root.addView(TextView(this).apply {
+                    text=value; textSize=if(index==0) 14f else 12f
+                    setTextColor(if(index==0) palette.textPrimary else palette.secondaryText)
+                    if(index==0) setTypeface(typeface,android.graphics.Typeface.BOLD)
+                    setPadding(dp(2),dp(3),dp(2),dp(3))
+                },LinearLayout.LayoutParams(-1,-2))
+            }
             if(list.isEmpty()) label(header.emptyMessage)
         } else if(list.isEmpty()) label("Brak wpisów dla wybranych filtrów.")
         if(key=="materials") {
@@ -3097,12 +3101,15 @@ class MainActivity : Activity() {
                     recordDetails(key,r.optString("id"),target)
                 },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
             } else if(key=="notes") {
-                val content=r.optString("text").ifBlank { "Notatka ze zdjęciem" }
+                val content=r.optString("text").trim().ifBlank { "Notatka ze zdjęciem" }
                 val title=content.lineSequence().firstOrNull { it.isNotBlank() }?.take(80) ?: "Notatka"
                 val state=if(r.optBoolean("done")) "Wykonano" else if(r.optBoolean("aktualne")) "Aktualna" else "Notatka"
-                val card=WorkRecordListUi.Card(title,content.take(180)+"\n"+obj,state,title+" · "+obj+" · "+state)
-                root.addView(WorkRecordListCard(this,card) { recordDetails(key,r.optString("id"),target) },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(4) })
-                button(if(r.optBoolean("done")) "Oznacz jako aktualną" else "Wykonano") { toggleNoteCompleted(r.optString("id"),target) }
+                val preview=content.trimStart().removePrefix(title).trim().take(160)
+                val card=WorkRecordListUi.Card(title,listOf(preview,obj).filter(String::isNotBlank).joinToString("\n"),state,title+" · "+obj+" · "+date+" · "+state)
+                root.addView(WorkRecordListCard(this,card,
+                    actionLabel=if(r.optBoolean("done")) "Oznacz jako aktualną" else "Wykonano",
+                    onAction={ toggleNoteCompleted(r.optString("id"),target) }
+                ) { recordDetails(key,r.optString("id"),target) },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
             } else button(summary+"\n"+obj) { recordDetails(key,r.optString("id"),target) }
         }
     }
@@ -3735,7 +3742,8 @@ class MainActivity : Activity() {
         label("Wybrany okres: "+dateText(range.first.toString())+" — "+dateText(range.second.toString()))
         val shifts=TimeAnalyticsSnapshot.shifts(data(),System.currentTimeMillis())
         val result=TimeAnalytics.calculate(shifts,range.first,range.second,ZoneId.systemDefault())
-        financeCard("Wybrany okres", "Łączny czas: "+duration(result.workMillis), "Prywatnie (poza wynagrodzeniem): "+duration(result.personalMillis))
+        financeCard("Czas pracy w wybranym okresie", "Łączny czas: "+duration(result.workMillis))
+        if(result.personalMillis>0) label("Prywatnie (poza wynagrodzeniem): "+duration(result.personalMillis))
         label("Czas według godzin")
         TimeChartCategory.entries.take(TimeAnalytics.WORK_CATEGORY_COUNT).forEach { category ->
             if(result.totals[category.ordinal]>0 || category in listOf(TimeChartCategory.ON_SITE,TimeChartCategory.TRAVEL,TimeChartCategory.SHOPPING)) {

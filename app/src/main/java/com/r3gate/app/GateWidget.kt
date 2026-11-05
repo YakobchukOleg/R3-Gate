@@ -180,9 +180,18 @@ class GateWidget : AppWidgetProvider() {
                     textSize=android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP,desiredSp,metrics)
                 }
                 val label=android.text.format.DateUtils.formatElapsedTime(millis.coerceAtLeast(0)/1000)
-                val horizontal=width.coerceAtLeast(16f)*metrics.density/paint.measureText(label).coerceAtLeast(1f)
-                val vertical=height.coerceAtLeast(18f)*metrics.density/(paint.fontMetrics.descent-paint.fontMetrics.ascent).coerceAtLeast(1f)
-                v.setTextViewTextSize(id,android.util.TypedValue.COMPLEX_UNIT_SP,desiredSp*minOf(1f,horizontal,vertical))
+                fun fits(sp:Float):Boolean {
+                    paint.textSize=android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP,sp,metrics)
+                    return paint.measureText(label)<=width.coerceAtLeast(16f)*metrics.density &&
+                        paint.fontMetrics.descent-paint.fontMetrics.ascent<=height.coerceAtLeast(18f)*metrics.density
+                }
+                var lower=0f
+                var upper=desiredSp
+                if(fits(desiredSp)) lower=desiredSp else repeat(16) {
+                    val candidate=(lower+upper)/2
+                    if(fits(candidate)) lower=candidate else upper=candidate
+                }
+                v.setTextViewTextSize(id,android.util.TypedValue.COMPLEX_UNIT_SP,lower)
             }
             fun fitDayTimer(millis:Long) {
                 val showStage=wide && widthDp>=250 && roomForDetails && a!=null && (fontScale<=1.5f || heightDp>=220)

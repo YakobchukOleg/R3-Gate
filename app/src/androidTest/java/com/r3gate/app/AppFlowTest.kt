@@ -544,7 +544,7 @@ class AppFlowTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { a -> click(a,"🟢 ROZPOCZNIJ PRACĘ") }
             dialogClick("Tak")
-            androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.withText("LOD-02 · Łódź · 1"))
+            androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.withContentDescription("LOD-02 · Łódź · 1"))
                 .inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog())
                 .check(androidx.test.espresso.assertion.ViewAssertions.matches(androidx.test.espresso.matcher.ViewMatchers.isDisplayed()))
             androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.withHint("Szukaj"))
@@ -589,8 +589,9 @@ class AppFlowTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { a ->
                 click(a,"MÓJ CZAS")
-                val rows=all(a).filterIsInstance<Button>().map { it.text.toString() }.filter { it.contains("→") }
-                assertTrue(rows[0].startsWith("29-10-2026"));assertTrue(rows[2].startsWith("27-10-2026"))
+                val days=all(a).filterIsInstance<TextView>().map { it.text.toString() }.filter { it.matches(Regex("\\d{2}-\\d{2}-\\d{4} · .*")) }
+                assertEquals(3,days.size)
+                assertTrue(days[0].startsWith("29-10-2026"));assertTrue(days[2].startsWith("27-10-2026"))
                 a.getSharedPreferences("r3_gate",0).edit().putString("reportFrom",day.toString()).putString("reportTo",day.toString()).commit()
                 a.onBackPressed();click(a,"MÓJ CZAS")
                 assertTrue(has(a,"Łączny czas: 01:00"))

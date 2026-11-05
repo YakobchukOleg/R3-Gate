@@ -86,4 +86,28 @@ class UXPackageV2FlowTest {
         }
         assertEquals(before,data().toString())
     }
+
+    @Test fun directNoteCompletionChangesOnlyTheChosenNote() {
+        val note=JSONObject().put("id","note").put("text","Sprawdź przewód").put("date","2026-11-05")
+            .put("objectId","site").put("aktualne",true).put("done",false)
+        val untouched=JSONObject(note.toString()).put("id","other").put("aktualne",false)
+        val journal=data().put("notes",JSONArray().put(note).put(untouched))
+        val activeBefore=journal.getJSONObject("active").toString()
+        prefs.edit().putString("data",journal.toString()).commit()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario -> scenario.onActivity { a ->
+            press(a,"📝  NOTATKI"); press(a,"Aktualne (1)")
+            val card=views(a.window.decorView).filterIsInstance<WorkRecordListCard>().single()
+            val completion=views(card).filterIsInstance<Button>().single { it.text.toString()=="Wykonano" }
+            assertTrue(completion.contentDescription.toString().contains("Sprawdź przewód"))
+            completion.performClick()
+        } }
+        val after=data()
+        assertEquals(activeBefore,after.getJSONObject("active").toString())
+        assertEquals(2,after.getJSONArray("notes").length())
+        assertEquals(untouched.toString(),after.getJSONArray("notes").getJSONObject(1).toString())
+        val completed=after.getJSONArray("notes").getJSONObject(0)
+        assertTrue(completed.getBoolean("done")); assertFalse(completed.getBoolean("aktualne"))
+        assertEquals("site",completed.getString("objectId")); assertEquals("Sprawdź przewód",completed.getString("text"))
+        assertEquals("protected-finance",prefs.getString("pin",null))
+    }
 }

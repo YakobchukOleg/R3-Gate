@@ -133,7 +133,7 @@ class ObjectListPanel(
         val grouped = filterState.grouped
         archiveToggle.isSelected = archived
         groupToggle.isSelected = grouped
-        archiveToggle.text = if (archived) "Archiwum ✓" else "Wszystkie"
+        archiveToggle.text = if (archived) "Archiwum ✓" else "Aktywne"
         groupToggle.text = if (grouped) "▤ Grupuj: miasta" else "☷ Lista"
         archiveToggle.contentDescription = if (archived) "Pokaż aktywne obiekty" else "Pokaż archiwum obiektów"
         groupToggle.contentDescription = if (grouped) "Wyłącz grupowanie" else "Grupuj według miast"

@@ -5,7 +5,7 @@
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
       <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical" android:id="@+id/wsummary">
         <TextView android:id="@+id/wstatus" android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="12sp" android:textColor="#FFFFFF" android:fontFamily="@font/clash_grotesk" android:maxLines="1" android:ellipsize="end" android:includeFontPadding="false" />
-        <Chronometer android:id="@+id/wduration" android:layout_width="match_parent" android:layout_height="wrap_content" android:fontFamily="monospace" android:textColor="#FFFFFF" android:textSize="26sp" android:includeFontPadding="false" android:maxLines="1" />
+        <Chronometer android:id="@+id/wduration" android:minHeight="18dp" android:letterSpacing="0" android:layout_width="match_parent" android:layout_height="wrap_content" android:fontFamily="monospace" android:textColor="#FFFFFF" android:textSize="26sp" android:includeFontPadding="false" android:maxLines="1" />
       </LinearLayout>
       <ImageButton android:id="@+id/wswitch" android:layout_width="48dp" android:layout_height="48dp" android:minWidth="48dp" android:minHeight="48dp" android:padding="12dp" android:background="@drawable/widget_button" android:backgroundTint="@null" android:layout_marginEnd="4dp" android:contentDescription="Zmień obiekt" android:src="@drawable/ic_widget_switch" />
       <FrameLayout android:id="@+id/wprimary" android:layout_width="100dp" android:layout_height="48dp">

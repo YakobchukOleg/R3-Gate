@@ -11,6 +11,8 @@ import android.widget.TextView
 class WorkRecordListCard(
     context: Context,
     model: WorkRecordListUi.Card,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
     onOpen: () -> Unit
 ) : LinearLayout(context) {
     private fun dp(n: Int) = (n * resources.displayMetrics.density + 0.5f).toInt()
@@ -59,6 +61,11 @@ class WorkRecordListCard(
                 setTextColor(palette.secondaryText)
                 setPadding(0,dp(9),0,0)
             })
+        }
+        if(actionLabel!=null && onAction!=null) {
+            addView(workMeterButton(context,actionLabel,WorkMeterButtonRole.SECONDARY,onAction).apply {
+                contentDescription=actionLabel+" · "+model.title
+            },LayoutParams(LayoutParams.MATCH_PARENT,LayoutParams.WRAP_CONTENT).apply { topMargin=dp(8) })
         }
     }
 }
