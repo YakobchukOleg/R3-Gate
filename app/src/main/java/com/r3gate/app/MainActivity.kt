@@ -56,6 +56,7 @@ class MainActivity : Activity() {
     private var formKind = ""
     private var formReturn = "home"
     private var startAfterObjectSave = false
+    private var startObjectSessionId = ""
     private var cancelStartAttempt: (() -> Unit)? = null
     private var draft = JSONObject()
     private var quickPhotoUpload=false
@@ -125,6 +126,7 @@ class MainActivity : Activity() {
             formKind = savedInstanceState.getString("formKind") ?: ""
             formReturn = savedInstanceState.getString("formReturn") ?: "home"
             startAfterObjectSave = savedInstanceState.getBoolean("startAfterObjectSave")
+            startObjectSessionId=savedInstanceState.getString("startObjectSessionId").orEmpty()
             draft = JSONObject(savedInstanceState.getString("draft") ?: "{}")
             openScreen(savedInstanceState.getString("screen") ?: "home")
             val previousScroll=savedInstanceState.getInt("screenScrollY",0)
@@ -468,7 +470,7 @@ class MainActivity : Activity() {
                     waiting.dismiss()
                     if(obj==null) searchStartObject()
                     else AlertDialog.Builder(this,dialogStyle).setTitle("Czy jesteś na tym obiekcie?")
-                        .setMessage(objectName(obj)).setPositiveButton("Tak") { _, _ -> startOnObject(obj) }
+                        .setMessage(objectName(obj)).setPositiveButton("Tak") { _, _ -> startOnObject(obj,d.getJSONObject("active").optString("id")) }
                         .setNegativeButton("Nie, wyszukaj") { _, _ -> searchStartObject() }.show()
                 }
             }
@@ -476,8 +478,9 @@ class MainActivity : Activity() {
     }
 
     private fun searchStartObject() {
+        val sessionId=active(data())?.optString("id").orEmpty()
         objectPicker(optional = false, arrival = false, startDay = true) { obj ->
-            if (obj != null) startOnObject(obj)
+            if (obj != null) startOnObject(obj,sessionId)
         }
     }
 
@@ -534,29 +537,20 @@ class MainActivity : Activity() {
         return { ticker.removeCallbacks(timeout); signal.cancel() }
     }
 
-    private fun startOnObject(obj: JSONObject) {
+    private fun startOnObject(obj: JSONObject, sessionId: String) {
         val d=data()
-        active(d)?.let { running ->
-            if(running.optString("kind")!="Nieprzypisane") { toast("Dzień pracy już rozpoczęty"); home(); return }
-            val current=selectableObjects(d).singleOrNull { it.optString("id")==obj.optString("id") }
-                ?: run { toast("Obiekt nie jest już dostępny"); searchStartObject(); return }
-            val now=System.currentTimeMillis()
-            if(!canCloseCurrentStage(running,now)) return
-            closeStage(running,now)
-            running.put("stageStart",now).put("kind",workStageFor(current))
-                .put("objectId",current.optString("id")).put("object",objectName(current))
-            save(d,"STAGE",objectName(current)); home(); return
+        val running=active(d)
+        if(running==null || running.optString("id")!=sessionId || running.optString("kind")!="Nieprzypisane") {
+            toast("Dzień lub etap pracy zmienił się. Wybierz obiekt ponownie."); home(); return
         }
-        val current = selectableObjects(d).singleOrNull { it.optString("id") == obj.optString("id") }
-        if (current == null) { toast("Obiekt nie jest już dostępny"); searchStartObject(); return }
-        val t=System.currentTimeMillis()
-        if(!WorkShiftIntegrity.canSave(WorkShiftIntegrity.Interval(t,Long.MAX_VALUE),validClosedShiftIntervals(d))) {
-            toast("Nowa zmiana koliduje z zapisaną historią")
-            return
-        }
-        d.put("active",JSONObject().put("id",UUID.randomUUID().toString()).put("start",t).put("object",objectName(current)).put("objectId",current.optString("id")).put("kind",workStageFor(current)).put("stageStart",t).put("stages",JSONArray()).put("rate",defaultRate().toPlainString())); save(d,"START",fmt.format(Date(t)))
-        if (GpsWorkdaySession.hasConsent(prefs)) setGpsEnabled(true)
-        home()
+        val current=selectableObjects(d).singleOrNull { it.optString("id")==obj.optString("id") }
+            ?: run { toast("Obiekt nie jest już dostępny"); searchStartObject(); return }
+        val now=System.currentTimeMillis()
+        if(!canCloseCurrentStage(running,now)) return
+        closeStage(running,now)
+        running.put("stageStart",now).put("kind",workStageFor(current))
+            .put("objectId",current.optString("id")).put("object",objectName(current))
+        save(d,"STAGE",objectName(current)); home()
     }
     private fun validClosedShiftIntervals(d: JSONObject): List<WorkShiftIntegrity.Interval> =
         rows(d,"shifts").map(::stageInterval).filter { WorkShiftIntegrity.isValid(it.start,it.end) }
@@ -968,6 +962,7 @@ class MainActivity : Activity() {
             })
         }
         out.putBoolean("startAfterObjectSave", startAfterObjectSave)
+        out.putString("startObjectSessionId",startObjectSessionId)
         out.putString("draft",draft.toString()); out.putString("cameraPath",cameraPath); out.putString("pendingUpload",pendingUpload)
         super.onSaveInstanceState(out)
     }
@@ -1918,7 +1913,7 @@ class MainActivity : Activity() {
         slider.setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(bar:SeekBar?,progress:Int,fromUser:Boolean) {
                 value.text=progress.toString()+"% · maks. 50%"; prefs.edit().putInt("widgetTransparency",progress).apply()
-                preview.findViewById<ImageView>(R.id.wbackground).imageAlpha=255*(100-progress)/100
+                preview.findViewById<ImageView>(R.id.wbackground).imageAlpha=WidgetAppearance(transparency=progress).backgroundAlpha(0)
             }
             override fun onStartTrackingTouch(bar:SeekBar?) {}
             override fun onStopTrackingTouch(bar:SeekBar?) { GateWidget.refresh(this@MainActivity) }
@@ -2741,6 +2736,7 @@ class MainActivity : Activity() {
 
     private fun objectPicker(optional: Boolean, arrival: Boolean, startDay: Boolean = false, selected: (JSONObject?) -> Unit) {
         val options = selectableObjects()
+        val pickerSessionId=active(data())?.optString("id").orEmpty()
         val layout=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(dp(20),dp(8),dp(20),dp(8)) }
         val searchRow=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; gravity=Gravity.CENTER_VERTICAL }
         val query=EditText(ContextThemeWrapper(this,dialogStyle)).apply { hint="Szukaj"; setSingleLine(); inputType=InputType.TYPE_CLASS_TEXT; imeOptions=android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH }
@@ -2765,6 +2761,7 @@ class MainActivity : Activity() {
                 dialog.dismiss()
                 newForm("objects")
                 startAfterObjectSave = startDay
+                startObjectSessionId=pickerSessionId
             })
         }
         layout.addView(searchRow)
@@ -3447,18 +3444,15 @@ class MainActivity : Activity() {
                 .put("radius",GpsObjectLocationRules.RADIUS_M).toString()).commit()
         }
         PhotoQueue.markPending(this,formKind,draft)
-        val send=false
-        val reference=formKind+":"+draft.optString("id")
         quickPhotoUpload=false
         prefs.edit().remove("draft_"+formKind).apply()
         if (formKind == "objects" && startAfterObjectSave) {
             startAfterObjectSave = false
             home()
-            startOnObject(draft)
+            startOnObject(draft,startObjectSessionId)
             return
         }
         openScreen(formReturn)
-        if(send) { pendingUpload=reference; authorizeDrive() }
     }
     private fun pickPhotos() {
         prefs.edit().putString("draft_"+formKind,draft.toString()).apply()

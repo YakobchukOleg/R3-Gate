@@ -69,7 +69,7 @@ class PhoneReviewFlowTest {
     }
     @Test fun widgetsKeepPrimaryAndLargeActionsAcrossSizesStatesThemesAndFontScale() {
         instrumentation.runOnMainSync {
-            for(theme in WorkMeterTheme.entries) for(kind in listOf("Obiekt","Przejazd","Zakupy","Prywatnie","")) {
+            for(theme in WorkMeterTheme.entries) for(kind in listOf("Obiekt","Przejazd","Zakupy","Prywatnie","Nieprzypisane","")) {
                 val d=data()
                 if(kind.isEmpty()) d.remove("active") else d.put("active",JSONObject().put("id","day").put("objectId","site")
                     .put("object","TCZ-01 · R3 Gate").put("kind",kind).put("start",System.currentTimeMillis()-60_000))
@@ -90,8 +90,19 @@ class PhoneReviewFlowTest {
                     }
                     inside(if(kind.isEmpty()) R.id.wstartbutton else R.id.wstopbutton)
                     if(h>=110) { inside(R.id.wcamera); if(kind.isNotEmpty() && kind!="Prywatnie") { inside(R.id.wswitch); inside(R.id.wtravel); inside(R.id.wshopping) } }
+                    val timer=view.findViewById<View>(R.id.wduration)
+                    assertTrue("Unreadable timer at $w x $h scale $scale",timer.height>=18*density && timer.width>=40*density)
                     assertFalse(view.findViewById<TextView>(R.id.wstatus).text.contains("ONLINE"))
-                    assertEquals(127,view.findViewById<android.widget.ImageView>(R.id.wbackground).imageAlpha)
+                    assertEquals(128,view.findViewById<android.widget.ImageView>(R.id.wbackground).imageAlpha)
+                    if(kind=="Obiekt" && scale==1f) {
+                        val bitmap=android.graphics.Bitmap.createBitmap(width,height,android.graphics.Bitmap.Config.ARGB_8888)
+                        view.draw(android.graphics.Canvas(bitmap))
+                        val file=java.io.File(context.getExternalFilesDir(null),"widget-${theme.key}-${w}x${h}.png")
+                        file.outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it) }; bitmap.recycle()
+                        instrumentation.uiAutomation.executeShellCommand("cp "+file.absolutePath+" /sdcard/Download/"+file.name).use {
+                            java.io.FileInputStream(it.fileDescriptor).use { stream -> stream.readBytes() }
+                        }
+                    }
                 }
             }
         }
@@ -153,6 +164,19 @@ class PhoneReviewFlowTest {
                 assertFalse(prefs.getBoolean("uploadQueued_links:photos",false)); assertTrue(original.exists())
             } }
         } finally { original.delete() }
+    }
+
+    @Test fun staleStartObjectPickerCannotReopenAClosedDay() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { action(it,"Rozpocznij dzień") }; answer("Tak")
+            val d=data(); val opened=d.getJSONObject("active")
+            opened.put("end",System.currentTimeMillis()); d.remove("active"); d.put("shifts",JSONArray().put(opened))
+            prefs.edit().putString("data",d.toString()).commit()
+            onView(androidx.test.espresso.matcher.ViewMatchers.withSubstring("TCZ-01")).inRoot(isDialog()).perform(click())
+            instrumentation.waitForIdleSync()
+            assertFalse(data().has("active")); assertEquals(1,data().getJSONArray("shifts").length())
+            assertFalse(prefs.getBoolean("gps_enabled",false))
+        }
     }
 
 }
