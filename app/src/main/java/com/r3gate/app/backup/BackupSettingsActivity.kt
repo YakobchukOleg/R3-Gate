@@ -45,7 +45,7 @@ class BackupSettingsActivity : Activity(), BackupSettingsController.Host {
             setBackgroundColor(palette.background)
         }
         frame.addView(TextView(this).apply {
-            text = "Kopia zapasowa i synchronizacja"
+            text = "Ustawienia"
             textSize = 23f
             setTextColor(palette.onHeader)
             setBackgroundColor(palette.header)

@@ -56,14 +56,22 @@ class BackupSettingsActivityTest {
         val end = SystemClock.uptimeMillis() + 10000
         while (SystemClock.uptimeMillis() < end) {
             var found = false
-            scenario.onActivity { found = has(it, label) }
+            scenario.onActivity { activity ->
+                found = views(activity.window.decorView).filterIsInstance<TextView>().any {
+                    it.text.toString() == label && (it !is Button || it.isEnabled)
+                }
+            }
             if (found) return
             SystemClock.sleep(30)
         }
         fail("Missing Backup screen text: $label")
     }
+    private fun documentFilter(action: String) = IntentFilter(action).apply {
+        addCategory(Intent.CATEGORY_OPENABLE)
+        addDataType("*/*")
+    }
     private fun withPicker(result: Instrumentation.ActivityResult, action: () -> Unit) {
-        val monitor = instrumentation.addMonitor(IntentFilter(Intent.ACTION_CREATE_DOCUMENT), result, true)
+        val monitor = instrumentation.addMonitor(documentFilter(Intent.ACTION_CREATE_DOCUMENT), result, true)
         try { action(); assertEquals(1, monitor.hits) } finally { instrumentation.removeMonitor(monitor) }
     }
 
@@ -174,7 +182,7 @@ class BackupSettingsActivityTest {
     @Test fun cancellingAnImportPreviewKeepsCurrentData() {
         val file = File.createTempFile("backup-host-", ".zip", context.cacheDir)
         file.outputStream().use { JournalSnapshot.write(incoming, it) }
-        val monitor = instrumentation.addMonitor(IntentFilter(Intent.ACTION_OPEN_DOCUMENT),
+        val monitor = instrumentation.addMonitor(documentFilter(Intent.ACTION_OPEN_DOCUMENT),
             Instrumentation.ActivityResult(Activity.RESULT_OK, Intent().setData(Uri.fromFile(file))), true)
         try {
             ActivityScenario.launch(BackupSettingsActivity::class.java).use { scenario ->
@@ -205,7 +213,9 @@ class BackupSettingsActivityTest {
         try {
             await(scenario, "Utwórz kopię lokalną")
             scenario.onActivity { click(it, "← Wstecz") }
-            instrumentation.waitForIdleSync()
+            val deadline = SystemClock.uptimeMillis() + 10000
+            while (scenario.state != androidx.lifecycle.Lifecycle.State.DESTROYED && SystemClock.uptimeMillis() < deadline)
+                SystemClock.sleep(30)
             assertEquals(androidx.lifecycle.Lifecycle.State.DESTROYED, scenario.state)
             assertEquals(initial, prefs.getString("data", null))
         } finally { scenario.close() }
