@@ -157,4 +157,33 @@ class BackupSettingsPanelTest {
         assertEquals(listOf(BackupSettingsPanel.Action.Refresh), actions)
     }
 
+    @Test fun manualQueueButtonsEmitTheSelectedOperationId() = instrumentation.runOnMainSync {
+        val actions = mutableListOf<BackupSettingsPanel.Action>()
+        val panel = BackupSettingsPanel(context, appearance(), actions::add)
+        val original = state()
+        val waitingId = java.util.UUID.randomUUID()
+        val failedId = java.util.UUID.randomUUID()
+        val snapshot = requireNotNull(original.status).copy(operations = listOf(
+            BackupStatus.Operation(waitingId, BackupStatus.Destination.DRIVE, BackupState.WAITING_TO_SEND, canCancel = true),
+            BackupStatus.Operation(failedId, BackupStatus.Destination.DRIVE, BackupState.FAILED, canRetry = true)
+        ))
+        panel.render(original.copy(status = snapshot))
+        button(panel, "Anuluj wysyłanie").performClick()
+        button(panel, "Ponów wysyłanie").performClick()
+        assertEquals(listOf(BackupSettingsPanel.Action.CancelOperation(waitingId),
+            BackupSettingsPanel.Action.RetryOperation(failedId)), actions)
+    }
+
+    @Test fun idleOrFinishedOperationsDoNotShowQueueMutationButtons() = instrumentation.runOnMainSync {
+        val panel = BackupSettingsPanel(context, appearance()) {}
+        val original = state()
+        panel.render(original.copy(status = requireNotNull(original.status).copy(operations = listOf(
+            BackupStatus.Operation(java.util.UUID.randomUUID(), BackupStatus.Destination.DRIVE, BackupState.SCHEDULED),
+            BackupStatus.Operation(java.util.UUID.randomUUID(), BackupStatus.Destination.DRIVE, BackupState.DRIVE_READY)
+        ))))
+        val labels = views(panel).filterIsInstance<Button>().map { it.text.toString() }
+        assertFalse("Anuluj wysyłanie" in labels)
+        assertFalse("Ponów wysyłanie" in labels)
+    }
+
 }

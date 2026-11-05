@@ -3,6 +3,7 @@ package com.r3gate.app.backup
 import android.content.Context
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import org.json.JSONObject
 import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.TimeUnit
@@ -11,7 +12,10 @@ import java.util.concurrent.TimeUnit
 object BackupStatus {
     enum class Destination { DEVICE, DRIVE }
 
-    data class Operation(val id: UUID, val destination: Destination, val state: BackupState)
+    data class Operation(
+        val id: UUID, val destination: Destination, val state: BackupState,
+        val canCancel: Boolean = false, val canRetry: Boolean = false
+    )
     data class Problem(val state: BackupState, val message: String)
 
     data class Snapshot(
@@ -27,6 +31,7 @@ object BackupStatus {
         val manager = WorkManager.getInstance(context)
         val drive = manager.getWorkInfosByTag(DRIVE_TAG)
         val local = manager.getWorkInfosForUniqueWork(LocalBackupWorker.WORK)
+        val manual = manager.getWorkInfosForUniqueWork(MANUAL_WORK)
         val preferences = context.getSharedPreferences("r3_gate", Context.MODE_PRIVATE)
         val connected = preferences.getBoolean("driveConnected", false)
         val account = preferences.getString("driveEmail", null)
@@ -34,8 +39,14 @@ object BackupStatus {
             account.equals(preferences.getString(VERIFIED_ACCOUNT, null), ignoreCase = true)) {
             preferences.getString(VERIFIED_AT, null)?.let { runCatching { Instant.parse(it) }.getOrNull() }
         } else null
+        val manualIds = manual.get(3, TimeUnit.SECONDS).map { it.id }.toSet()
+        val queue = context.getSharedPreferences("workmeter_drive_backup_queue", Context.MODE_PRIVATE)
         val operations = drive.get(3, TimeUnit.SECONDS).mapNotNull {
-            it.operation(Destination.DRIVE, account.takeIf { connected })
+            val pending = queue.getString(BackupQueueActions.queueId(it).toString(), null)?.let { value ->
+                runCatching { JSONObject(value) }.getOrNull()
+            }
+            it.operation(Destination.DRIVE, account.takeIf { connected },
+                manualIds.contains(it.id), pending)
         } + local.get(3, TimeUnit.SECONDS).mapNotNull { it.operation(Destination.DEVICE) }
         val problem = if (account.orEmpty().equals(preferences.getString(PROBLEM_ACCOUNT, null), true)) {
             readProblem(preferences.getString(PROBLEM_STATE, null), preferences.getString(PROBLEM_MESSAGE, null))
@@ -44,7 +55,9 @@ object BackupStatus {
             preferences.getString("backupStatus", null), operations, problem)
     }
 
-    private fun WorkInfo.operation(destination: Destination, account: String? = null): Operation? {
+    private fun WorkInfo.operation(
+        destination: Destination, account: String? = null, manual: Boolean = false, pending: JSONObject? = null
+    ): Operation? {
         val isDrive = destination == Destination.DRIVE
         if (state == WorkInfo.State.SUCCEEDED && (!outputData.getBoolean(VERIFIED, false) ||
                 isDrive && (account == null || !account.equals(outputData.getString(VERIFIED_ACCOUNT), true)))) {
@@ -59,7 +72,10 @@ object BackupStatus {
         }
         return Operation(id, destination, BackupState.resolve(job, isDrive,
             !isDrive || DAILY_TAG in tags, runAttemptCount,
-            progress.getBoolean(SENDING, false), outputData.getBoolean(ACTION_REQUIRED, false)))
+            progress.getBoolean(SENDING, false), outputData.getBoolean(ACTION_REQUIRED, false)),
+            canCancel = manual && !state.isFinished && DAILY_TAG !in tags,
+            canRetry = manual && (state == WorkInfo.State.FAILED || state == WorkInfo.State.CANCELLED) &&
+                BackupQueueActions.resumable(pending, account.orEmpty()))
     }
 
     internal fun readProblem(state: String?, message: String?): Problem? {
@@ -72,6 +88,9 @@ object BackupStatus {
         return Problem(parsed, message)
     }
 
+    internal const val MANUAL_WORK = "workmeter-manual-backup"
+    internal const val QUEUE_ID = "backupQueueId"
+    internal const val RESUME_ONLY = "backupResumeOnly"
     internal const val PROBLEM_STATE = "driveBackupProblemState"
     internal const val PROBLEM_ACCOUNT = "driveBackupProblemAccount"
     internal const val PROBLEM_MESSAGE = "driveBackupProblemMessage"

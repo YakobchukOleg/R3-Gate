@@ -48,6 +48,8 @@ class BackupSettingsPanel(
         data object CreateDrive : Action
         data object ImportDrive : Action
         data object PreviewRecovery : Action
+        data class CancelOperation(val id: java.util.UUID) : Action
+        data class RetryOperation(val id: java.util.UUID) : Action
         data class RestoreLocal(val name: String) : Action
         data class UpdateSchedule(val schedule: LocalBackups.Schedule) : Action
     }
@@ -122,6 +124,12 @@ class BackupSettingsPanel(
             for (operation in status.operations) {
                 val destination = if (operation.destination == BackupStatus.Destination.DEVICE) "Telefon" else "Google Drive"
                 text("$destination · ${operation.state.label}")
+                if (operation.canCancel) {
+                    button("Anuluj wysyłanie", !state.busy) { onAction(Action.CancelOperation(operation.id)) }
+                }
+                if (operation.canRetry) {
+                    button("Ponów wysyłanie", !state.busy) { onAction(Action.RetryOperation(operation.id)) }
+                }
             }
         }
         post { scrollTo(0, scrollPosition) }

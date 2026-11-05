@@ -131,3 +131,18 @@ add `controller.view` to the settings destination, then call `refresh`.
 Call `close` when leaving the screen. It discards a prepared restore session after
 any current operation finishes. A restore already explicitly confirmed may finish.
 Tokens remain in memory. Duplicate document/auth/selection callbacks are ignored.
+
+## Manual queue cancellation and resume
+
+The panel offers cancellation and retry only for eligible manual Drive jobs.
+`BackupQueueActions` validates the selected WorkManager job before acting.
+Cancellation retains the original archive and upload session. A retry resolves
+the job to its persisted queue identity and verifies the connected account and
+local archive. It resumes that operation with its original Drive ID and session,
+rather than taking a new snapshot. An already completed or missing queue entry
+cannot start another upload. Cloud files are not deleted by cancellation.
+
+Manual requests now carry a queue-identity tag. Cleanup protects queue entries
+referenced by unfinished retry jobs. Existing requests without that tag retain
+their original WorkManager UUID as their queue identity. Before resuming, the
+worker revalidates the stored ZIP to detect changes since its creation.

@@ -63,6 +63,12 @@ class BackupSettingsController(
         if (closed || busy) return
         when (action) {
             BackupSettingsPanel.Action.Refresh -> load(null)
+            is BackupSettingsPanel.Action.CancelOperation -> task({
+                BackupQueueActions.cancel(application, action.id).result.get(5, TimeUnit.SECONDS)
+            }) { load("Anulowano wysyłanie.") }
+            is BackupSettingsPanel.Action.RetryOperation -> task({
+                BackupQueueActions.retry(application, action.id).result.get(5, TimeUnit.SECONDS)
+            }) { load(BackupState.WAITING_TO_SEND.label) }
             BackupSettingsPanel.Action.CreateLocal -> task({ LocalBackups.createNow(application) }) {
                 load("Zapisano lokalnie.")
             }
@@ -74,7 +80,7 @@ class BackupSettingsController(
                 prepare { LocalBackups.prepareImport(application, uri) }
             }
             BackupSettingsPanel.Action.ConnectDrive -> authorize { load(null) }
-            BackupSettingsPanel.Action.CreateDrive -> task({ DriveBackupWorker.manual(application) }) {
+            BackupSettingsPanel.Action.CreateDrive -> task({ DriveBackupWorker.manual(application).result.get(5, TimeUnit.SECONDS) }) {
                 load(BackupState.WAITING_TO_SEND.label)
             }
             BackupSettingsPanel.Action.ImportDrive -> authorize { token ->
