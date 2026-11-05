@@ -45,8 +45,8 @@ class ObjectListPanelInstrumentedTest {
 
     private fun goToObjects(activity: Activity) {
         val button = views(activity).filterIsInstance<Button>()
-            .firstOrNull { it.text.toString().contains("OBIEKTY") }
-        assertNotNull("Home button OBIEKTY should exist", button)
+            .firstOrNull { it.contentDescription == "Obiekty" }
+        assertNotNull("Permanent Obiekty navigation should exist", button)
         button!!.performClick()
         assertEquals(1, views(activity).filterIsInstance<ObjectListPanel>().size)
     }
