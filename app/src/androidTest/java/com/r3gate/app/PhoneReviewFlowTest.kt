@@ -108,14 +108,18 @@ class PhoneReviewFlowTest {
                     }
                     inside(if(kind.isEmpty()) R.id.wstartbutton else R.id.wstopbutton)
                     if(h>=110) { inside(R.id.wcamera); if(kind.isNotEmpty() && kind!="Prywatnie") { inside(R.id.wswitch); inside(R.id.wtravel); inside(R.id.wshopping) } }
-                    val timer=view.findViewById<View>(R.id.wduration)
+                    val timer=view.findViewById<TextView>(R.id.wduration)
                     assertTrue("Unreadable timer at $w x $h scale $scale",timer.height>=18*density && timer.width>=40*density)
+                    val timerBounds=android.graphics.Rect(0,0,timer.width,timer.height)
+                    view.offsetDescendantRectToMyCoords(timer,timerBounds)
+                    assertTrue("Timer outside widget $w $h $scale $timerBounds",timerBounds.top>=0 && timerBounds.bottom<=height)
+                    assertTrue("Clipped digits $w $h $scale",timer.paint.measureText(timer.text.toString())<=timer.width+1f)
                     assertFalse(view.findViewById<TextView>(R.id.wstatus).text.contains("ONLINE"))
                     assertEquals(128,view.findViewById<android.widget.ImageView>(R.id.wbackground).imageAlpha)
-                    if(kind=="Obiekt" && scale==1f) {
+                    if(kind=="Obiekt" && scale in listOf(1f,2f)) {
                         val bitmap=android.graphics.Bitmap.createBitmap(width,height,android.graphics.Bitmap.Config.ARGB_8888)
                         view.draw(android.graphics.Canvas(bitmap))
-                        val file=java.io.File(context.getExternalFilesDir(null),"widget-${theme.key}-${w}x${h}.png")
+                        val file=java.io.File(context.getExternalFilesDir(null),"widget-${theme.key}-${w}x${h}"+(if(scale==2f) "-200" else "")+".png")
                         file.outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it) }; bitmap.recycle()
                         instrumentation.uiAutomation.executeShellCommand("cp "+file.absolutePath+" /sdcard/Download/"+file.name).use {
                             java.io.FileInputStream(it.fileDescriptor).use { stream -> stream.readBytes() }

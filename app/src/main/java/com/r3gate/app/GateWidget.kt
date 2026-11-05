@@ -147,7 +147,8 @@ class GateWidget : AppWidgetProvider() {
             v.setInt(R.id.wsummary,"setBackgroundResource",backing)
             v.setViewVisibility(R.id.wgps,if(wide && heightDp>=220 && (fontScale<=1.5f || heightDp>=280) && appearance.showGps) View.VISIBLE else View.GONE)
             if(wide && heightDp>=220 && (fontScale<=1.5f || heightDp>=280) && appearance.showGps) v.setTextViewText(R.id.wgps,GpsServiceStatusUi.read(context))
-            if(wide && heightDp<175) v.setTextViewTextSize(R.id.wstatus,android.util.TypedValue.COMPLEX_UNIT_SP,10f)
+            val statusSp=if((mini || (wide && heightDp<175)) && fontScale>1.5f) 8f else if(wide && heightDp<175) 10f else 12f
+            v.setTextViewTextSize(R.id.wstatus,android.util.TypedValue.COMPLEX_UNIT_SP,statusSp)
             v.setViewVisibility(R.id.wday,if(wide && widthDp>=250 && roomForDetails) View.VISIBLE else View.GONE)
             val today=java.time.LocalDate.now()
             val analytics=TimeAnalytics.calculate(TimeAnalyticsSnapshot.shifts(d,System.currentTimeMillis()),today,today,java.time.ZoneId.systemDefault())
@@ -171,6 +172,35 @@ class GateWidget : AppWidgetProvider() {
 
             v.setTextViewText(R.id.wstart,"Rozpoczęcie: "+if(start>0) time.format(Date(start)) else "—")
             v.setTextViewText(R.id.wend,"Zakończenie: "+if(a!=null || end<=0) "— Offline" else time.format(Date(end)))
+            // Fit actual elapsed digits in the launcher's available rectangle. Text remains in sp.
+            fun fitElapsed(id:Int,millis:Long,desiredSp:Float,width:Float,height:Float) {
+                val metrics=context.resources.displayMetrics
+                val paint=android.graphics.Paint().apply {
+                    typeface=android.graphics.Typeface.MONOSPACE
+                    textSize=android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP,desiredSp,metrics)
+                }
+                val label=android.text.format.DateUtils.formatElapsedTime(millis.coerceAtLeast(0)/1000)
+                val horizontal=width.coerceAtLeast(16f)*metrics.density/paint.measureText(label).coerceAtLeast(1f)
+                val vertical=height.coerceAtLeast(18f)*metrics.density/(paint.fontMetrics.descent-paint.fontMetrics.ascent).coerceAtLeast(1f)
+                v.setTextViewTextSize(id,android.util.TypedValue.COMPLEX_UNIT_SP,desiredSp*minOf(1f,horizontal,vertical))
+            }
+            fun fitDayTimer(millis:Long) {
+                val showStage=wide && widthDp>=250 && roomForDetails && a!=null && (fontScale<=1.5f || heightDp>=220)
+                val width=when {
+                    mini -> widthDp-56f
+                    shortWide -> widthDp-172f
+                    showStage -> widthDp*0.6f-16f
+                    else -> widthDp-16f
+                }
+                val available=heightDp-4f-(if(wide) 48f else 0f)-
+                    (if(secondaryActions && appearance.showActions && a!=null && !personal) 52f else 0f)
+                val gps=wide && heightDp>=220 && (fontScale<=1.5f || heightDp>=280) && appearance.showGps
+                val details=wide && heightDp>=220 && (fontScale<=1.3f || heightDp>=320)
+                val objectLine=wide && widthDp<250 && roomForDetails && showConfirmedObject
+                val reserved=(statusSp+(if(gps) 10f else 0f)+(if(details) 30f else 0f)+(if(objectLine) 11f else 0f))*fontScale*1.2f
+                fitElapsed(R.id.wduration,millis,if(wide) 28f else 24f,width,available-reserved)
+                if(showStage) fitElapsed(R.id.wstage,WorkMeterHomeState.stageElapsed(System.currentTimeMillis(),a!!.optLong("start"),a.optLong("stageStart")),16f,widthDp*0.4f,available-reserved-12f*fontScale)
+            }
             if(start>0) {
                 val now=if(a!=null) System.currentTimeMillis() else end
                 val stages=shown?.optJSONArray("stages")
@@ -189,12 +219,13 @@ class GateWidget : AppWidgetProvider() {
                     until=maxOf(until,p.second)
                 }
                 val ms=(now-start-personalMs).coerceAtLeast(0)
+                fitDayTimer(ms)
                 if(a!=null) {
                     v.setChronometer(R.id.wduration,SystemClock.elapsedRealtime()-ms,null,!personal)
                 } else {
                     v.setChronometer(R.id.wduration,SystemClock.elapsedRealtime()-ms,null,false)
                 }
-            } else v.setChronometer(R.id.wduration,SystemClock.elapsedRealtime(),null,false)
+            } else { fitDayTimer(0); v.setChronometer(R.id.wduration,SystemClock.elapsedRealtime(),null,false) }
             if (!interactive) return v
             for((view,action,code) in listOf(Triple(R.id.wstartbutton,"start",1),Triple(R.id.wstopbutton,"stop",2),Triple(R.id.wswitch,"switch",3),Triple(R.id.wtravel,"travel",4),Triple(R.id.wshopping,"shopping",5),Triple(R.id.wcamera,"camera",6))) {
                 val intent=Intent(context,MainActivity::class.java).apply { putExtra("widget_action",action); flags=Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP }

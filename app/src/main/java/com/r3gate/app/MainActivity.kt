@@ -880,7 +880,6 @@ class MainActivity : Activity() {
     }
     private fun label(s:String) { root.addView(TextView(this).apply {
         text=displayLegacyDates(s); textSize=15f; setTextColor(palette.textPrimary); setPadding(dp(2),dp(8),dp(2),dp(8))
-        breakStrategy=android.text.Layout.BREAK_STRATEGY_SIMPLE
     },LinearLayout.LayoutParams(-1,-2)) }
     private fun makeButton(s:String, f:()->Unit):Button {
         val accent=s.contains("ZAKOŃCZ") || s.startsWith("Usuń") || ((s.startsWith("🚗") || s=="DOTARŁEM") && active(data())?.optString("kind")=="Przejazd")
@@ -2073,7 +2072,6 @@ class MainActivity : Activity() {
             card.addView(TextView(this).apply {
                 text = value
                 textSize = if (emphasized) 20f else 14f
-                breakStrategy=android.text.Layout.BREAK_STRATEGY_SIMPLE
                 setTextColor(palette.textPrimary)
                 setPadding(0, dp(8), 0, 0)
                 if (emphasized) setTypeface(typeface, android.graphics.Typeface.BOLD)
