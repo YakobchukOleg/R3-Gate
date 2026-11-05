@@ -78,8 +78,8 @@ class GateWidget : AppWidgetProvider() {
             v.setViewVisibility(R.id.wstartbutton,if(a==null) android.view.View.VISIBLE else android.view.View.GONE)
             v.setViewVisibility(R.id.wstopbutton,if(a!=null) android.view.View.VISIBLE else android.view.View.GONE)
             v.setViewVisibility(R.id.wcamera, if (wide) View.VISIBLE else View.GONE)
-            v.setViewVisibility(R.id.wprimary, if (mini || !appearance.showActions) View.GONE else View.VISIBLE)
-            v.setViewVisibility(R.id.wdetails, if (expanded) View.VISIBLE else View.GONE)
+            v.setViewVisibility(R.id.wprimary, View.VISIBLE)
+            v.setViewVisibility(R.id.wdetails, View.GONE)
             if (expanded && appearance.showGps) {
                 v.setViewVisibility(R.id.wgps, View.VISIBLE)
                 v.setTextViewText(R.id.wgps, GpsServiceStatusUi.label(GpsServiceStatusUi.read(context, System.currentTimeMillis())))
@@ -87,7 +87,7 @@ class GateWidget : AppWidgetProvider() {
                 v.setViewVisibility(R.id.wgps, View.GONE)
             }
             v.setViewVisibility(R.id.wtitle, if (wide) View.VISIBLE else View.GONE)
-            v.setViewVisibility(R.id.wactions, if (appearance.showActions && wide && a != null && !personal) View.VISIBLE else View.GONE)
+            v.setViewVisibility(R.id.wactions, if (appearance.showActions && expanded && a != null && !personal) View.VISIBLE else View.GONE)
             v.setViewVisibility(R.id.wend, if (a == null) View.VISIBLE else View.GONE)
             v.setTextViewText(R.id.wswitch, if (wide) "ZMIEŃ OBIEKT" else "OBIEKT ↔")
             if (mini) v.setTextViewTextSize(R.id.wduration, android.util.TypedValue.COMPLEX_UNIT_SP, 19f)
@@ -97,7 +97,7 @@ class GateWidget : AppWidgetProvider() {
             v.setViewVisibility(R.id.wstage,if(travel && expanded) android.view.View.VISIBLE else android.view.View.GONE)
             if(travel) v.setChronometer(R.id.wstage,SystemClock.elapsedRealtime()-(System.currentTimeMillis()-a!!.optLong("stageStart")),"W drodze: %s",true)
             val status = if (wide) {
-                if (personal) "● PRYWATNIE" else if (a != null) "● ONLINE" else "● OFFLINE"
+                if (personal) "● PRYWATNIE" else if (travel) "● PRZEJAZD" else if (a?.optString("kind") == "Zakupy") "● ZAKUPY" else if (a != null) "● NA OBIEKCIE" else "● BRAK ZMIANY"
             } else when {
                 a == null -> "Dzień zamknięty"
                 travel -> "Przejazd"
@@ -107,10 +107,10 @@ class GateWidget : AppWidgetProvider() {
                 else -> "Brak przypisanego etapu"
             }
             v.setTextViewText(R.id.wstatus, status)
-            if (!appearance.showObject || (!wide && (a == null || travel || personal || a.optString("kind") == "Zakupy"))) {
+            if (!appearance.showObject || mini) {
                 v.setViewVisibility(R.id.wobject, View.GONE)
             }
-            v.setTextColor(R.id.wstatus,if(personal) 0xFFFFC88F.toInt() else if(a!=null) 0xFF6EE0AD.toInt() else 0xFFD1DDE0.toInt())
+            v.setTextColor(R.id.wstatus,if(personal) 0xFFFFC88F.toInt() else if(travel) 0xFF85B7EB.toInt() else if(a?.optString("kind")=="Zakupy") 0xFFEF9F27.toInt() else if(a!=null) 0xFF9FE1CB.toInt() else 0xFFD1DDE0.toInt())
             v.setTextViewText(R.id.wstart,"Rozpoczęcie: "+if(start>0) time.format(Date(start)) else "—")
             v.setTextViewText(R.id.wend,"Zakończenie: "+if(a!=null || end<=0) "— Offline" else time.format(Date(end)))
             if(start>0) {
