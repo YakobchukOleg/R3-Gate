@@ -72,7 +72,7 @@ class ObjectListPanelInstrumentedTest {
                 goToObjects(activity)
                 assertTrue(texts(activity).any { it.contains("TCZ-01") })
                 val archiveToggle = views(activity).filterIsInstance<TextView>()
-                    .firstOrNull { it.text.toString() == "Wszystkie" && it.isClickable }
+                    .firstOrNull { it.contentDescription == "Pokaż archiwum obiektów" && it.isClickable }
                 assertNotNull("Archive filter", archiveToggle)
                 archiveToggle!!.performClick()
                 assertTrue(texts(activity).any { it.contains("GDA-02") })
