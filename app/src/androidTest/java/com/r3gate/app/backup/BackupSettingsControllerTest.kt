@@ -40,12 +40,16 @@ class BackupSettingsControllerTest {
         var restoredCount = 0
         var documentRequests = 0
         var replay = false
+        var authorizations = 0
         override fun chooseDocument(intent: Intent, selected: (Uri?) -> Unit) {
             documentRequests++
             selected(uri)
             if (replay) selected(uri)
         }
-        override fun authorizeDrive(authorized: (String?) -> Unit) = authorized(null)
+        override fun authorizeDrive(authorized: (String?) -> Unit) {
+            authorizations++
+            authorized(null)
+        }
         override fun chooseDriveCopy(copies: List<DriveBackups.Copy>, selected: (DriveBackups.Copy?) -> Unit) = selected(null)
         override fun restored() { restoredCount++ }
     }
@@ -216,6 +220,31 @@ class BackupSettingsControllerTest {
             assertEquals(previousStages, stages())
         } finally {
             file.delete()
+        }
+    }
+
+    @Test fun cancelledReconnectionKeepsTheUnresolvedAccessProblem() {
+        val keys = listOf("driveEmail", BackupStatus.PROBLEM_ACCOUNT, BackupStatus.PROBLEM_STATE,
+            BackupStatus.PROBLEM_MESSAGE, BackupStatus.PROBLEM_ACTION)
+        val original = keys.associateWith { prefs.getString(it, null) }
+        val connected = prefs.getBoolean("driveConnected", false)
+        try {
+            assertTrue(prefs.edit().putString("driveEmail", "reconnect@example.invalid")
+                .putBoolean("driveConnected", true)
+                .putString(BackupStatus.PROBLEM_ACCOUNT, "reconnect@example.invalid")
+                .putString(BackupStatus.PROBLEM_STATE, BackupState.ACTION_REQUIRED.name)
+                .putString(BackupStatus.PROBLEM_MESSAGE, "Połącz ponownie")
+                .putString(BackupStatus.PROBLEM_ACTION, BackupStatus.RequiredAction.RECONNECT_DRIVE.name).commit())
+            instrumentation.runOnMainSync { controller.refresh() }
+            waitForText("Połącz ponownie Google Drive")
+            click("Połącz ponownie Google Drive")
+            waitForText("Nie ukończono łączenia z Google Drive.")
+            assertEquals(1, host.authorizations)
+            assertEquals(BackupStatus.RequiredAction.RECONNECT_DRIVE.name, prefs.getString(BackupStatus.PROBLEM_ACTION, null))
+        } finally {
+            val editor = prefs.edit().putBoolean("driveConnected", connected)
+            original.forEach { (key, value) -> editor.putString(key, value) }
+            editor.commit()
         }
     }
 

@@ -43,14 +43,14 @@ class BackupStatusTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val preferences = context.getSharedPreferences("r3_gate", Context.MODE_PRIVATE)
         val keys = listOf("driveEmail", BackupStatus.PROBLEM_ACCOUNT,
-            BackupStatus.PROBLEM_STATE, BackupStatus.PROBLEM_MESSAGE)
+            BackupStatus.PROBLEM_STATE, BackupStatus.PROBLEM_MESSAGE, BackupStatus.PROBLEM_ACTION)
         val original = keys.associateWith { preferences.getString(it, null) }
         val message = "Brak miejsca w Google Drive."
         try {
             assertTrue(preferences.edit().putString("driveEmail", "a@example.invalid")
                 .putString(BackupStatus.PROBLEM_ACCOUNT, "a@example.invalid")
                 .putString(BackupStatus.PROBLEM_STATE, BackupState.ACTION_REQUIRED.name)
-                .putString(BackupStatus.PROBLEM_MESSAGE, message).commit())
+                .putString(BackupStatus.PROBLEM_MESSAGE, message).remove(BackupStatus.PROBLEM_ACTION).commit())
             repeat(2) {
                 assertEquals(BackupStatus.Problem(BackupState.ACTION_REQUIRED, message),
                     BackupStatus.read(context).driveProblem)

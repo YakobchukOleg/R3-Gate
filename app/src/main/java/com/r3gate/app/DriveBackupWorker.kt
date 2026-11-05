@@ -108,7 +108,7 @@ class DriveBackupWorker(context:Context,params:WorkerParameters):Worker(context,
                 .putString(BackupStatus.VERIFIED_AT, java.time.Instant.now().toString())
                 .putString(BackupStatus.VERIFIED_ACCOUNT, email)
                 .remove(BackupStatus.PROBLEM_STATE).remove(BackupStatus.PROBLEM_ACCOUNT)
-                .remove(BackupStatus.PROBLEM_MESSAGE).commit())
+                .remove(BackupStatus.PROBLEM_MESSAGE).remove(BackupStatus.PROBLEM_ACTION).commit())
             check(queue.edit().putString(key, operation.put("complete", true).toString()).commit())
             directory.deleteRecursively()
             UploadNotifications.result(applicationContext,"backup","Kopia ZIP zapisana w WorkMeter / Backup",false)
@@ -119,7 +119,8 @@ class DriveBackupWorker(context:Context,params:WorkerParameters):Worker(context,
             val failure = (e as? DriveHttpException)?.let { DriveBackupFailure.from(it) }
             if (failure == DriveBackupFailure.ACCOUNT) return needsAccount()
             if (failure == DriveBackupFailure.STORAGE_QUOTA) {
-                return failed("Brak miejsca w Google Drive. Zwolnij miejsce i ponów kopię.", needsAction = true)
+                return failed("Brak miejsca w Google Drive. Zwolnij miejsce i ponów kopię.", needsAction = true,
+                    requiredAction = BackupStatus.RequiredAction.FREE_DRIVE_SPACE)
             }
             if (failure == DriveBackupFailure.REJECTED || e is FileNotFoundException ||
                 e is SecurityException || e is IllegalArgumentException) {
@@ -156,21 +157,29 @@ class DriveBackupWorker(context:Context,params:WorkerParameters):Worker(context,
         editor.apply()
     }
 
-    private fun failed(message: String, needsAction: Boolean = false): Result {
-        recordProblem(message, if (needsAction) BackupState.ACTION_REQUIRED else BackupState.FAILED)
+    private fun failed(
+        message: String, needsAction: Boolean = false,
+        requiredAction: BackupStatus.RequiredAction = BackupStatus.RequiredAction.CHECK_FILES
+    ): Result {
+        recordProblem(message, if (needsAction) BackupState.ACTION_REQUIRED else BackupState.FAILED, requiredAction)
         return Result.failure(workDataOf(BackupStatus.ACTION_REQUIRED to needsAction))
     }
 
-    private fun recordProblem(message: String, state: BackupState) {
+    private fun recordProblem(
+        message: String, state: BackupState,
+        requiredAction: BackupStatus.RequiredAction = BackupStatus.RequiredAction.CHECK_FILES
+    ) {
         if (!backupAccount.equals(prefs.getString("driveEmail", "").orEmpty(), true)) return
         prefs.edit().putString("backupStatus", message)
             .putString(BackupStatus.PROBLEM_MESSAGE, message)
             .putString(BackupStatus.PROBLEM_STATE, state.name)
+            .putString(BackupStatus.PROBLEM_ACTION, requiredAction.name)
             .putString(BackupStatus.PROBLEM_ACCOUNT, backupAccount).commit()
     }
 
     private fun needsAccount():Result {
-        recordProblem("Połącz ponownie Google Disk, aby wznowić kopię", BackupState.ACTION_REQUIRED)
+        recordProblem("Połącz ponownie Google Drive, aby wznowić kopię", BackupState.ACTION_REQUIRED,
+            BackupStatus.RequiredAction.RECONNECT_DRIVE)
         UploadNotifications.result(applicationContext,"backup","Kopia wymaga połączenia Google Disk — dotknij, aby wznowić",true)
         return Result.failure(workDataOf(BackupStatus.ACTION_REQUIRED to true))
     }

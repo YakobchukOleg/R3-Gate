@@ -186,4 +186,26 @@ class BackupSettingsPanelTest {
         assertFalse("Ponów wysyłanie" in labels)
     }
 
+    @Test fun revokedAccessOffersReconnectEvenWhenAccountIsMarkedConnected() = instrumentation.runOnMainSync {
+        val actions = mutableListOf<BackupSettingsPanel.Action>()
+        val panel = BackupSettingsPanel(context, appearance(), actions::add)
+        val original = state()
+        panel.render(original.copy(status = requireNotNull(original.status).copy(driveProblem =
+            BackupStatus.Problem(BackupState.ACTION_REQUIRED, "Połącz ponownie",
+                BackupStatus.RequiredAction.RECONNECT_DRIVE))))
+        button(panel, "Połącz ponownie Google Drive").performClick()
+        assertEquals(listOf(BackupSettingsPanel.Action.ConnectDrive), actions)
+    }
+
+    @Test fun quotaProblemDoesNotOfferReconnectAsRemedy() = instrumentation.runOnMainSync {
+        val panel = BackupSettingsPanel(context, appearance()) {}
+        val original = state()
+        panel.render(original.copy(status = requireNotNull(original.status).copy(driveProblem =
+            BackupStatus.Problem(BackupState.ACTION_REQUIRED, "Brak miejsca",
+                BackupStatus.RequiredAction.FREE_DRIVE_SPACE))))
+        assertFalse(views(panel).filterIsInstance<Button>()
+            .any { it.text.toString() == "Połącz ponownie Google Drive" })
+        assertTrue(views(panel).filterIsInstance<TextView>().any { it.text.contains("Brak miejsca") })
+    }
+
 }

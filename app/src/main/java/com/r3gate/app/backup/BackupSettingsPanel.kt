@@ -102,6 +102,9 @@ class BackupSettingsPanel(
         status.lastVerifiedDriveCopy?.let { text("Ostatnia kopia w Google Drive: ${date.format(it)}") }
         status.driveProblem?.let { text("${it.state.label}. ${it.message}") }
         if (status.driveConnected) {
+            if (status.driveProblem?.requiredAction == BackupStatus.RequiredAction.RECONNECT_DRIVE) {
+                button("Połącz ponownie Google Drive", !state.busy) { onAction(Action.ConnectDrive) }
+            }
             button("Utwórz kopię w Google Drive", !state.busy) { onAction(Action.CreateDrive) }
             button("Importuj z Google Drive", !state.busy) { onAction(Action.ImportDrive) }
         } else {

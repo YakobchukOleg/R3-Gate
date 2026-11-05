@@ -146,3 +146,13 @@ Manual requests now carry a queue-identity tag. Cleanup protects queue entries
 referenced by unfinished retry jobs. Existing requests without that tag retain
 their original WorkManager UUID as their queue identity. Before resuming, the
 worker revalidates the stored ZIP to detect changes since its creation.
+
+## Reconnecting Drive
+
+Persisted problems include a required action. Revoked/missing authorization offers
+`Połącz ponownie Google Drive` even when the account preference is still connected.
+Storage quota retains its separate message. After the existing host returns a token,
+the controller verifies the authorized Drive account off the UI thread before clearing
+an access problem. This never advances the timestamp of the last verified ZIP.
+Quota and file problems remain until addressed. Older records without an action remain
+readable with a generic check-files action.

@@ -79,7 +79,11 @@ class BackupSettingsController(
             BackupSettingsPanel.Action.ImportFile -> document(BackupFilePicker.openBackupIntent()) { uri ->
                 prepare { LocalBackups.prepareImport(application, uri) }
             }
-            BackupSettingsPanel.Action.ConnectDrive -> authorize { load(null) }
+            BackupSettingsPanel.Action.ConnectDrive -> authorize { token ->
+                task({ DriveBackups.verifyConnection(application, token) }) {
+                    load("Połączenie z Google Drive sprawdzone.")
+                }
+            }
             BackupSettingsPanel.Action.CreateDrive -> task({ DriveBackupWorker.manual(application).result.get(5, TimeUnit.SECONDS) }) {
                 load(BackupState.WAITING_TO_SEND.label)
             }
@@ -140,7 +144,7 @@ class BackupSettingsController(
             if (!closed && !delivered) {
                 delivered = true
                 busy = false
-                if (token.isNullOrBlank()) load("Nie połączono Google Drive.") else authorized(token)
+                if (token.isNullOrBlank()) load("Nie ukończono łączenia z Google Drive.") else authorized(token)
             }
         }
     }

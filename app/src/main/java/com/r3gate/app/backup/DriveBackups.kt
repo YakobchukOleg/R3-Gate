@@ -9,6 +9,24 @@ import java.time.Instant
 object DriveBackups {
     data class Copy(val id: String, val name: String, val modifiedAt: Instant, val sizeBytes: Long, internal val checksum: String)
 
+    fun verifyConnection(context: Context, token: String) {
+        verifyConnection(context, token, DriveStore())
+    }
+
+    internal fun verifyConnection(context: Context, token: String, drive: DriveStore) {
+        val account = Account(context, token, drive)
+        account.checkActive()
+        val preferences = context.getSharedPreferences("r3_gate", Context.MODE_PRIVATE)
+        if (account.email.equals(preferences.getString(BackupStatus.PROBLEM_ACCOUNT, null), true) &&
+            preferences.getString(BackupStatus.PROBLEM_ACTION, null) == BackupStatus.RequiredAction.RECONNECT_DRIVE.name) {
+            val saved = preferences.edit().remove(BackupStatus.PROBLEM_STATE)
+                .remove(BackupStatus.PROBLEM_MESSAGE).remove(BackupStatus.PROBLEM_ACCOUNT)
+                .remove(BackupStatus.PROBLEM_ACTION)
+                .putString("backupStatus", "Połączono Google Drive. Możesz ponowić wysyłanie kopii.").commit()
+            if (!saved) throw java.io.IOException("Cannot save Drive connection verification")
+        }
+    }
+
     fun copies(context: Context, token: String): List<Copy> {
         val account = Account(context, token)
         return DriveBackupCatalog(account.drive, token).list(account::checkActive)
@@ -40,25 +58,24 @@ object DriveBackups {
         }
     }
 
-    private class Account(context: Context, token: String) {
+    private class Account(context: Context, token: String, val drive: DriveStore = DriveStore()) {
         private val preferences = context.getSharedPreferences("r3_gate", Context.MODE_PRIVATE)
-        private val email = preferences.getString("driveEmail", "").orEmpty()
-        val drive = DriveStore()
+        val email = preferences.getString("driveEmail", "").orEmpty()
 
         init {
             require(token.isNotBlank() && email.isNotBlank())
             checkActive()
             val actual = drive.json("GET", "https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)", token)
                 .optJSONObject("user")?.optString("emailAddress")
-            require(email.equals(actual, true)) { "Google Drive account changed" }
+            if (!email.equals(actual, true)) throw SecurityException("Google Drive account changed")
             checkActive()
         }
 
         fun checkActive() {
             if (Thread.currentThread().isInterrupted) throw InterruptedException()
-            check(preferences.getBoolean("driveConnected", false) &&
-                email.equals(preferences.getString("driveEmail", ""), true)) {
-                "Google Drive account changed"
+            if (!preferences.getBoolean("driveConnected", false) ||
+                !email.equals(preferences.getString("driveEmail", ""), true)) {
+                throw SecurityException("Google Drive account changed")
             }
         }
     }

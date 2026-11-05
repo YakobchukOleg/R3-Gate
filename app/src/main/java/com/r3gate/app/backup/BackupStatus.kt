@@ -16,7 +16,11 @@ object BackupStatus {
         val id: UUID, val destination: Destination, val state: BackupState,
         val canCancel: Boolean = false, val canRetry: Boolean = false
     )
-    data class Problem(val state: BackupState, val message: String)
+    enum class RequiredAction { CHECK_FILES, RECONNECT_DRIVE, FREE_DRIVE_SPACE }
+    data class Problem(
+        val state: BackupState, val message: String,
+        val requiredAction: RequiredAction = RequiredAction.CHECK_FILES
+    )
 
     data class Snapshot(
         val local: LocalBackups.Status,
@@ -49,7 +53,8 @@ object BackupStatus {
                 manualIds.contains(it.id), pending)
         } + local.get(3, TimeUnit.SECONDS).mapNotNull { it.operation(Destination.DEVICE) }
         val problem = if (account.orEmpty().equals(preferences.getString(PROBLEM_ACCOUNT, null), true)) {
-            readProblem(preferences.getString(PROBLEM_STATE, null), preferences.getString(PROBLEM_MESSAGE, null))
+            readProblem(preferences.getString(PROBLEM_STATE, null), preferences.getString(PROBLEM_MESSAGE, null),
+                preferences.getString(PROBLEM_ACTION, null))
         } else null
         return Snapshot(LocalBackups.status(context), connected, verified,
             preferences.getString("backupStatus", null), operations, problem)
@@ -78,19 +83,21 @@ object BackupStatus {
                 BackupQueueActions.resumable(pending, account.orEmpty()))
     }
 
-    internal fun readProblem(state: String?, message: String?): Problem? {
+    internal fun readProblem(state: String?, message: String?, action: String? = null): Problem? {
         if (message.isNullOrBlank()) return null
         val parsed = when (state) {
             BackupState.FAILED.name -> BackupState.FAILED
             BackupState.ACTION_REQUIRED.name -> BackupState.ACTION_REQUIRED
             else -> return null
         }
-        return Problem(parsed, message)
+        val required = RequiredAction.entries.firstOrNull { it.name == action } ?: RequiredAction.CHECK_FILES
+        return Problem(parsed, message, required)
     }
 
     internal const val MANUAL_WORK = "workmeter-manual-backup"
     internal const val QUEUE_ID = "backupQueueId"
     internal const val RESUME_ONLY = "backupResumeOnly"
+    internal const val PROBLEM_ACTION = "driveBackupProblemAction"
     internal const val PROBLEM_STATE = "driveBackupProblemState"
     internal const val PROBLEM_ACCOUNT = "driveBackupProblemAccount"
     internal const val PROBLEM_MESSAGE = "driveBackupProblemMessage"
