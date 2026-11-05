@@ -296,7 +296,7 @@ class ObjectListPanelInstrumentedTest {
                 openActiveDetails(activity)
                 openObjectRecords(activity, "Materiały")
                 val add=views(activity).filterIsInstance<Button>()
-                    .first { it.text.toString()=="+ Dodaj" }
+                    .first { it.text.toString() in listOf("+ Dodaj","Dodaj zdjęcie") }
                 add.performClick()
                 val labels=texts(activity)
                 assertTrue(labels.contains("Materiał na obiekcie"))
@@ -314,7 +314,7 @@ class ObjectListPanelInstrumentedTest {
                 openActiveDetails(activity)
                 openObjectRecords(activity, "Zdjęcia")
                 val add=views(activity).filterIsInstance<Button>()
-                    .first { it.text.toString()=="+ Dodaj" }
+                    .first { it.text.toString() in listOf("+ Dodaj","Dodaj zdjęcie") }
                 add.performClick()
                 val labels=texts(activity)
                 assertTrue(labels.contains("Zdjęcia i dokumentacja"))

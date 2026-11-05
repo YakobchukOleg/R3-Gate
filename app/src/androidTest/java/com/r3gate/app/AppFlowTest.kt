@@ -392,12 +392,12 @@ class AppFlowTest {
                 click(a,"O aplikacji"); assertTrue(has(a,"Wersja: 2.7.0")); a.onBackPressed()
                 click(a,"Portfel / rozliczenia (PIN)")
                 assertFalse(has(a,"Portfel"))
-                assertFalse(has(a,"Wybrany okres"))
+                assertFalse(all(a).filterIsInstance<TextView>().any { it.text.toString().startsWith("Wybrany okres · ") })
                 assertFalse(has(a,"Naliczone: 240,00 zł"))
             }
             pin()
             scenario.onActivity { a ->
-                assertTrue(has(a,"Wybrany okres"))
+                assertTrue(all(a).filterIsInstance<TextView>().any { it.text.toString().startsWith("Wybrany okres · ") })
                 assertTrue(has(a,"Cała historia"))
                 assertTrue(has(a,"Naliczone: 240,00 zł")); click(a,"+ Dodaj wypłatę")
                 all(a).filterIsInstance<EditText>().first { it.hint=="Kwota (zł)" }.setText("100")
@@ -732,7 +732,10 @@ class AppFlowTest {
     @Test fun settingsKeepScrollPositionAfterBackgroundingAndRecreation() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             var expectedScroll = 0
-            scenario.onActivity { activity -> settings(activity) }
+            scenario.onActivity { activity ->
+                settings(activity)
+                all(activity).filterIsInstance<Button>().single { it.text.toString().startsWith("Dane i kopie") }.performClick()
+            }
             instrumentation.waitForIdleSync()
             scenario.onActivity { activity ->
                 val scroll = all(activity).filterIsInstance<android.widget.ScrollView>().first()
@@ -762,12 +765,12 @@ class AppFlowTest {
                 assertEquals(tabs, buttons.map { it.contentDescription?.toString() }.filter { it in tabs })
                 buttons.first { it.contentDescription == "Finanse" }.performClick()
                 assertFalse(has(activity, "Portfel"))
-                assertFalse(has(activity, "Wybrany okres"))
+                assertFalse(all(activity).filterIsInstance<TextView>().any { it.text.toString().startsWith("Wybrany okres · ") })
             }
             pin()
             scenario.onActivity { activity ->
                 assertTrue(has(activity, "Portfel"))
-                assertTrue(has(activity, "Wybrany okres"))
+                assertTrue(all(activity).filterIsInstance<TextView>().any { it.text.toString().startsWith("Wybrany okres · ") })
             }
         }
     }
