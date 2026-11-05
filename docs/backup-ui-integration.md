@@ -96,3 +96,8 @@ The scheduling APIs return WorkManager's operation so callers and Android tests 
 wait for persistence without polling. Manual and periodic Drive backup workers share
 one process-wide upload slot. An overlapping worker retries with its existing queue
 entry instead of uploading concurrently.
+
+`Snapshot.driveProblem` keeps the last unresolved Drive backup error independently
+of a periodic task's current waiting state. It is scoped to the selected account,
+survives reopening settings, and is cleared after a verified upload. Show its message
+as an actionable problem. `driveDetail` remains the most recent operation detail.

@@ -39,4 +39,41 @@ class BackupStatusTest {
                 .putString(BackupStatus.VERIFIED_AT, oldVerifiedAt).commit()
         }
     }
+    @Test fun unresolvedPeriodicProblemSurvivesReadAndIsScopedToAccount() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val preferences = context.getSharedPreferences("r3_gate", Context.MODE_PRIVATE)
+        val keys = listOf("driveEmail", BackupStatus.PROBLEM_ACCOUNT,
+            BackupStatus.PROBLEM_STATE, BackupStatus.PROBLEM_MESSAGE)
+        val original = keys.associateWith { preferences.getString(it, null) }
+        val message = "Brak miejsca w Google Drive."
+        try {
+            assertTrue(preferences.edit().putString("driveEmail", "a@example.invalid")
+                .putString(BackupStatus.PROBLEM_ACCOUNT, "a@example.invalid")
+                .putString(BackupStatus.PROBLEM_STATE, BackupState.ACTION_REQUIRED.name)
+                .putString(BackupStatus.PROBLEM_MESSAGE, message).commit())
+            repeat(2) {
+                assertEquals(BackupStatus.Problem(BackupState.ACTION_REQUIRED, message),
+                    BackupStatus.read(context).driveProblem)
+            }
+            assertTrue(preferences.edit().putString("driveEmail", "b@example.invalid").commit())
+            assertNull(BackupStatus.read(context).driveProblem)
+            assertTrue(preferences.edit().putString("driveEmail", "a@example.invalid")
+                .remove(BackupStatus.PROBLEM_STATE).remove(BackupStatus.PROBLEM_ACCOUNT)
+                .remove(BackupStatus.PROBLEM_MESSAGE).commit())
+            assertNull(BackupStatus.read(context).driveProblem)
+        } finally {
+            val editor = preferences.edit()
+            original.forEach { (key, value) -> editor.putString(key, value) }
+            assertTrue(editor.commit())
+        }
+    }
+
+    @Test fun invalidOrSuccessfulStoredStatesCannotBecomeProblems() {
+        assertNull(BackupStatus.readProblem(BackupState.DRIVE_READY.name, "Gotowa"))
+        assertNull(BackupStatus.readProblem("UNKNOWN", "Problem"))
+        assertNull(BackupStatus.readProblem(BackupState.FAILED.name, ""))
+        assertEquals(BackupStatus.Problem(BackupState.FAILED, "Błąd"),
+            BackupStatus.readProblem(BackupState.FAILED.name, "Błąd"))
+    }
+
 }

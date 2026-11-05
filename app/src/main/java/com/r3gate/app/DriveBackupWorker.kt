@@ -9,6 +9,7 @@ import com.google.android.gms.tasks.Tasks
 import org.json.JSONObject
 import com.r3gate.app.backup.BackupSnapshot
 import com.r3gate.app.backup.BackupStatus
+import com.r3gate.app.backup.BackupState
 import com.r3gate.app.backup.DriveBackupFailure
 import com.r3gate.app.backup.DriveBackupMaintenance
 import com.r3gate.app.backup.DriveBackupUpload
@@ -21,13 +22,14 @@ import java.util.concurrent.TimeoutException
 
 class DriveBackupWorker(context:Context,params:WorkerParameters):Worker(context,params) {
     private val prefs=applicationContext.getSharedPreferences("r3_gate",Context.MODE_PRIVATE)
+    private val backupAccount = inputData.getString("backupAccount")
+        ?: prefs.getString("driveEmail", "").orEmpty()
     override fun doWork(): Result = DriveBackupMaintenance.whileActive(id, ::runBackup) ?: Result.retry()
 
     private fun runBackup(): Result {
         val email = prefs.getString("driveEmail", "").orEmpty()
         if (email.isBlank() || !prefs.getBoolean("driveConnected", false)) return needsAccount()
-        val expectedEmail = inputData.getString("backupAccount") ?: email
-        if (!email.equals(expectedEmail, true)) return Result.failure()
+        if (!email.equals(backupAccount, true)) return Result.failure()
         val queue = applicationContext.getSharedPreferences("workmeter_drive_backup_queue", Context.MODE_PRIVATE)
         val key = id.toString()
         val root = File(applicationContext.filesDir, "drive-backup-queue")
@@ -91,7 +93,9 @@ class DriveBackupWorker(context:Context,params:WorkerParameters):Worker(context,
                 .putString("backupStatus", "Kopia ZIP zapisana: $whenSaved")
                 .putString("backupFolder", "WorkMeter / Backup")
                 .putString(BackupStatus.VERIFIED_AT, java.time.Instant.now().toString())
-                .putString(BackupStatus.VERIFIED_ACCOUNT, email).commit())
+                .putString(BackupStatus.VERIFIED_ACCOUNT, email)
+                .remove(BackupStatus.PROBLEM_STATE).remove(BackupStatus.PROBLEM_ACCOUNT)
+                .remove(BackupStatus.PROBLEM_MESSAGE).commit())
             check(queue.edit().putString(key, operation.put("complete", true).toString()).commit())
             directory.deleteRecursively()
             UploadNotifications.result(applicationContext,"backup","Kopia ZIP zapisana w WorkMeter / Backup",false)
@@ -138,12 +142,20 @@ class DriveBackupWorker(context:Context,params:WorkerParameters):Worker(context,
     }
 
     private fun failed(message: String, needsAction: Boolean = false): Result {
-        prefs.edit().putString("backupStatus", message).apply()
+        recordProblem(message, if (needsAction) BackupState.ACTION_REQUIRED else BackupState.FAILED)
         return Result.failure(workDataOf(BackupStatus.ACTION_REQUIRED to needsAction))
     }
 
+    private fun recordProblem(message: String, state: BackupState) {
+        if (!backupAccount.equals(prefs.getString("driveEmail", "").orEmpty(), true)) return
+        prefs.edit().putString("backupStatus", message)
+            .putString(BackupStatus.PROBLEM_MESSAGE, message)
+            .putString(BackupStatus.PROBLEM_STATE, state.name)
+            .putString(BackupStatus.PROBLEM_ACCOUNT, backupAccount).commit()
+    }
+
     private fun needsAccount():Result {
-        prefs.edit().putString("backupStatus","Połącz ponownie Google Disk, aby wznowić kopię").apply()
+        recordProblem("Połącz ponownie Google Disk, aby wznowić kopię", BackupState.ACTION_REQUIRED)
         UploadNotifications.result(applicationContext,"backup","Kopia wymaga połączenia Google Disk — dotknij, aby wznowić",true)
         return Result.failure(workDataOf(BackupStatus.ACTION_REQUIRED to true))
     }

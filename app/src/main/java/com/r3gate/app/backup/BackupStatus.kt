@@ -12,12 +12,15 @@ object BackupStatus {
     enum class Destination { DEVICE, DRIVE }
 
     data class Operation(val id: UUID, val destination: Destination, val state: BackupState)
+    data class Problem(val state: BackupState, val message: String)
+
     data class Snapshot(
         val local: LocalBackups.Status,
         val driveConnected: Boolean,
         val lastVerifiedDriveCopy: Instant?,
         val driveDetail: String?,
-        val operations: List<Operation>
+        val operations: List<Operation>,
+        val driveProblem: Problem? = null
     )
 
     fun read(context: Context): Snapshot {
@@ -34,8 +37,11 @@ object BackupStatus {
         val operations = drive.get(3, TimeUnit.SECONDS).mapNotNull {
             it.operation(Destination.DRIVE, account.takeIf { connected })
         } + local.get(3, TimeUnit.SECONDS).mapNotNull { it.operation(Destination.DEVICE) }
+        val problem = if (account.orEmpty().equals(preferences.getString(PROBLEM_ACCOUNT, null), true)) {
+            readProblem(preferences.getString(PROBLEM_STATE, null), preferences.getString(PROBLEM_MESSAGE, null))
+        } else null
         return Snapshot(LocalBackups.status(context), connected, verified,
-            preferences.getString("backupStatus", null), operations)
+            preferences.getString("backupStatus", null), operations, problem)
     }
 
     private fun WorkInfo.operation(destination: Destination, account: String? = null): Operation? {
@@ -56,6 +62,19 @@ object BackupStatus {
             progress.getBoolean(SENDING, false), outputData.getBoolean(ACTION_REQUIRED, false)))
     }
 
+    internal fun readProblem(state: String?, message: String?): Problem? {
+        if (message.isNullOrBlank()) return null
+        val parsed = when (state) {
+            BackupState.FAILED.name -> BackupState.FAILED
+            BackupState.ACTION_REQUIRED.name -> BackupState.ACTION_REQUIRED
+            else -> return null
+        }
+        return Problem(parsed, message)
+    }
+
+    internal const val PROBLEM_STATE = "driveBackupProblemState"
+    internal const val PROBLEM_ACCOUNT = "driveBackupProblemAccount"
+    internal const val PROBLEM_MESSAGE = "driveBackupProblemMessage"
     internal const val DRIVE_TAG = "driveBackup"
     internal const val DAILY_TAG = "workmeter-daily-backup"
     internal const val SENDING = "backupSending"
