@@ -24,6 +24,14 @@ object JournalValidator {
         val root = try { JSONObject(json) } catch (_: Exception) {
             return Report(0, 0, 0, emptyList(), listOf("Invalid JSON object"))
         }
+        for ((key, supported) in mapOf("schemaVersion" to 0..2, "wtBackupVersion" to 1..1)) {
+            if (!root.has(key)) continue
+            val version = root.opt(key) as? Number
+            if (version == null || version.toDouble() !in supported.first.toDouble()..supported.last.toDouble() ||
+                version.toDouble() != version.toInt().toDouble()) {
+                errors.add("Unsupported or invalid $key")
+            }
+        }
         // Existing model fields must never silently become empty collections.
         for (key in listOf("objects", "shifts", "stages", "materials", "photos", "links",
             "notes", "logs", "payments", "expenses")) {
@@ -63,22 +71,49 @@ object JournalValidator {
                 if (id !in ids) warnings.add("$location references unknown objectId: $id")
             }
         }
+        fun recordIdentity(value: JSONObject): String = when (val id = value.opt("id")) {
+            is String -> id.trim()
+            is Number -> id.toString()
+            else -> ""
+        }
+        fun checkStages(value: JSONObject, location: String) {
+            if (value.has("stages") && value.optJSONArray("stages") == null) {
+                errors.add("$location.stages is not an array")
+                return
+            }
+            val stages = value.optJSONArray("stages") ?: return
+            val stageIds = mutableSetOf<String>()
+            for (index in 0 until stages.length()) {
+                val stage = stages.optJSONObject(index)
+                if (stage == null) {
+                    errors.add("$location.stages[$index] is not an object")
+                    continue
+                }
+                check(stage, "$location.stages[$index]")
+                val id = recordIdentity(stage)
+                if (id.isNotEmpty() && !stageIds.add(id)) warnings.add("Duplicate stage ID in $location: $id")
+            }
+        }
+        val active = root.optJSONObject("active")
+        if (active != null) {
+            check(active, "active")
+            checkStages(active, "active")
+        }
         for (key in listOf("shifts", "stages", "materials", "photos", "links", "notes", "logs", "payments", "expenses")) {
             val array = root.optJSONArray(key) ?: continue
+            val recordIds = mutableSetOf<String>()
             for (i in 0 until array.length()) {
                 val value = array.optJSONObject(i)
                 if (value == null) { errors.add("$key[$i] is not an object"); continue }
                 check(value, "$key[$i]")
+                val recordId = recordIdentity(value)
+                if (recordId.isNotEmpty() && !recordIds.add(recordId)) {
+                    warnings.add("Duplicate record ID in $key: $recordId")
+                }
                 if (key == "shifts") {
-                    if (value.has("stages") && value.optJSONArray("stages") == null) {
-                        errors.add("shifts[$i].stages is not an array")
-                        continue
-                    }
-                    val stages = value.optJSONArray("stages") ?: continue
-                    for (j in 0 until stages.length()) {
-                        val stage = stages.optJSONObject(j)
-                        if (stage == null) errors.add("shifts[$i].stages[$j] is not an object")
-                        else check(stage, "shifts[$i].stages[$j]")
+                    checkStages(value, "shifts[$i]")
+                    if (recordId.isNotEmpty() && active != null && recordId == recordIdentity(active)) {
+                        warnings.add("Active shift ID already present in shifts: $recordId")
                     }
                 }
             }

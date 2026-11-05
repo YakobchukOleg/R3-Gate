@@ -83,3 +83,9 @@ Drive browsing checks cancellation between result pages. Import checks the conne
 account throughout the download and again before returning a restore preview. A
 downloaded file is discarded after truncation, excess bytes, checksum mismatch,
 revoked access or cancellation. Partial imports do not change the journal.
+
+Import rejects unsupported explicit journal or backup versions, while retaining
+unversioned and supported legacy journals. Active shift references and nested stages
+are included in preflight. Duplicate explicit record IDs are shown as warnings and
+preserved for review. The restore summary's warning count includes these conflicts,
+so render it as general data warnings rather than only missing object references.

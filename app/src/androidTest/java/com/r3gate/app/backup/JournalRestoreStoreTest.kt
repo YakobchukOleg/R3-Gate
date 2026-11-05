@@ -156,4 +156,27 @@ class JournalRestoreStoreTest {
         }
     }
 
+    @Test fun unsupportedArchiveVersionIsRejectedBeforeAnyJournalWrite() {
+        val output = ByteArrayOutputStream()
+        val future = """{"schemaVersion":999,"payments":[{"id":"future","amount":"100"}]}"""
+        WorkMeterArchive.write(output, listOf(
+            WorkMeterArchive.Source(ArchivePreflight.JOURNAL) { future.byteInputStream() }
+        ))
+        val bytes = output.toByteArray()
+        assertThrows(IllegalArgumentException::class.java) {
+            RestorePlan.prepare({ bytes.inputStream() }, before)
+        }
+        assertEquals(before, prefs.getString("data", null))
+    }
+
+    @Test fun duplicateFinancialRecordsRemainUnmodifiedAfterExplicitRestore() {
+        val journal = """{"payments":[{"id":"same","amount":"10.25"},{"id":"same","amount":"20.75"}],"active":{"id":"open","objectId":"missing"}}"""
+        val preview = plan(journal)
+        assertEquals(2, preview.warnings.size)
+        assertEquals(before, prefs.getString("data", null))
+        assertEquals(JournalRestoreStore.Outcome.RESTORED, JournalRestoreStore.restore(context, preview, true))
+        assertEquals(journal, prefs.getString("data", null))
+        assertEquals(before, JournalRecoveryCheckpoint.readVerified(checkpoint))
+    }
+
 }
