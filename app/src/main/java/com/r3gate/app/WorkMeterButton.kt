@@ -8,7 +8,7 @@ import android.widget.Button
 import kotlin.math.roundToInt
 
 internal enum class WorkMeterButtonRole {
-    PRIMARY, SECONDARY, DESTRUCTIVE
+    PRIMARY, SECONDARY, DESTRUCTIVE, TEXT
 }
 
 internal fun workMeterButton(
@@ -29,12 +29,12 @@ internal fun styleWorkMeterButton(button: Button, role: WorkMeterButtonRole) {
     val palette = WorkMeterAppearance.theme(context).palette
     val fill = when (role) {
         WorkMeterButtonRole.PRIMARY -> palette.primary
-        WorkMeterButtonRole.SECONDARY -> palette.surface
+        WorkMeterButtonRole.SECONDARY, WorkMeterButtonRole.TEXT -> android.graphics.Color.TRANSPARENT
         WorkMeterButtonRole.DESTRUCTIVE -> WorkMeterTheme.ERROR
     }
     val ink = when (role) {
         WorkMeterButtonRole.PRIMARY -> palette.onPrimary
-        WorkMeterButtonRole.SECONDARY -> palette.textPrimary
+        WorkMeterButtonRole.SECONDARY, WorkMeterButtonRole.TEXT -> palette.textPrimary
         WorkMeterButtonRole.DESTRUCTIVE -> palette.onError
     }
     val density = context.resources.displayMetrics.density
@@ -42,12 +42,14 @@ internal fun styleWorkMeterButton(button: Button, role: WorkMeterButtonRole) {
 
     val shape = GradientDrawable().apply {
         setColor(fill)
-        cornerRadius = dp(14).toFloat()
+        cornerRadius = dp(12).toFloat()
         if (role == WorkMeterButtonRole.SECONDARY) setStroke(dp(1), palette.border)
     }
     val ripple = ColorStateList.valueOf((ink and 0x00FFFFFF) or 0x22000000)
     button.apply {
         textSize = 14f
+        isElegantTextHeight = false
+        includeFontPadding = false
         isAllCaps = false
         minHeight = dp(48)
         minimumHeight = dp(48)
@@ -56,6 +58,7 @@ internal fun styleWorkMeterButton(button: Button, role: WorkMeterButtonRole) {
         background = RippleDrawable(ripple, shape, null)
         backgroundTintList = null
         elevation = 0f
+        stateListAnimator = null
         setPadding(dp(12), dp(6), dp(12), dp(6))
     }
 }

@@ -5,14 +5,24 @@ import android.graphics.*
 import android.view.View
 import java.util.Locale
 
-class TimeChart(context:Context,private val result:TimeAnalytics.Result,private val ring:Boolean):View(context) {
+class TimeChart(context:Context,private val result:TimeAnalytics.Result,private val ring:Boolean,private val onHour: ((Int)->Unit)? = null):View(context) {
     private val palette = WorkMeterAppearance.theme(context).palette
     private val categories = TimeChartCategory.entries
     companion object {
         val names = TimeChartCategory.entries.take(TimeAnalytics.WORK_CATEGORY_COUNT).map { it.label }
     }
     private val paint=Paint(Paint.ANTI_ALIAS_FLAG)
-    init { contentDescription=if(ring) "Podział czasu pracy. Wartości w legendzie poniżej." else "Statystyka czasu pracy według godzin. Wartości w tabeli poniżej." }
+    init { isClickable=onHour!=null; contentDescription=if(ring) "Podział czasu pracy. Wartości w legendzie poniżej." else "Statystyka czasu pracy według godzin. Wartości w tabeli poniżej." }
+    override fun onTouchEvent(event: android.view.MotionEvent): Boolean {
+        if(ring || onHour==null) return super.onTouchEvent(event)
+        if(event.action==android.view.MotionEvent.ACTION_UP) {
+            val left=40*resources.displayMetrics.density
+            val step=(width-left-8*resources.displayMetrics.density)/24
+            if(event.x>=left && step>0) { performClick(); onHour.invoke(((event.x-left)/step).toInt().coerceIn(0,23)) }
+        }
+        return true
+    }
+    override fun performClick(): Boolean { super.performClick(); return true }
     override fun onDraw(c:Canvas) {
         super.onDraw(c)
         val density=resources.displayMetrics.density

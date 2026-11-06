@@ -8,13 +8,16 @@ internal enum class WorkMeterHomeState(val actionLabel: String) {
     PERSONAL("Wznów pracę"),
     UNASSIGNED("Wybierz obiekt");
 
+    fun primaryActionLabel(arrivalReady: Boolean): String =
+        if (this == TRAVEL && !arrivalReady) "Wybierz cel" else actionLabel
+
     companion object {
         fun from(dayOpen: Boolean, kind: String, objectId: String): WorkMeterHomeState = when {
             !dayOpen -> CLOSED
             kind == "Przejazd" -> TRAVEL
             kind == "Zakupy" -> SHOPPING
             kind == "Prywatnie" -> PERSONAL
-            (kind.isBlank() || kind == "Obiekt") && objectId.isNotBlank() -> ON_SITE
+            (kind.isBlank() || WorkPlaceRules.isOnSiteStage(kind)) && objectId.isNotBlank() -> ON_SITE
             else -> UNASSIGNED
         }
 

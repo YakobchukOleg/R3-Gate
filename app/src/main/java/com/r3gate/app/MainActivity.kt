@@ -7,6 +7,7 @@ import android.location.Location
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.graphics.Color
+import android.graphics.Bitmap
 import android.graphics.drawable.GradientDrawable
 import android.text.Editable
 import android.text.TextWatcher
@@ -48,12 +49,17 @@ class MainActivity : Activity() {
     private var walletDraft = JSONObject()
     private val ticker = Handler(Looper.getMainLooper())
     private var screen = "home"
+    private var renderedScreen="home"
+    private val scrollPositions=mutableMapOf<String,Int>()
     private var currentSection = "Obiekty"
     private var objectFilters: ObjectFilterUiState.State? = null
     private var objectSearch = ""
     private val expandedFilters = mutableSetOf<String>()
     private var formKind = ""
     private var formReturn = "home"
+    private var startAfterObjectSave = false
+    private var startObjectSessionId = ""
+    private var cancelStartAttempt: (() -> Unit)? = null
     private var draft = JSONObject()
     private var quickPhotoUpload=false
     private var cameraPath: String? = null
@@ -90,6 +96,7 @@ class MainActivity : Activity() {
                 android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS)
         }
         migrate()
+        PhotoQueue.preserveLegacyRequests(this)
         if (!GpsWorkdaySession.workdayOpen(prefs) &&
             (prefs.getBoolean("gps_enabled",false) || prefs.getBoolean("gps_resume_pending",false))) {
             if (GpsWorkdaySession.hasConsent(prefs)) prefs.edit().putBoolean(GpsWorkdaySession.CONSENT,true).apply()
@@ -117,6 +124,8 @@ class MainActivity : Activity() {
             detailParent = savedInstanceState.getString("detailParent") ?: "home"
             formKind = savedInstanceState.getString("formKind") ?: ""
             formReturn = savedInstanceState.getString("formReturn") ?: "home"
+            startAfterObjectSave = savedInstanceState.getBoolean("startAfterObjectSave")
+            startObjectSessionId=savedInstanceState.getString("startObjectSessionId").orEmpty()
             draft = JSONObject(savedInstanceState.getString("draft") ?: "{}")
             openScreen(savedInstanceState.getString("screen") ?: "home")
             val previousScroll=savedInstanceState.getInt("screenScrollY",0)
@@ -137,7 +146,7 @@ class MainActivity : Activity() {
         if(::root.isInitialized && screen=="home") home()
     }
     override fun onPause() { prefs.unregisterOnSharedPreferenceChangeListener(uploadChanges); ticker.removeCallbacks(refreshUploads); ticker.removeCallbacks(tick); super.onPause() }
-    override fun onStop() { walletUnlocked=false; super.onStop() }
+    override fun onStop() { cancelStartAttempt?.invoke(); walletUnlocked=false; super.onStop() }
     override fun onRestart() {
         super.onRestart()
         // Keep the existing view (including its scroll position) when returning
@@ -147,21 +156,25 @@ class MainActivity : Activity() {
     private fun hash(s: String): String = MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).joinToString("") { "%02x".format(it) }
     private fun setupPin() {
         val field = EditText(ContextThemeWrapper(this,dialogStyle)).apply { hint="PIN (4–8 cyfr)"; inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD }
-        AlertDialog.Builder(this,dialogStyle).setTitle("Ustaw PIN").setMessage("Kod chroni rozpoczęcie i zakończenie pracy.").setView(field).setCancelable(false).setPositiveButton("Zapisz") { _, _ ->
+        AlertDialog.Builder(this,dialogStyle).setTitle("Ustaw PIN").setMessage("Kod chroni ustawienia finansowe.").setView(field).setCancelable(false).setPositiveButton("Zapisz") { _, _ ->
             val p=field.text.toString(); if (p.length in 4..8) {
                 val salt=UUID.randomUUID().toString(); prefs.edit().putString("salt",salt).putString("pin",hash(salt+p)).apply(); home()
             } else { toast("PIN musi mieć 4–8 cyfr"); setupPin() }
         }.show()
     }
-    private fun confirmPin(action: () -> Unit) {
+    private fun confirmPin(onAbort: () -> Unit = {}, action: () -> Unit) {
         val field=EditText(ContextThemeWrapper(this,dialogStyle)).apply { inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD; hint="PIN" }
-        AlertDialog.Builder(this,dialogStyle).setTitle("Potwierdź PIN").setView(field).setNegativeButton("Anuluj",null).setPositiveButton("Potwierdź") { _, _ ->
-            if (hash(prefs.getString("salt","")+field.text.toString()) == prefs.getString("pin","")) action() else toast("Nieprawidłowy PIN")
-        }.show()
+        AlertDialog.Builder(this,dialogStyle).setTitle("Potwierdź PIN").setView(field)
+            .setOnCancelListener { onAbort() }
+            .setNegativeButton("Anuluj") { _, _ -> onAbort() }
+            .setPositiveButton("Potwierdź") { _, _ ->
+                if (hash(prefs.getString("salt","")+field.text.toString()) == prefs.getString("pin","")) action()
+                else { onAbort(); toast("Nieprawidłowy PIN") }
+            }.show()
     }
-    private fun confirmAction(message:String="Wykonać tę czynność?",action:()->Unit) {
+    private fun confirmAction(message:String="Wykonać tę czynność?",negativeLabel:String="Nie",positiveLabel:String="Tak",action:()->Unit) {
         AlertDialog.Builder(this,dialogStyle).setTitle("Potwierdzenie").setMessage(message)
-            .setNegativeButton("Nie",null).setPositiveButton("Tak") { _,_ -> action() }.show()
+            .setNegativeButton(negativeLabel,null).setPositiveButton(positiveLabel) { _,_ -> action() }.show()
     }
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent); setIntent(intent); handleLaunch()
@@ -185,8 +198,8 @@ class MainActivity : Activity() {
                 newForm("links")
                 camera()
             }
-            "start" -> confirmPin { startShift() }
-            "stop" -> confirmPin { stopShift() }
+            "start" -> startShift()
+            "stop" -> confirmWorkday(false) { stopShift() }
             "switch" -> confirmAction("Zmienić obiekt?") { switchObject() }
             "travel" -> toggleTravel()
             "shopping" -> toggleShopping()
@@ -423,22 +436,120 @@ class MainActivity : Activity() {
         home()
     }
 
+    private fun confirmWorkday(start: Boolean, action: () -> Unit) {
+        AlertDialog.Builder(this,dialogStyle)
+            .setTitle(if(start) "Rozpocząć dzień pracy?" else "Zakończyć dzień pracy?")
+            .setNegativeButton("Nie",null).setPositiveButton("Tak") { _, _ -> action() }.show()
+    }
     private fun startShift() {
-        if (active(data()) != null) { toast("Dzień pracy już rozpoczęty"); return }
-        chooseObject(false) { obj ->
-            startOnObject(obj ?: return@chooseObject)
+        if(active(data())!=null) { toast("Dzień pracy już rozpoczęty"); return }
+        confirmWorkday(true) {
+            val d=data()
+            if(active(d)!=null) return@confirmWorkday
+            val t=System.currentTimeMillis()
+            if(!WorkShiftIntegrity.canSave(WorkShiftIntegrity.Interval(t,Long.MAX_VALUE),validClosedShiftIntervals(d))) {
+                toast("Nowa zmiana koliduje z zapisaną historią"); return@confirmWorkday
+            }
+            d.put("active",JSONObject().put("id",UUID.randomUUID().toString()).put("start",t)
+                .put("object","").put("objectId","").put("kind","Nieprzypisane")
+                .put("stageStart",t).put("stages",JSONArray()).put("rate",defaultRate().toPlainString()))
+            save(d,"START",fmt.format(Date(t)))
+            if(GpsWorkdaySession.hasConsent(prefs)) setGpsEnabled(true)
+            home()
+            val waiting=AlertDialog.Builder(this,dialogStyle).setMessage("Sprawdzanie lokalizacji…")
+                .setNegativeButton("Wyszukaj ręcznie",null).create()
+            var cancelled=false
+            waiting.setOnCancelListener { cancelled=true; cancelStartAttempt?.invoke(); cancelStartAttempt=null }
+            waiting.show()
+            waiting.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener {
+                cancelled=true; cancelStartAttempt?.invoke(); cancelStartAttempt=null; waiting.dismiss(); searchStartObject()
+            }
+            cancelStartAttempt=findStartLocation { obj ->
+                if(!cancelled && active(data())?.optString("id")==d.getJSONObject("active").optString("id")) {
+                    waiting.dismiss()
+                    if(obj==null) searchStartObject()
+                    else AlertDialog.Builder(this,dialogStyle).setTitle("Czy jesteś na tym obiekcie?")
+                        .setMessage(objectName(obj)).setPositiveButton("Tak") { _, _ -> startOnObject(obj,d.getJSONObject("active").optString("id")) }
+                        .setNegativeButton("Nie, wyszukaj") { _, _ -> searchStartObject() }.show()
+                }
+            }
         }
     }
-    private fun startOnObject(obj: JSONObject) {
-        val d=data(); if (active(d)!=null) { toast("Dzień pracy już rozpoczęty"); home(); return }
-        val t=System.currentTimeMillis()
-        if(!WorkShiftIntegrity.canSave(WorkShiftIntegrity.Interval(t,Long.MAX_VALUE),validClosedShiftIntervals(d))) {
-            toast("Nowa zmiana koliduje z zapisaną historią")
-            return
+
+    private fun searchStartObject() {
+        val sessionId=active(data())?.optString("id").orEmpty()
+        objectPicker(optional = false, arrival = false, startDay = true) { obj ->
+            if (obj != null) startOnObject(obj,sessionId)
         }
-        d.put("active",JSONObject().put("id",UUID.randomUUID().toString()).put("start",t).put("object",objectName(obj)).put("objectId",obj.optString("id")).put("kind",workStageFor(obj)).put("stageStart",t).put("stages",JSONArray()).put("rate",defaultRate().toPlainString())); save(d,"START",fmt.format(Date(t)))
-        if (GpsWorkdaySession.hasConsent(prefs)) setGpsEnabled(true)
-        home()
+    }
+
+    private fun findStartLocation(onResult: (JSONObject?) -> Unit): (() -> Unit)? {
+        val places = selectableObjects().mapNotNull { obj ->
+            val id = obj.optString("id")
+            val stored = prefs.getString("gps_object_" + id, null) ?: return@mapNotNull null
+            try {
+                val geo = JSONObject(stored)
+                GpsWorkRules.Place(id, GpsWorkRules.Kind.OBJECT,
+                    geo.getDouble("lat"), geo.getDouble("lon"), geo.optDouble("radius", 100.0))
+            } catch (_: org.json.JSONException) {
+                null
+            }
+        }
+        if (places.isEmpty() || !GpsWorkdaySession.hasConsent(prefs) ||
+            checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            onResult(null)
+            return null
+        }
+        val manager = getSystemService(LocationManager::class.java)
+        if (manager == null) { onResult(null); return null }
+        val provider = try {
+            listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+                .firstOrNull { manager.isProviderEnabled(it) }
+        } catch (_: RuntimeException) {
+            null
+        }
+        if (provider == null) { onResult(null); return null }
+
+        val signal = android.os.CancellationSignal()
+        val timeout = Runnable {
+            if (!signal.isCanceled) {
+                signal.cancel()
+                onResult(null)
+            }
+        }
+        fun finish(fix: Location?) {
+            if (signal.isCanceled) return
+            ticker.removeCallbacks(timeout)
+            signal.cancel()
+            val point = fix?.let { GpsWorkRules.Point(it.latitude, it.longitude, it.accuracy.toDouble(), it.time) }
+            val id = WorkdayObjectSearch.suggestedId(point, places, System.currentTimeMillis())
+            onResult(selectableObjects().firstOrNull { it.optString("id") == id })
+        }
+        ticker.postDelayed(timeout, 12_000)
+        try {
+            androidx.core.location.LocationManagerCompat.getCurrentLocation(manager, provider, signal, androidx.core.content.ContextCompat.getMainExecutor(this)) { fix ->
+                finish(fix)
+            }
+        } catch (_: RuntimeException) {
+            finish(null)
+        }
+        return { ticker.removeCallbacks(timeout); signal.cancel() }
+    }
+
+    private fun startOnObject(obj: JSONObject, sessionId: String) {
+        val d=data()
+        val running=active(d)
+        if(running==null || running.optString("id")!=sessionId || running.optString("kind")!="Nieprzypisane") {
+            toast("Dzień lub etap pracy zmienił się. Wybierz obiekt ponownie."); home(); return
+        }
+        val current=selectableObjects(d).singleOrNull { it.optString("id")==obj.optString("id") }
+            ?: run { toast("Obiekt nie jest już dostępny"); searchStartObject(); return }
+        val now=System.currentTimeMillis()
+        if(!canCloseCurrentStage(running,now)) return
+        closeStage(running,now)
+        running.put("stageStart",now).put("kind",workStageFor(current))
+            .put("objectId",current.optString("id")).put("object",objectName(current))
+        save(d,"STAGE",objectName(current)); home()
     }
     private fun validClosedShiftIntervals(d: JSONObject): List<WorkShiftIntegrity.Interval> =
         rows(d,"shifts").map(::stageInterval).filter { WorkShiftIntegrity.isValid(it.start,it.end) }
@@ -459,7 +570,7 @@ class MainActivity : Activity() {
         }
         closeStage(a,end); a.put("end",end); arr(d,"shifts").put(a); d.remove("active"); save(d,"STOP",fmt.format(Date(end)))
         setGpsEnabled(false)
-        PhotoQueue.enqueueAll(this); home()
+        home()
     }
     private fun canCloseCurrentStage(shift: JSONObject, end: Long): Boolean {
         val start=shift.optLong("start",-1L)
@@ -520,6 +631,26 @@ class MainActivity : Activity() {
     }
     private fun chooseArrival() {
         if(active(data())?.optString("kind")!="Przejazd") return
+        cancelStartAttempt=findStartLocation { obj ->
+            if(active(data())?.optString("kind")!="Przejazd") return@findStartLocation
+            if(obj==null) chooseArrivalManual()
+            else AlertDialog.Builder(this,dialogStyle).setTitle("Czy jesteś na tym obiekcie?")
+                .setMessage(objectName(obj)).setNegativeButton("Inny obiekt") { _, _ -> chooseArrivalManual() }
+                .setPositiveButton("Tak, tutaj") { _, _ -> arriveAtObject(obj) }.show()
+        }
+    }
+    private fun arriveAtObject(obj: JSONObject) {
+        val d=data(); val current=active(d) ?: return
+        if(current.optString("kind")!="Przejazd" || selectableObjects(d).none { it.optString("id")==obj.optString("id") }) return
+        val now=System.currentTimeMillis()
+        if(!canCloseCurrentStage(current,now)) return
+        current.optJSONObject("stageMeta")?.put("toObject",objectName(obj))?.put("toObjectId",obj.optString("id"))
+        closeStage(current,now); current.remove("stageMeta")
+        current.put("stageStart",now).put("kind",workStageFor(obj)).put("object",objectName(obj)).put("objectId",obj.optString("id"))
+        save(d,"ARRIVAL",objectName(obj)); home()
+    }
+    private fun chooseArrivalManual() {
+        if(active(data())?.optString("kind")!="Przejazd") return
         objectPicker(false,true) { obj ->
             if(obj!=null) {
                 val d=data(); val current=active(d) ?: return@objectPicker
@@ -547,6 +678,7 @@ class MainActivity : Activity() {
             datePicker.calendarViewShown = true
         }.show()
     }
+    private fun todayWednesdayPeriod(today:LocalDate)=ReportingPeriod.wednesdayToTuesday(today)
     private fun smsReport() {
         val from = smsFrom ?: return
         val to = smsTo ?: return
@@ -562,7 +694,12 @@ class MainActivity : Activity() {
             label("Data do nie może być wcześniejsza niż Data od.")
             return
         }
+        button("Okres rozliczeniowy · środa–wtorek") {
+            val weekday=todayWednesdayPeriod(LocalDate.now())
+            smsFrom=weekday.first; smsTo=weekday.second; smsReport()
+        }
         button("GENERUJ RAPORT SMS") { smsReport() }
+        button("Raporty CSV / PDF · cała historia") { backupScreen() }
         label("Okres: ${from.format(df)} – ${to.format(df)} (włącznie)")
         active(data())?.let { if(!localDate(it.optLong("start")).isAfter(to)) label("Uwaga: otwarta zmiana nie jest uwzględniona w raporcie ani w sumie.") }
         val zone=ZoneId.systemDefault()
@@ -604,23 +741,21 @@ class MainActivity : Activity() {
     private fun background(color:Int): GradientDrawable = GradientDrawable().apply {
         setColor(color); cornerRadius = dp(8).toFloat()
     }
+    override fun onDestroy() {
+        cancelStartAttempt?.invoke(); io.shutdown(); super.onDestroy()
+    }
+    private fun backupScreen() { backupSettings() }
     private fun base(title:String) {
+        if(::root.isInitialized) scrollPositions[renderedScreen]=(root.parent as? ScrollView)?.scrollY ?: 0
         homeVisible=false
         val frame=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setBackgroundColor(palette.header) }
         val top=View(this); frame.addView(top,LinearLayout.LayoutParams(-1,0))
         val header=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; gravity=Gravity.CENTER_VERTICAL; setPadding(dp(16),0,dp(8),0); setBackgroundColor(palette.header) }
-        header.addView(TextView(this).apply { text=title; textSize=27f; minimumHeight=dp(56); gravity=Gravity.CENTER_VERTICAL; setTextColor(palette.onHeader); setTypeface(resources.getFont(R.font.clash_grotesk),android.graphics.Typeface.BOLD) },LinearLayout.LayoutParams(0,-2,1f).apply { gravity=Gravity.CENTER_VERTICAL })
-        if(title=="WorkMeter") header.addView(TextView(this).apply {
-            text="SOLO"
-            textSize=11f
-            setTextColor(palette.onPrimary)
-            setPadding(dp(7),dp(5),dp(7),dp(5))
-            background=background(palette.primary)
-        },LinearLayout.LayoutParams(-2,-2).apply { rightMargin=dp(7) })
-        if(title=="WorkMeter") header.addView(Button(this).apply {
-            text="⚙"; textSize=27f; contentDescription="Ustawienia"; setTextColor(palette.onHeader)
+        header.addView(TextView(this).apply { text=title; textSize=22f; minimumHeight=dp(52); gravity=Gravity.CENTER_VERTICAL; setTextColor(palette.onHeader); setTypeface(resources.getFont(R.font.clash_grotesk),android.graphics.Typeface.BOLD) },LinearLayout.LayoutParams(0,-2,1f).apply { gravity=Gravity.CENTER_VERTICAL })
+        if(title in listOf("WorkMeter","Portfel","Obiekty")) header.addView(Button(this).apply {
+            text="⚙"; textSize=27f; contentDescription=when(title) { "Portfel" -> "Ustawienia portfela"; "Obiekty" -> "Ustawienia obiektów"; else -> "Ustawienia" }; setTextColor(palette.onHeader)
             background=android.graphics.drawable.ColorDrawable(Color.TRANSPARENT); backgroundTintList=null; setPadding(0,0,0,0)
-            setOnClickListener { settings() }
+            setOnClickListener { when(title) { "Portfel" -> walletSettings(); "Obiekty" -> objectSettings(); else -> settings() } }
         },LinearLayout.LayoutParams(dp(48),dp(48)))
         frame.addView(header,LinearLayout.LayoutParams(-1,-2))
         val scroll=ScrollView(this).apply { setBackgroundColor(palette.background); isFillViewport=true }
@@ -687,19 +822,24 @@ class MainActivity : Activity() {
             insets
         }
         setContentView(frame); frame.requestApplyInsets(); root.requestFocus()
+        scroll.doOnLayout {
+            renderedScreen=screen
+            scroll.scrollTo(0,scrollPositions[screen] ?: 0)
+        }
     }
     private fun displayLegacyDates(text:String):String = Regex("\\b(\\d{4})-(\\d{2})-(\\d{2})\\b").replace(text) {
         it.groupValues[3]+"-"+it.groupValues[2]+"-"+it.groupValues[1]
     }
     private fun label(s:String) { root.addView(TextView(this).apply {
-        text=displayLegacyDates(s); textSize=16f; setTextColor(palette.textPrimary); setPadding(dp(2),dp(8),dp(2),dp(8))
-    }) }
+        text=displayLegacyDates(s); textSize=15f; setTextColor(palette.textPrimary); setPadding(dp(2),dp(8),dp(2),dp(8))
+    },LinearLayout.LayoutParams(-1,-2)) }
     private fun makeButton(s:String, f:()->Unit):Button {
         val accent=s.contains("ZAKOŃCZ") || s.startsWith("Usuń") || ((s.startsWith("🚗") || s=="DOTARŁEM") && active(data())?.optString("kind")=="Przejazd")
         val primary=s=="Zapisz" || s.contains("ROZPOCZNIJ") || s.startsWith("Wyślij zdjęcia")
         val role = when {
             accent -> WorkMeterButtonRole.DESTRUCTIVE
             primary -> WorkMeterButtonRole.PRIMARY
+            s=="Przywróć usuniętą zmianę" -> WorkMeterButtonRole.TEXT
             else -> WorkMeterButtonRole.SECONDARY
         }
         return workMeterButton(this, s, role, f)
@@ -729,22 +869,26 @@ class MainActivity : Activity() {
             toggle.text=title()
             toggle.contentDescription=caption+": "+if(key in expandedFilters) "rozwinięte" else "zwinięte"
         }
+        if(key=="report") styleWorkMeterButton(toggle,WorkMeterButtonRole.TEXT)
         toggle.contentDescription=caption+": "+if(key in expandedFilters) "rozwinięte" else "zwinięte"
-        parent.addView(toggle,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
+        parent.addView(toggle,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(8) })
         parent.addView(panel,LinearLayout.LayoutParams(-1,-2))
         root=panel
         try { content() } finally { root=parent }
     }
-    private fun nav() { button("← Wstecz") { back() } }
+    private fun nav() { root.addView(workMeterButton(this,"← Wstecz",WorkMeterButtonRole.TEXT) { back() },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(8) }) }
     private fun back() {
         when {
             screen == "home" -> finish()
             screen == "sms" -> openScreen(smsParent)
             screen=="menu" -> home()
+            screen=="backup" -> settings()
+            screen=="walletSettings" -> wallet()
+            screen=="objectSettings" -> objects()
             screen=="sectionSettings" -> settings()
             screen=="gps" -> sectionSettings("Obiekty")
             screen=="gpsPlaceKinds" -> gpsScreen()
-            screen=="gpsCategories" -> report()
+            screen=="gpsCategories" || screen=="gpsTimeSummary" -> gpsScreen()
             screen=="gpsDiagnostics" -> gpsScreen()
             screen=="gpsPay" -> settings()
             screen.startsWith("menuFeature:") -> menu()
@@ -787,9 +931,12 @@ class MainActivity : Activity() {
                 putString("query", objectSearch)
             })
         }
+        out.putBoolean("startAfterObjectSave", startAfterObjectSave)
+        out.putString("startObjectSessionId",startObjectSessionId)
         out.putString("draft",draft.toString()); out.putString("cameraPath",cameraPath); out.putString("pendingUpload",pendingUpload)
         super.onSaveInstanceState(out)
     }
+    private fun intervalLabel(from:Long,to:Long):String = if(localDate(from)==localDate(to)) clock.format(Date(from))+" → "+clock.format(Date(to)) else fmt.format(Date(from))+" → "+fmt.format(Date(to))
     private fun duration(ms:Long):String { val m=(ms.coerceAtLeast(0)/60000); return "%02d:%02d".format(m/60,m%60) }
     private fun gpsHomeArrivalReady(shift:JSONObject?):Boolean {
         if(shift==null) return false
@@ -836,63 +983,67 @@ class MainActivity : Activity() {
         fun text(value:String,size:Float,color:Int,bold:Boolean=false):TextView =
             TextView(this).apply {
                 this.text=value; textSize=size; setTextColor(color)
-                if(bold) setTypeface(resources.getFont(R.font.clash_grotesk),android.graphics.Typeface.BOLD)
+                typeface=android.graphics.Typeface.create(if(bold) "sans-serif-medium" else "sans-serif",android.graphics.Typeface.NORMAL)
                 includeFontPadding=false
             }
-        fun section(title:String) {
-            root.addView(text(title,14f,palette.textPrimary,true),LinearLayout.LayoutParams(-1,-2).apply {
-                topMargin=dp(20); bottomMargin=dp(10)
-            })
-        }
         fun action(label: String, role: WorkMeterButtonRole = WorkMeterButtonRole.SECONDARY, onClick: () -> Unit): Button =
             workMeterButton(this, label, role, onClick)
-        fun actionRow(first:Pair<String,()->Unit>,second:Pair<String,()->Unit>) {
-            val row=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
-            row.addView(action(first.first,onClick=first.second),LinearLayout.LayoutParams(0,-2,1f).apply { rightMargin=dp(5) })
-            row.addView(action(second.first,onClick=second.second),LinearLayout.LayoutParams(0,-2,1f).apply { leftMargin=dp(5) })
-            root.addView(row,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
+        fun actionRow(first:Pair<String,()->Unit>,second:Pair<String,()->Unit>,plain:Boolean=false) {
+            val row=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; isBaselineAligned=false }
+            val role=if(plain) WorkMeterButtonRole.TEXT else WorkMeterButtonRole.SECONDARY
+            row.addView(action(first.first,role,first.second),LinearLayout.LayoutParams(0,-1,1f).apply { rightMargin=dp(4) })
+            row.addView(action(second.first,role,second.second),LinearLayout.LayoutParams(0,-1,1f).apply { leftMargin=dp(4) })
+            if(plain && second.first=="Zakończ dzień") (row.getChildAt(1) as Button).setTextColor(
+                if(appearance==WorkMeterTheme.GRAPHITE_DARK) 0xFFE6ADB5.toInt() else WorkMeterTheme.ERROR)
+            root.addView(row,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(8) })
         }
         val hero=LinearLayout(this).apply {
             orientation=LinearLayout.VERTICAL
-            setPadding(dp(20),dp(19),dp(20),dp(20))
-            background=rounded(slate,22)
+            setPadding(dp(16),dp(16),dp(16),dp(16))
+            background=rounded(palette.surface,16)
             elevation=dp(2).toFloat()
         }
-        val header=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL }
-        header.addView(text("TWÓJ DZIEŃ",12f,palette.onHeader,true),LinearLayout.LayoutParams(0,-2,1f))
-        val status=when { privateMode -> "PRYWATNIE";a!=null -> "DZIEŃ OTWARTY";else -> "DZIEŃ ZAMKNIĘTY" }
-        header.addView(text(status,12f,palette.onHeader,true))
+        val header=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; gravity=Gravity.CENTER_VERTICAL; isBaselineAligned=false }
+        header.addView(text("TWÓJ DZIEŃ",12f,palette.textPrimary),LinearLayout.LayoutParams(0,-2,1f))
         hero.addView(header)
-        hero.addView(text(shown?.let {
-            duration(workedMillis(it))
-        } ?: "00:00",44f,palette.onHeader,true),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(14) })
-        hero.addView(text(
-            when {
-                privateMode -> "Czas prywatny"
-                a==null -> "Gotowy do rozpoczęcia pracy"
-                a.optString("kind")=="Przejazd" -> "W drodze"
-                a.optString("kind")=="Zakupy" -> "Zakupy"
-                a.optString("kind")=="Biuro" -> "Biuro · "+a.optString("object")
-                else -> a.optString("object").ifBlank { "Bez przypisanego obiektu" }
-            },16f,palette.onHeader,true),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(5) })
-        hero.addView(text(
-            "Rozpoczęcie: "+(shown?.let { fmt.format(Date(it.optLong("start"))) } ?: "—"),
-            12f,palette.onHeader),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(7) })
-        if(a==null && recent!=null) hero.addView(text(
-            "Zakończenie: "+fmt.format(Date(recent.optLong("end"))),
-            12f,palette.onHeader),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(2) })
-        if (a != null) hero.addView(text(
-            "Czas etapu: " + duration(WorkMeterHomeState.stageElapsed(now, a.optLong("start"), a.optLong("stageStart"))),
-            13f,palette.onHeader,true),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(9) })
-        val gpsLabel = GpsServiceStatusUi.read(this)
-        hero.addView(text(gpsLabel, 13f, palette.onHeader), LinearLayout.LayoutParams(-1, -2).apply {
-            topMargin = dp(8)
-        })
+        val stageTitle=when(state) {
+            WorkMeterHomeState.CLOSED -> "Brak zmiany"
+            WorkMeterHomeState.ON_SITE -> if(a?.optString("kind")=="Biuro") "Biuro" else "Na obiekcie"
+            WorkMeterHomeState.TRAVEL -> "Przejazd"
+            WorkMeterHomeState.SHOPPING -> "Zakupy"
+            WorkMeterHomeState.PERSONAL -> "Prywatnie"
+            WorkMeterHomeState.UNASSIGNED -> "Nieprzypisane"
+        }
+        val stageInk=when(state) {
+            WorkMeterHomeState.ON_SITE -> WorkMeterTheme.ON_SITE
+            WorkMeterHomeState.SHOPPING -> WorkMeterTheme.SHOPPING
+            WorkMeterHomeState.PERSONAL -> WorkMeterTheme.PERSONAL
+            else -> WorkMeterTheme.TRAVEL
+        }
+        val stageLabel=android.text.SpannableString("● "+stageTitle).apply {
+            setSpan(android.text.style.ForegroundColorSpan(stageInk),0,1,android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        header.addView(text(stageLabel.toString(),12f,palette.textPrimary).apply { this.text=stageLabel })
+        hero.addView(text(shown?.let { duration(workedMillis(it)) } ?: "00:00",32f,palette.textPrimary,false).apply { contentDescription="Czas dnia" },
+            LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(12) })
+        val place=when {
+            privateMode -> "Czas prywatny"
+            a==null -> "Gotowy do pracy"
+            state==WorkMeterHomeState.TRAVEL -> "W drodze"
+            state==WorkMeterHomeState.SHOPPING -> "Zakupy"
+            else -> a.optString("object").split(" · ").take(2).joinToString(" · ").ifBlank { "Nie przypisano obiektu" }
+        }
+        hero.addView(text(place,17f,palette.textPrimary,true).apply {
+            contentDescription=a?.optString("object")?.ifBlank { place } ?: place
+        },LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(12) })
+        val gpsLabel=GpsServiceStatusUi.read(this)
+        val stageTime=if(a!=null) " · Czas etapu: "+duration(WorkMeterHomeState.stageElapsed(now,a.optLong("start"),a.optLong("stageStart"))) else ""
+        hero.addView(text(gpsLabel+stageTime,12f,palette.textPrimary),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(12) })
         root.addView(hero,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(14) })
 
-        root.addView(action(state.actionLabel, WorkMeterButtonRole.PRIMARY) {
+        root.addView(action(state.primaryActionLabel(gpsHomeArrivalReady(a)), WorkMeterButtonRole.PRIMARY) {
             when (state) {
-                WorkMeterHomeState.CLOSED -> confirmPin { startShift() }
+                WorkMeterHomeState.CLOSED -> startShift()
                 WorkMeterHomeState.ON_SITE, WorkMeterHomeState.TRAVEL -> toggleTravel()
                 WorkMeterHomeState.SHOPPING -> toggleShopping()
                 WorkMeterHomeState.PERSONAL -> togglePrivateTime()
@@ -901,69 +1052,51 @@ class MainActivity : Activity() {
         }, LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
 
         if (a != null) {
-            root.addView(action("■  ZAKOŃCZ PRACĘ", WorkMeterButtonRole.DESTRUCTIVE) { confirmPin { stopShift() } },
-                LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
             pendingGpsStageEventId(d,System.currentTimeMillis())?.let { eventId ->
-                root.addView(action("📍  GPS · POTWIERDŹ ZMIANĘ ETAPU") {
-                    reviewGpsStageProposal(eventId)
-                },LinearLayout.LayoutParams(-1,dp(48)).apply { bottomMargin=dp(10) })
+                root.addView(action("📍  GPS · POTWIERDŹ ZMIANĘ ETAPU") { reviewGpsStageProposal(eventId) },
+                    LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(8) })
             }
-            if (!privateMode) root.addView(action("⏸  PRYWATNIE") {
-                togglePrivateTime()
-            },LinearLayout.LayoutParams(-1,dp(48)).apply { bottomMargin=dp(10) })
-            if (state != WorkMeterHomeState.PERSONAL) {
-                val switch = "↔  ZMIEŃ OBIEKT" to { confirmAction("Zmienić obiekt?") { switchObject() } }
+            if (!privateMode) {
+                val switch = "Zmień obiekt" to { confirmAction("Zmienić obiekt?") { switchObject() } }
                 val travel = "Rozpocznij przejazd" to { toggleTravel() }
-                val shopping = "🛍  ZAKUPY" to { toggleShopping() }
+                val shopping = "Zakupy" to { toggleShopping() }
                 when (state) {
                     WorkMeterHomeState.ON_SITE, WorkMeterHomeState.TRAVEL -> actionRow(switch, shopping)
                     WorkMeterHomeState.SHOPPING -> actionRow(switch, travel)
                     WorkMeterHomeState.UNASSIGNED -> actionRow(travel, shopping)
                     else -> Unit
                 }
-                root.addView(action("↗  TRASA DO OBIEKTU") {
-                    chooseObject(false) { obj ->
-                        if (obj != null) openLink("https://www.google.com/maps/dir/?api=1&destination=" +
-                            URLEncoder.encode(obj.optString("city") + " " + obj.optString("Adres"), "UTF-8"))
-                    }
-                }, LinearLayout.LayoutParams(-1, -2))
-            }
-            if(a.optString("kind")=="Zakupy") {
-                root.addView(action("Dane zakupów / paragony") { shoppingRecord(a.optString("shoppingRecordId")) },
-                    LinearLayout.LayoutParams(-1,dp(48)))
-            }
+                actionRow("Prywatnie" to { togglePrivateTime() },
+                    "Zakończ dzień" to { confirmWorkday(false) { stopShift() } },true)
+            } else root.addView(action("Zakończ dzień",WorkMeterButtonRole.TEXT) { confirmWorkday(false) { stopShift() } },
+                LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(8) })
+            actionRow("Trasa do obiektu" to {
+                chooseObject(false) { obj -> if(obj!=null) openLink("https://www.google.com/maps/dir/?api=1&destination="+
+                    URLEncoder.encode(obj.optString("city")+" "+obj.optString("Adres"),"UTF-8")) }
+            },"Zapisz GPS obiektu" to { saveHomeGps() },true)
+            val gpsRow=root.getChildAt(root.childCount-1) as LinearLayout
+            gpsRow.getChildAt(1).apply { isEnabled=canSaveHomeGps(a); alpha=if(isEnabled) 1f else 0.55f }
+            if(a.optString("kind")=="Zakupy") root.addView(action("Dane zakupów / paragony",WorkMeterButtonRole.TEXT) {
+                shoppingRecord(a.optString("shoppingRecordId"))
+            },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(8) })
         }
-        // This is an optional manual action, never an automatic shift transition.
-        // Only a recent confirmed geofence matching the latest fix enables it.
-        val arrivalReady=gpsHomeArrivalReady(a)
-        root.addView(action(if(arrivalReady) "📍  GPS · WYBIERZ OBIEKT" else
-            "📍  GPS · OCZEKIWANIE NA OBIEKT") {
-            if(!gpsHomeArrivalReady(active(data()))) {
-                toast("Czekam na potwierdzoną lokalizację GPS przy obiekcie")
-                home()
-            } else if(active(data())?.optString("kind")=="Przejazd") {
-                chooseArrival()
-            } else {
-                switchObject()
-            }
-        }.apply {
-            isEnabled=arrivalReady
-            alpha=if(arrivalReady) 1f else 0.55f
-            background=rounded(if(arrivalReady) palette.primary else palette.surface,14)
-            setTextColor(if(arrivalReady) palette.onPrimary else palette.secondaryText)
-        },LinearLayout.LayoutParams(-1,dp(52)).apply { bottomMargin=dp(10) })
-        section("SZYBKIE DZIAŁANIA")
-        root.addView(action("Zrób zdjęcie") { openHomeRecord("links"); camera() },
-            LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(10) })
-        actionRow("Dodaj notatkę" to { openHomeRecord("notes") },
-            "Dodaj materiał" to { openHomeRecord("materials") })
-        actionRow("📷  ZDJĘCIA" to { openScreen("list:links:") },
-            "📦  MATERIAŁY" to { openScreen("list:materials:") })
-        actionRow("📝  NOTATKI" to { openScreen("notes") },
-            "🏢  OBIEKTY" to { openScreen("objects") })
-        section("PRZEGLĄD")
-        actionRow("◷  MÓJ CZAS" to { report() }, "▥  GRAFIKI" to { charts() })
-        root.addView(action("☷  WIĘCEJ · MENU P1–P4") { menu() },LinearLayout.LayoutParams(-1,dp(50)))
+        root.addView(View(this).apply { setBackgroundColor(palette.border) },LinearLayout.LayoutParams(-1,dp(1)).apply { topMargin=dp(8); bottomMargin=dp(16) })
+        val quick=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; isBaselineAligned=false }
+        val tiles=listOf(Triple("Zdjęcie",R.drawable.ic_quick_camera,{ openHomeRecord("links"); camera() }),
+            Triple("Notatka",R.drawable.ic_quick_note,{ openHomeRecord("notes") }),
+            Triple("Materiał",R.drawable.ic_quick_material,{ openHomeRecord("materials") }))
+        tiles.forEachIndexed { index,tile ->
+            quick.addView(action(tile.first,onClick=tile.third).apply {
+                contentDescription=listOf("Zrób zdjęcie","Dodaj notatkę","Dodaj materiał")[index]
+                val icon=getDrawable(tile.second)?.mutate()?.apply { setTint(palette.textPrimary); setBounds(0,0,dp(22),dp(22)) }
+                setCompoundDrawables(null,icon,null,null); compoundDrawablePadding=dp(8)
+                setPadding(dp(4),dp(12),dp(4),dp(12))
+                background=rounded(palette.surface,12)
+            },LinearLayout.LayoutParams(0,-1,1f).apply { if(index>0) leftMargin=dp(8) })
+        }
+        root.addView(quick,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(8) })
+        actionRow("📷  ZDJĘCIA" to { openScreen("list:links:") },"📦  MATERIAŁY" to { openScreen("list:materials:") },true)
+        actionRow("📝  NOTATKI" to { openScreen("notes") },"▥  GRAFIKI" to { charts() },true)
     }
 
     private fun openHomeRecord(kind: String) {
@@ -1340,6 +1473,7 @@ class MainActivity : Activity() {
         label("GPS aktywny działa w tle z widocznym powiadomieniem. Wyłącz GPS, aby zakończyć rejestrację.")
         gpsResumePrompt()
         button("Diagnostyka GPS i baterii Android") { gpsDeviceDiagnostics() }
+        button("GPS · Mój czas") { gpsTimeSummary() }
         button("Historia obserwacji GPS") {
             val events=(CoreGpsProposalStore.read(AndroidCoreGpsProposalStorage(this)) as?
                 CoreGpsProposalStore.ReadResult.Success)?.events
@@ -1620,17 +1754,7 @@ class MainActivity : Activity() {
 
     private fun settings() {
         base("Ustawienia"); screen="settings"; nav()
-        root.setBackgroundColor(palette.background)
-        label("WSZYSTKIE USTAWIENIA · SOLO")
-        label("Z poziomu głównego dostępne są ustawienia wszystkich działów.")
-        // Backward-compatible entry points retained for existing flows and tests.
-        button("Portfel / rozliczenia (PIN)") { confirmPin { walletUnlocked=true; wallet() } }
-        button("GENERUJ RAPORT SMS") { weeklySms() }
-        button("Logi / eksport / import") { logs() }
-        label("Kopie i synchronizacja")
-        button("Google Disk") { driveSettings() }
-        button("Kopia zapasowa i synchronizacja") { backupSettings() }
-        label("Widżet i interfejs")
+        filters("settingsAppearance",caption="Wygląd i widżet · "+appearance.title) {
         button("Motyw aplikacji · "+appearance.title) {
             val themes=WorkMeterTheme.entries
             AlertDialog.Builder(this,dialogStyle).setTitle("Motyw aplikacji")
@@ -1644,8 +1768,9 @@ class MainActivity : Activity() {
                 }.setNegativeButton("Anuluj",null).show()
         }
         button("Wygląd widżetu") { widgetSettings() }
-        button("Język aplikacji") { language() }
-        label("GPS i lokalizacja")
+        }
+        filters("settingsGps",caption="GPS i lokalizacja · "+if(GpsWorkdaySession.hasConsent(prefs)) "dozwolony w pracy" else "wyłączony") {
+            label(GpsServiceStatusUi.read(this))
         if(prefs.getBoolean("gps_resume_pending",false)) button("GPS · wznowienie po restarcie") { gpsScreen() }
         button(if(GpsWorkdaySession.hasConsent(prefs)) "GPS WorkMeter: DOZWOLONY W PRACY — wyłącz" else "GPS WorkMeter: WYŁĄCZONY — włącz") {
             toggleGpsConsent()
@@ -1653,12 +1778,25 @@ class MainActivity : Activity() {
         }
         button("Geostrefy i lokalizacja GPS") { gpsScreen() }
         button("GPS · zasady rozliczania czasu") { gpsPaySettings() }
-        label("Ustawienia działów")
+        }
+        filters("settingsData",caption="Dane i kopie") {
+            button("Google Disk") { driveSettings() }
+            button("Logi / eksport / import") { logs() }
+            button("Kopia zapasowa i synchronizacja") { backupSettings() }
+        }
+        filters("settingsSections",caption="Ustawienia działów") {
         listOf("Mój czas","Obiekty","Zdjęcia","Materiały","Grafiki","Portfel").forEach { item ->
             button("⚙  $item  ›") { sectionSettings(item) }
         }
-        label("Informacje")
-        button("O aplikacji") { about() }
+        }
+        filters("settingsSecurity",caption="Bezpieczeństwo · Portfel chroniony PIN") {
+            button("Portfel / rozliczenia (PIN)") { confirmPin { walletUnlocked=true; wallet() } }
+        }
+        filters("settingsAbout",caption="O aplikacji · "+packageManager.getPackageInfo(packageName,0).versionName) {
+            button("Język aplikacji") { language() }
+            button("O aplikacji") { about() }
+        }
+        button("GENERUJ RAPORT SMS") { weeklySms() }
     }
     private fun sectionSettings(section:String) {
         currentSection=section
@@ -1672,6 +1810,7 @@ class MainActivity : Activity() {
             }
             "Obiekty" -> {
                 label("Obiekty i lokalizacje GPS")
+                button("Ustawienia obiektów") { objectSettings() }
                 button("Lista obiektów") { openScreen("objects") }
                 button(if(GpsWorkdaySession.hasConsent(prefs)) "Wyłącz GPS WorkMeter" else "Włącz GPS WorkMeter") {
                     toggleGpsConsent()
@@ -1694,10 +1833,10 @@ class MainActivity : Activity() {
             }
             "Portfel" -> {
                 label("Prywatne rozliczenia chronione PIN")
+                button("Ustawienia portfela") { confirmPin { walletUnlocked=true; walletSettings() } }
                 button("Otwórz Portfel") { confirmPin { walletUnlocked=true; wallet() } }
             }
         }
-        label("Dodatkowe przełączniki pojawią się po podłączeniu rzeczywistej logiki Android.")
         button("Wszystkie ustawienia") { settings() }
     }
     private fun about() {
@@ -1729,22 +1868,33 @@ class MainActivity : Activity() {
             }
         }
         label("Domyślna przezroczystość tła widżetu")
-        val value=TextView(this).apply { setTextColor(palette.textPrimary); text=prefs.getInt("widgetTransparency",0).toString()+"%" }
+        val value=TextView(this).apply { setTextColor(palette.textPrimary); text=prefs.getInt("widgetTransparency",0).coerceIn(0,50).toString()+"% · maks. 50%" }
         root.addView(value)
         val previewFrame=FrameLayout(this).apply { setBackgroundColor(0xFF90A4AE.toInt()); setPadding(dp(8),dp(8),dp(8),dp(8)) }
-        val preview=GateWidget.render(this, interactive = false).apply(this,previewFrame)
-        val slider=SeekBar(this).apply { max=100; progress=prefs.getInt("widgetTransparency",0); contentDescription="Przezroczystość tła widżetu" }
+        var previewSize=300 to 180
+        lateinit var preview: View
+        fun drawPreview() {
+            previewFrame.removeAllViews()
+            preview=GateWidget.render(this,WidgetLayoutProfile.forBounds(previewSize.first,previewSize.second),
+                interactive=false,widthDp=previewSize.first,heightDp=previewSize.second).apply(this,previewFrame)
+            previewFrame.addView(preview,FrameLayout.LayoutParams(dp(previewSize.first),dp(previewSize.second)))
+        }
+        drawPreview()
+        for(size in listOf(144 to 68,180 to 170,300 to 90,300 to 180,300 to 260)) button("Podgląd ${size.first} × ${size.second} dp") {
+            previewSize=size; drawPreview()
+        }
+        val slider=SeekBar(this).apply { max=50; progress=prefs.getInt("widgetTransparency",0).coerceIn(0,50); contentDescription="Przezroczystość tła widżetu" }
         slider.setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(bar:SeekBar?,progress:Int,fromUser:Boolean) {
-                value.text=progress.toString()+"%"; prefs.edit().putInt("widgetTransparency",progress).apply()
-                preview.findViewById<ImageView>(R.id.wbackground).imageAlpha=255*(100-progress)/100
+                value.text=progress.toString()+"% · maks. 50%"; prefs.edit().putInt("widgetTransparency",progress).apply()
+                preview.findViewById<ImageView>(R.id.wbackground).imageAlpha=WidgetAppearance(transparency=progress).backgroundAlpha(0)
             }
             override fun onStartTrackingTouch(bar:SeekBar?) {}
             override fun onStopTrackingTouch(bar:SeekBar?) { GateWidget.refresh(this@MainActivity) }
         })
         root.addView(slider,LinearLayout.LayoutParams(-1,dp(44)))
-        label("0% — pełne tło. 100% — przezroczyste tło. Tekst i przyciski pozostają widoczne.")
-        previewFrame.addView(preview,FrameLayout.LayoutParams(-1,-2)); root.addView(previewFrame)
+        label("0% — pełne tło. Do 50% — przezroczyste tło z kontrastową podkładką tekstu.")
+        root.addView(previewFrame)
         label("Rozmiar zmienisz, przytrzymując widżet na pulpicie i przeciągając jego ramkę.")
     }
     private fun walletConfig(d:JSONObject):JSONObject = d.optJSONObject("walletSettings") ?: JSONObject().put("defaultRate","30.00").put("openingCents",0).also { d.put("walletSettings",it) }
@@ -1789,10 +1939,12 @@ class MainActivity : Activity() {
             if (summary.overlapping > 0) {
                 add("Saldo okresu niepełne: " + summary.overlapping + " wypłat obejmuje szerszy okres. Poszerz daty lub popraw przypisanie wypłaty.")
             } else if (summary.conflictingRateMillis == 0L) {
-                add((if (summary.due >= 0) "Do wypłaty: " else "Nadpłata: ") + money(kotlin.math.abs(summary.due)))
+                add(0,(if (summary.due >= 0) "Do wypłaty: " else "Nadpłata: ") + money(kotlin.math.abs(summary.due)))
             }
         }
-        financeCard("Wybrany okres", *periodLines.toTypedArray())
+        financeCard("Wybrany okres · "+from.format(displayDate)+" – "+to.format(displayDate), *periodLines.toTypedArray())
+        button("+ Dodaj wypłatę") { walletDraft=JSONObject().put("id",UUID.randomUUID().toString()).put("date",LocalDate.now().toString()).put("periodFrom",from.toString()).put("periodTo",to.toString()).put("method","cash"); paymentForm() }
+        button("Zakupy za własne pieniądze / paragony") { expenseList() }
         val historyEarnings = WalletRules.calculateEarnings(shifts)
         val global = historyEarnings.cents + config.optLong("openingCents") - payments.sumOf { it.cents }
         val expensesDue = rows(d, "expenses").sumOf { (it.optLong("cents") - it.optLong("reimbursedCents")).coerceAtLeast(0) }
@@ -1809,13 +1961,6 @@ class MainActivity : Activity() {
         }
         financeCard("Cała historia", *historyLines.toTypedArray())
         label("Naliczanie obejmuje zakończone zmiany, także przejazdy i zakupy. Otwarty dzień zostanie rozliczony po zakończeniu.")
-        button("Zakupy za własne pieniądze / paragony") { expenseList() }
-        button("+ Dodaj wypłatę") { walletDraft=JSONObject().put("id",UUID.randomUUID().toString()).put("date",LocalDate.now().toString()).put("periodFrom",from.toString()).put("periodTo",to.toString()).put("method","cash"); paymentForm() }
-        filters("walletRates",caption="Stawka i saldo początkowe") {
-            button("Domyślna stawka: "+defaultRate().toPlainString()+" zł/h") { rateDialog(false) }
-            button("Zmień stawkę zmian w tym okresie") { rateDialog(true) }
-            button("Saldo początkowe: "+money(config.optLong("openingCents"))) { openingDialog() }
-        }
         label("Wypłaty przypisane do tego okresu")
         val selected=rows(d,"payments").filter { it.optString("periodFrom")<=to.toString() && it.optString("periodTo")>=from.toString() }.sortedByDescending { it.optString("date") }
         if(selected.isEmpty()) label("Brak wypłat w tym okresie.")
@@ -1826,11 +1971,30 @@ class MainActivity : Activity() {
             label("Za okres: "+dateText(payment.optString("periodFrom"))+" – "+dateText(payment.optString("periodTo")))
         }
     }
+    private fun walletSettings() {
+        if(!walletUnlocked) { settings(); confirmPin { walletUnlocked=true; walletSettings() }; return }
+        base("Ustawienia portfela"); screen="walletSettings"; nav()
+        button("Domyślna stawka: "+defaultRate().toPlainString()+" zł/h") { rateDialog(false) }
+        button("Zmień stawkę zmian w tym okresie") { rateDialog(true) }
+        button("Saldo początkowe: "+money(walletConfig(data()).optLong("openingCents"))) { openingDialog() }
+    }
+    private fun objectSettings() {
+        base("Ustawienia obiektów"); screen="objectSettings"; nav()
+        val state=objectFilters ?: ObjectFilterUiState.State(archived=prefs.getBoolean("archived_objects",false),grouped=prefs.getBoolean("objects_grouped",true))
+        button("Grupowanie według miast: "+if(state.grouped) "Tak" else "Nie") {
+            objectFilters=ObjectFilterUiState.toggleGrouping(state)
+            prefs.edit().putBoolean("objects_grouped",!state.grouped).apply(); objectSettings()
+        }
+        button("Archiwalne obiekty: "+if(state.archived) "Tak" else "Nie") {
+            objectFilters=ObjectFilterUiState.toggleArchive(state)
+            prefs.edit().putBoolean("archived_objects",!state.archived).apply(); objectSettings()
+        }
+    }
     private fun financeCard(title: String, vararg values: String) {
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(12), dp(16), dp(12))
-            background = background(palette.surface).apply { setStroke(dp(1), palette.border) }
+            background = background(palette.surface).apply { cornerRadius=dp(16).toFloat(); setStroke(dp(1), palette.border) }
         }
         card.addView(TextView(this).apply {
             text = title
@@ -1839,10 +2003,10 @@ class MainActivity : Activity() {
             androidx.core.view.ViewCompat.setAccessibilityHeading(this, true)
         })
         values.forEachIndexed { index, value ->
-            val emphasized = index == values.lastIndex
+            val emphasized = if(title.startsWith("Wybrany okres")) index==0 && (value.startsWith("Do wypłaty:") || value.startsWith("Nadpłata:")) else index == values.lastIndex
             card.addView(TextView(this).apply {
                 text = value
-                textSize = if (emphasized) 18f else 16f
+                textSize = if (emphasized) 20f else 14f
                 setTextColor(palette.textPrimary)
                 setPadding(0, dp(8), 0, 0)
                 if (emphasized) setTypeface(typeface, android.graphics.Typeface.BOLD)
@@ -2000,17 +2164,15 @@ class MainActivity : Activity() {
                 shopping=prefs.getBoolean("gps_pay_shopping",true)))
         return GpsShiftEstimate.Summary(totals.elapsedMs,totals.payableMs,totals.trips)
     }
-    private fun report() {
-        base("Mój czas"); screen="report"; nav()
-        button("GENERUJ RAPORT SMS") { weeklySms("report") }
-        button("GPS · zasady rozliczania") { gpsPaySettings() }
-        button("GPS · kategorie przejazdów") { gpsTripCategories() }
-        val currentShift=active(data()) ?: rows(data(),"shifts").lastOrNull()
+    private fun gpsTimeSummary() {
+        base("GPS · Mój czas"); screen = "gpsTimeSummary"; nav()
+        val journal = data()
+        val currentShift = active(journal) ?: rows(journal, "shifts").lastOrNull()
         if(currentShift!=null) {
             val end=if(currentShift.has("end")) currentShift.optLong("end") else System.currentTimeMillis()
             val estimate=gpsEstimate(currentShift,end)
             label("GPS · szacunkowy czas przejazdów: "+duration(estimate.actualTravelMs)+
-                " · zatwierdzone do wypłaty: "+duration(estimate.payableTravelMs))
+                " · szacowany czas rozliczany: "+duration(estimate.payableTravelMs))
             label("Wykryto "+estimate.completeTrips+" zakończonych przejazdów. Szacunek GPS nie zmienia ewidencji pracy.")
             val tripEvents=try { JSONArray(prefs.getString("gps_trip_events","[]") ?: "[]") } catch(_:Exception) { JSONArray() }
             val observed=mutableListOf<GpsShiftEstimate.Event>()
@@ -2030,8 +2192,19 @@ class MainActivity : Activity() {
             label("Przejazdy poza zmianą: "+duration(review.travelOutsideMs)+
                 ". GPS nie zmienia zapisanych godzin ani wypłat.")
 
-        }
+        } else label("Brak zmiany do sprawdzenia.")
+    }
 
+    private fun shiftOptions(id:String) {
+        AlertDialog.Builder(this,dialogStyle).setTitle("Opcje zmiany")
+            .setItems(arrayOf("Edytuj czas","Usuń zmianę")) { _,which ->
+                if(which==0) confirmAction("Edytować godziny tej zmiany?") { editShift(id) }
+                else deleteShift(id)
+            }.setNegativeButton("Anuluj",null).show()
+    }
+
+    private fun report() {
+        base("Mój czas"); screen="report"; nav()
         val from=prefs.getString("reportFrom","").orEmpty(); val to=prefs.getString("reportTo","").orEmpty()
         fun setPeriod(key:String,date:LocalDate) {
             val f=if(key=="reportFrom") date.toString() else from
@@ -2047,6 +2220,15 @@ class MainActivity : Activity() {
                 pickReportDate(if(to.isBlank()) LocalDate.now() else LocalDate.parse(to)) { setPeriod("reportTo",it) }
             }
             button("Wyczyść filtry") { prefs.edit().remove("reportFrom").remove("reportTo").apply(); report() }
+            val smsRangeStart = from.takeIf { it.isNotBlank() }?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+            val smsRangeEnd = to.takeIf { it.isNotBlank() }?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+            if (smsRangeStart != null && smsRangeEnd != null && !smsRangeEnd.isBefore(smsRangeStart)) {
+                button("GENERUJ RAPORT SMS") {
+                    smsFrom = smsRangeStart
+                    smsTo = smsRangeEnd
+                    weeklySms("report")
+                }
+            }
         }
         val journal=data()
         if(journal.optJSONObject("deletedShiftUndo")!=null) button("Przywróć usuniętą zmianę") {
@@ -2066,15 +2248,28 @@ class MainActivity : Activity() {
                 orientation=LinearLayout.VERTICAL; setPadding(dp(12),dp(10),dp(12),dp(6))
                 background=background(palette.surface).apply { setStroke(dp(1), palette.border) }
             }
-            parent.addView(card,LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(8); bottomMargin=dp(12) })
+            parent.addView(card,LinearLayout.LayoutParams(-1,-2).apply { topMargin=0; bottomMargin=dp(8) })
             root=card
             try {
-                label(dateText(day)+" · "+LocalDate.parse(day).dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL,Locale.forLanguageTag("pl")))
-                label("Czas dnia: "+duration(reportWorkedMillis(items)))
+                val heading=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; gravity=Gravity.CENTER_VERTICAL; isBaselineAligned=false }
+                heading.addView(TextView(this).apply {
+                    text=dateText(day)+" · "+LocalDate.parse(day).dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT,Locale.forLanguageTag("pl"))
+                    textSize=14f; setTextColor(palette.textPrimary); setPadding(0,dp(4),0,dp(4))
+                },LinearLayout.LayoutParams(0,-2,1f))
+                heading.addView(TextView(this).apply {
+                    text=duration(reportWorkedMillis(items)); textSize=14f; setTextColor(palette.textPrimary)
+                    contentDescription="Czas dnia: "+text
+                })
+                root.addView(heading)
                 for((shift,slice) in items.sortedByDescending { it.second.start }) {
-                    button(fmt.format(Date(slice.start))+" → "+fmt.format(Date(slice.end))+"  ("+duration(workedMillis(shift,slice.start,slice.end))+")") { shiftDetails(shift.optString("id")) }
-                    button("Edytuj czas") { confirmAction("Edytować godziny tej zmiany?") { editShift(shift.optString("id")) } }
-                    button("Usuń zmianę") { deleteShift(shift.optString("id")) }
+                    val row=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; isBaselineAligned=false }
+                    row.addView(workMeterButton(this,intervalLabel(slice.start,slice.end)+" · "+duration(workedMillis(shift,slice.start,slice.end)),WorkMeterButtonRole.TEXT) {
+                        shiftDetails(shift.optString("id"))
+                    },LinearLayout.LayoutParams(0,-2,1f))
+                    row.addView(workMeterButton(this,"⋮",WorkMeterButtonRole.TEXT) { shiftOptions(shift.optString("id")) }.apply {
+                        contentDescription="Opcje zmiany"
+                    },LinearLayout.LayoutParams(dp(48),-1).apply { marginStart=dp(4) })
+                    root.addView(row,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(6) })
                 }
             } finally { root=parent }
         }
@@ -2087,23 +2282,30 @@ class MainActivity : Activity() {
         val start=shift.optLong("start"); val end=shift.optLong("end")
         label("Rozpoczęcie pracy: "+fmt.format(Date(start)))
         val stages=rows(shift,"stages").sortedBy { it.optLong("start") }
-        if(stages.isEmpty()) label("Brak zapisanej historii etapów dla tej zmiany. Nie można odtworzyć obiektów ani przejazdów.")
+        if(stages.isEmpty()) financeCard("Nieprzypisane", "Brak zapisanej historii etapów dla tej zmiany. Nie można odtworzyć obiektów ani przejazdów.",fmt.format(Date(start))+" → "+fmt.format(Date(end)),"Czas: "+duration(end-start))
         var cursor=start
         for(stage in stages) {
             val from=maxOf(start,stage.optLong("start")); val to=minOf(end,stage.optLong("end"))
             if(to<=from) continue
-            if(from>cursor) label("Brak przypisanego etapu: "+fmt.format(Date(cursor))+" → "+fmt.format(Date(from))+" · "+duration(from-cursor))
+            if(from>cursor) financeCard("Nieprzypisane",fmt.format(Date(cursor))+" → "+fmt.format(Date(from)),"Czas: "+duration(from-cursor))
             val kind=stage.optString("kind","Obiekt")
             val placeName=stage.optString("object").ifBlank {
                 objectById(stage.optString("objectId"))?.let(::objectName) ?: "Miejsce bez nazwy"
             }
             val name=when(kind) { "Obiekt" -> placeName; "Biuro" -> "Biuro · "+placeName; else -> kind }
-            if(kind=="Przejazd") label("Z: "+stage.optString("fromObject","—")+"\nDo: "+stage.optString("toObject","—"))
+
             if(kind=="Zakupy" && stage.optString("shoppingRecordId").isNotBlank()) button("Zakupy / paragony") { recordDetails("notes",stage.optString("shoppingRecordId"),screen) }
-            label(name+"\n"+fmt.format(Date(from))+" → "+fmt.format(Date(to))+"\nCzas: "+duration(to-from))
+            val lines=mutableListOf(intervalLabel(from,to),"Czas: "+duration(to-from))
+
+            if(kind==PrivateTimeRules.KIND) lines.add("Czas prywatny · poza wynagrodzeniem")
+            financeCard(name.split(" · ").take(2).joinToString(" · "),*lines.toTypedArray())
+            if(kind=="Przejazd") filters("route:"+id+":"+stage.optLong("start"),caption="Trasa przejazdu") {
+                label("Z: "+stage.optString("fromObject","—"))
+                label("Do: "+stage.optString("toObject","—"))
+            }
             cursor=maxOf(cursor,to)
         }
-        if(stages.isNotEmpty() && cursor<end) label("Brak przypisanego etapu: "+fmt.format(Date(cursor))+" → "+fmt.format(Date(end))+" · "+duration(end-cursor))
+        if(stages.isNotEmpty() && cursor<end) financeCard("Nieprzypisane",fmt.format(Date(cursor))+" → "+fmt.format(Date(end)),"Czas: "+duration(end-cursor))
         val diagnostics=WorkStageHistory.diagnose(start,end,stages.map {
             WorkStageHistory.Stage(it.optLong("start"),it.optLong("end"),it.optString("kind"),it.optString("objectId"))
         })
@@ -2115,8 +2317,7 @@ class MainActivity : Activity() {
         if(rows(shift,"stageEdits").isNotEmpty()) button("Cofnij zmianę etapów") {
             confirmAction("Przywrócić poprzednią historię etapów?") { undoStageEdit(id) }
         }
-        button("Edytuj czas") { confirmAction { editShift(id) } }
-        button("Usuń zmianę") { deleteShift(id) }
+        button("⋮ Opcje zmiany") { shiftOptions(id) }
     }
     private fun stageInterval(row: JSONObject) =
         WorkShiftIntegrity.Interval(row.optLong("start", -1L), row.optLong("end", -1L))
@@ -2272,7 +2473,7 @@ class MainActivity : Activity() {
             toast("Nie można jednoznacznie znaleźć zmiany"); return
         }
         val expected = original.getJSONObject(originalIndex).toString()
-        confirmAction("Usunąć zmianę z raportu i zestawienia godzin? Materiały, zdjęcia i notatki pozostaną.") {
+        confirmAction("Usunąć zmianę z "+fmt.format(Date(original.getJSONObject(originalIndex).optLong("start")))+"? Zniknie z raportu godzin. Materiały, zdjęcia i notatki pozostaną. Ostatnią usuniętą zmianę można przywrócić w Mój czas.",negativeLabel="Anuluj",positiveLabel="Usuń") {
             val d=data()
             val shifts=d.optJSONArray("shifts") ?: return@confirmAction
             val index=uniqueShiftIndex(shifts,id)
@@ -2528,46 +2729,84 @@ class MainActivity : Activity() {
         prefs.edit().putString("data",d.toString()).apply()
     }
     private fun chooseObject(optional:Boolean, selected:(JSONObject?)->Unit) {
-        objectPicker(optional,false,selected)
+        objectPicker(optional, false, selected = selected)
     }
-    private fun objectPicker(optional:Boolean, arrival:Boolean, selected:(JSONObject?)->Unit) {
-        val savedObjects=rows(data(),"objects")
-        val catalog=ObjectUiGateway(savedObjects.map(::objectSummary))
-        val selectableIds=catalog.selectableObjects().map { it.id }.toSet()
-        val options=savedObjects.filter { it.optString("id") in selectableIds }
+    private fun selectableObjects(d: JSONObject = data()): List<JSONObject> {
+        val saved = rows(d, "objects")
+        val ids = ObjectUiGateway(saved.map(::objectSummary)).selectableObjects().map { it.id }.toSet()
+        return saved.filter { it.optString("id") in ids }
+    }
+
+    private fun objectLastUsed(d: JSONObject = data()): Map<String,Long> {
+        val last=mutableMapOf<String,Long>()
+        for(shift in rows(d,"shifts")+listOfNotNull(active(d))) {
+            for(row in rows(shift,"stages")+shift) {
+                val id=row.optString("objectId")
+                if(id.isNotBlank()) last[id]=maxOf(last[id] ?: 0L,row.optLong("end",row.optLong("start")))
+            }
+        }
+        return last
+    }
+
+    private fun objectPicker(optional: Boolean, arrival: Boolean, startDay: Boolean = false, selected: (JSONObject?) -> Unit) {
+        val options = selectableObjects()
+        val lastUsed=objectLastUsed()
+        val pickerSessionId=active(data())?.optString("id").orEmpty()
         val layout=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(dp(20),dp(8),dp(20),dp(8)) }
         val searchRow=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; gravity=Gravity.CENTER_VERTICAL }
-        val query=EditText(ContextThemeWrapper(this,dialogStyle)).apply { hint="Szukaj miasta"; setSingleLine(); inputType=InputType.TYPE_CLASS_TEXT; imeOptions=android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH }
+        val query=EditText(ContextThemeWrapper(this,dialogStyle)).apply { hint="Szukaj"; setSingleLine(); inputType=InputType.TYPE_CLASS_TEXT; imeOptions=android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH }
+        query.contentDescription="Szukaj obiektu: miasto, firma, nazwa, ulica lub adres"
         searchRow.addView(query,LinearLayout.LayoutParams(0,dp(48),1f))
         val results=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL }
         val dialog=AlertDialog.Builder(this,dialogStyle).setTitle(if(arrival) "Dokąd przyjechałeś?" else "Wybierz obiekt")
             .setView(layout).setNegativeButton(if(arrival) "Anuluj — przejazd trwa" else "Anuluj",null).create()
         fun renderResults() {
             results.removeAllViews()
-            val matches=options.filter { ObjectSearch.matches(it.optString("city"),query.text.toString()) }.sortedWith { x,y -> ObjectSearch.compareTags(x.optString("TAG"),y.optString("TAG")) }
-            for(obj in matches) results.addView(makeButton(objectName(obj)) {
+            val search=query.text.toString()
+            val matches=options.filter { obj -> ObjectSearch.matchesFields(ObjectSearch.fieldKeys.map { obj.optString(it) },search) }
+                .sortedWith(compareByDescending<JSONObject> { obj -> ObjectSearch.relevance(ObjectSearch.fieldKeys.map { obj.optString(it) },search) }
+                    .thenByDescending { lastUsed[it.optString("id")] ?: 0L }
+                    .thenComparator { x,y -> ObjectSearch.compareTags(x.optString("TAG"),y.optString("TAG")).takeIf { it!=0 } ?: x.optString("id").compareTo(y.optString("id")) })
+            for(obj in matches) {
+                val title=listOf(obj.optString("TAG"),obj.optString("name").ifBlank { obj.optString("organization").ifBlank { obj.optString("Opis") } }).filter(String::isNotBlank).joinToString(" · ")
+                val address=listOf(obj.optString("city"),obj.optString("Adres").ifBlank { listOf(obj.optString("street"),obj.optString("building"),obj.optString("postcode")).filter(String::isNotBlank).joinToString(" ") }).filter(String::isNotBlank).joinToString(" · ")
+                results.addView(makeButton(title+if(address.isBlank()) "" else "\n"+address) {
                 val current=objectById(obj.optString("id"))?.takeUnless { it.optBoolean("archived") }
                 if(current==null) { toast("Obiekt nie jest już dostępny"); dialog.dismiss() }
                 else { dialog.dismiss(); selected(current) }
-            },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(6) })
-            if(matches.isEmpty()) results.addView(TextView(this).apply { text="Brak obiektów dla tego miasta"; setTextColor(palette.textPrimary); setPadding(0,dp(12),0,dp(12)) })
+            }.apply {
+                    gravity=Gravity.START or Gravity.CENTER_VERTICAL
+                    contentDescription=objectName(obj)
+                    setPadding(dp(12),dp(10),dp(12),dp(10))
+                },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(6) })
+            }
+            if(matches.isEmpty()) results.addView(TextView(this).apply { text="Brak obiektów dla tego wyszukiwania"; setTextColor(palette.textPrimary); setPadding(0,dp(12),0,dp(12)) })
         }
-        searchRow.addView(makeButton("⌕") { renderResults(); (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(query.windowToken,0) }.apply { contentDescription="Szukaj"; textSize=24f; background=background(palette.primary); setTextColor(palette.onPrimary) },LinearLayout.LayoutParams(dp(48),dp(48)))
         query.setOnEditorActionListener { _,action,_ -> if(action==android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) { renderResults(); true } else false }
         query.addTextChangedListener(object:TextWatcher { override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int) {} ; override fun onTextChanged(s:CharSequence?,start:Int,before:Int,count:Int) { renderResults() }; override fun afterTextChanged(s:Editable?) {} })
+        run {
+            layout.addView(workMeterButton(this, "＋ Dodaj obiekt", WorkMeterButtonRole.PRIMARY) {
+                dialog.dismiss()
+                newForm("objects")
+                startAfterObjectSave = startDay
+                startObjectSessionId=pickerSessionId
+            })
+        }
         layout.addView(searchRow)
         if(optional) layout.addView(makeButton("Bez obiektu") { dialog.dismiss(); selected(null) })
         if(arrival) {
             layout.addView(makeButton("🛒 Zakupy") { dialog.dismiss(); startShopping() })
-            layout.addView(makeButton("+ Nowy obiekt") { dialog.dismiss(); screen="home"; newForm("objects") })
         }
         layout.addView(object:ScrollView(this) {
             override fun onMeasure(widthMeasureSpec:Int,heightMeasureSpec:Int) {
                 super.onMeasure(widthMeasureSpec,View.MeasureSpec.makeMeasureSpec(dp(240),View.MeasureSpec.AT_MOST))
             }
         }.apply { addView(results) },LinearLayout.LayoutParams(-1,-2))
-        renderResults(); dialog.show()
-        dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
+        renderResults()
+        if (startDay) query.requestFocus()
+        dialog.show()
+        dialog.window?.setSoftInputMode(if (startDay) WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE
+            else WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
     }
     private fun openScreen(target:String) {
         screen=target
@@ -2582,6 +2821,7 @@ class MainActivity : Activity() {
             target=="gpsPlaceKinds" -> gpsPlaceKinds()
             target=="gpsPay" -> gpsPaySettings()
             target=="gpsCategories" -> gpsTripCategories()
+            target=="gpsTimeSummary" -> gpsTimeSummary()
             target=="language" -> language()
             target=="charts" -> charts()
             target=="queue" -> uploadQueue()
@@ -2590,6 +2830,8 @@ class MainActivity : Activity() {
             target=="about" -> about()
             target=="widgetSettings" -> widgetSettings()
             target=="wallet" -> wallet()
+            target=="walletSettings" -> walletSettings()
+            target=="objectSettings" -> objectSettings()
             target=="payment" -> paymentForm()
             target=="expenses" -> expenseList()
             target=="sms" -> weeklySms(smsParent)
@@ -2608,6 +2850,7 @@ class MainActivity : Activity() {
             target=="report" -> report()
             target.startsWith("shift:") -> shiftDetails(target.substringAfter(":"))
             target=="logs" -> logs()
+            target=="backup" -> backupScreen()
             target=="form" -> renderForm()
             target=="drive" -> driveSettings()
             else -> home()
@@ -2617,6 +2860,7 @@ class MainActivity : Activity() {
         screen="objects"
         base("Obiekty")
         nav()
+        val lastUsed=objectLastUsed()
         val items=rows(data(),"objects").map { obj ->
             ObjectListUiModel.Item(
                 id=obj.optString("id"),
@@ -2625,18 +2869,21 @@ class MainActivity : Activity() {
                 city=obj.optString("city"),
                 address=obj.optString("Adres"),
                 archived=obj.optBoolean("archived"),
-                name=obj.optString("name",obj.optString("Opis"))
+                name=obj.optString("name",obj.optString("Opis")),
+                searchFields=ObjectSearch.fieldKeys.map { obj.optString(it) },
+                lastUsed=lastUsed[obj.optString("id")] ?: 0L
             )
         }
         val panel=ObjectListPanel(
             this,
             onOpenObject={ id -> openScreen("object:"+id) },
             onAddObject={ newForm("objects") },
-            initialFilter = objectFilters ?: ObjectFilterUiState.State(archived = prefs.getBoolean("archived_objects", false)),
+            initialFilter = objectFilters ?: ObjectFilterUiState.State(archived = prefs.getBoolean("archived_objects", false),grouped=prefs.getBoolean("objects_grouped",true)),
             initialQuery = objectSearch,
             onFilterChanged = { filters, query ->
                 objectFilters = filters
                 objectSearch = query
+                prefs.edit().putBoolean("objects_grouped",filters.grouped).apply()
                 if (prefs.getBoolean("archived_objects", false) != filters.archived) {
                     prefs.edit().putBoolean("archived_objects", filters.archived).apply()
                 }
@@ -2738,8 +2985,8 @@ class MainActivity : Activity() {
             button("Wyczyść filtry") { prefs.edit().remove(filterKey).apply(); openScreen(target) }
             button(if(f.optBoolean("nameSort")) "Sortowanie: nazwa" else "Sortowanie: data, najnowsze") { f.put("nameSort",!f.optBoolean("nameSort")); refresh() }
         }
-        button("+ Dodaj") { newForm(key,objectId=objectId) }
-        if(key=="links") { button("KOLEJKA WYSYŁANIA") { uploadQueue() }; button("WYŚLIJ TERAZ") { sendQueue() } }
+        button(if(key=="links") "Dodaj zdjęcie" else "+ Dodaj") { newForm(key,objectId=objectId) }
+        if(key=="links") button("WYŚLIJ / KOLEJKA") { sendQueue() }
         if(key=="materials" && objectId.isBlank()) button("W SAMOCHODZIE") { carStock() }
         if(f.optString("from").isNotBlank() && f.optString("to").isNotBlank() && f.optString("from")>f.optString("to")) { label("Data do musi być po dacie od."); return }
         val selected=objectId.ifBlank { f.optString("objectId") }
@@ -2755,9 +3002,14 @@ class MainActivity : Activity() {
             val filtered=f.optString("from").isNotBlank() || f.optString("to").isNotBlank() ||
                 f.optString("objectId").isNotBlank() || f.optBoolean("shoppingOnly")
             val header=WorkRecordListUi.header(listKind,list.size,filtered)
-            label(header.heading)
-            label(header.description)
-            label(header.countLabel)
+            for((index,value) in listOf(header.heading,header.description,header.countLabel).withIndex()) {
+                root.addView(TextView(this).apply {
+                    text=value; textSize=if(index==0) 14f else 12f
+                    setTextColor(if(index==0) palette.textPrimary else palette.secondaryText)
+                    if(index==0) setTypeface(typeface,android.graphics.Typeface.BOLD)
+                    setPadding(dp(2),dp(3),dp(2),dp(3))
+                },LinearLayout.LayoutParams(-1,-2))
+            }
             if(list.isEmpty()) label(header.emptyMessage)
         } else if(list.isEmpty()) label("Brak wpisów dla wybranych filtrów.")
         if(key=="materials") {
@@ -2797,8 +3049,24 @@ class MainActivity : Activity() {
                 root.addView(WorkRecordListCard(this,card) {
                     recordDetails(key,r.optString("id"),target)
                 },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
-            } else button(summary+"\\n"+obj) { recordDetails(key,r.optString("id"),target) }
+            } else if(key=="notes") {
+                val content=r.optString("text").trim().ifBlank { "Notatka ze zdjęciem" }
+                val title=content.lineSequence().firstOrNull { it.isNotBlank() }?.take(80) ?: "Notatka"
+                val state=if(r.optBoolean("done")) "Wykonano" else if(r.optBoolean("aktualne")) "Aktualna" else "Notatka"
+                val preview=content.trimStart().removePrefix(title).trim().take(160)
+                val card=WorkRecordListUi.Card(title,listOf(preview,obj).filter(String::isNotBlank).joinToString("\n"),state,title+" · "+obj+" · "+date+" · "+state)
+                root.addView(WorkRecordListCard(this,card,
+                    actionLabel=if(r.optBoolean("done")) "Oznacz jako aktualną" else "Wykonano",
+                    onAction={ toggleNoteCompleted(r.optString("id"),target) }
+                ) { recordDetails(key,r.optString("id"),target) },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
+            } else button(summary+"\n"+obj) { recordDetails(key,r.optString("id"),target) }
         }
+    }
+    private fun toggleNoteCompleted(id:String,parent:String) {
+        val d=data(); val row=rows(d,"notes").find { it.optString("id")==id } ?: return
+        val done=!row.optBoolean("done")
+        row.put("done",done).put("aktualne",!done).put("completedAt",if(done) fmt.format(Date()) else "")
+        save(d,"NOTE_STATUS",id); openScreen(parent)
     }
     private var detailParent="home"
     private fun recordDetails(key:String,id:String,parent:String) {
@@ -2832,10 +3100,7 @@ class MainActivity : Activity() {
             label(r.optString("text"))
             label(if(r.optBoolean("done")) "Wykonano: "+r.optString("completedAt") else if(r.optBoolean("aktualne")) "Aktualna" else "Zwykła notatka")
             button(if(r.optBoolean("done")) "Oznacz jako aktualną" else "Wykonano") {
-                val d=data(); val row=rows(d,key).find { it.optString("id")==id } ?: return@button
-                val done=!row.optBoolean("done")
-                row.put("done",done).put("aktualne",!done).put("completedAt",if(done) fmt.format(Date()) else "")
-                save(d,"NOTE_STATUS",id); openScreen(parent)
+                toggleNoteCompleted(id,parent)
             }
         }
         showPhotos(r)
@@ -2848,15 +3113,20 @@ class MainActivity : Activity() {
                 prefs.edit().putBoolean("shareConfirmed_"+id,true).apply(); pendingUpload="share:"+id; authorizeDrive()
             }
         }
-        button("Edytuj") { screen=parent; newForm(key,id) }
-        button("Usuń wpis") {
-            confirmAction("Usunąć wpis z aplikacji? Pliki na Google Disk pozostaną.") {
+        button("⋮ Opcje wpisu") {
+            AlertDialog.Builder(this,dialogStyle).setTitle("Opcje wpisu")
+                .setItems(arrayOf("Edytuj","Usuń wpis")) { _,which ->
+                    if(which==0) { screen=parent; newForm(key,id) }
+                    else {
+            confirmAction("Usunąć wpis z aplikacji? Pliki na Google Disk pozostaną.",negativeLabel="Anuluj",positiveLabel="Usuń") {
                 val d=data(); val newer=JSONArray()
                 rows(d,key).filter { it.optString("id")!=id }.forEach { newer.put(it) }
                 d.put(key,newer)
                 if(key=="materials" && !validStock(d)) { toast("Najpierw usuń lub popraw powiązane przeniesienia z samochodu"); return@confirmAction }
                 save(d,"DELETE_"+key,id); openScreen(parent)
             }
+                    }
+                }.setNegativeButton("Anuluj",null).show()
         }
     }
     private fun openLink(link:String) {
@@ -2869,12 +3139,26 @@ class MainActivity : Activity() {
         val count = photos.length()
         if (count == 0) return
         label(PhotoPreviewUi.summary(count))
-        val columns = PhotoPreviewUi.columns(count, resources.configuration.screenWidthDp)
-        for (start in 0 until count step columns) {
+        val uploaded = PhotoQueue.uploadedFiles(r)
+        val sent = (0 until count).count { photos.optString(it) in uploaded }
+        if (sent > 0) label("Wysłano na Google Drive: $sent z $count")
+        val visible = (0 until count).mapNotNull { index ->
+            val uri = photos.optString(index)
+            val remoteId = uploaded[uri]
+            val original = try {
+                PhotoPreview.decode(this, Uri.parse(uri), 320)
+            } catch (_: Exception) {
+                null
+            }
+            val preview = original ?: remoteId?.let { PhotoPreview.cachedThumbnail(this, it) }
+            if (preview == null && remoteId != null) null
+            else PhotoTile(index, uri, preview, original != null, remoteId)
+        }
+        val columns = PhotoPreviewUi.columns(visible.size, resources.configuration.screenWidthDp)
+        for (group in visible.chunked(columns)) {
             val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             for (column in 0 until columns) {
-                val index = start + column
-                val view = if (index < count) photoTile(photos.optString(index), index, count, columns) else View(this)
+                val view = group.getOrNull(column)?.let { photoTile(it, count, columns) } ?: View(this)
                 row.addView(view, LinearLayout.LayoutParams(0, -2, 1f).apply {
                     if (column > 0) marginStart = dp(8)
                 })
@@ -2883,13 +3167,11 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun photoTile(uri: String, index: Int, count: Int, columns: Int): View {
-        val bitmap = try {
-            PhotoPreview.decode(this, Uri.parse(uri))
-        } catch (_: Exception) {
-            null
-        }
-        val state = PhotoPreviewUi.state(index, count, bitmap != null)
+    private data class PhotoTile(val index: Int, val uri: String, val bitmap: Bitmap?, val local: Boolean, val remoteId: String?)
+
+    private fun photoTile(photo: PhotoTile, count: Int, columns: Int): View {
+        val bitmap = photo.bitmap
+        val state = PhotoPreviewUi.state(photo.index, count, bitmap != null)
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = background(palette.surface).apply { setStroke(dp(1), palette.border) }
@@ -2898,9 +3180,12 @@ class MainActivity : Activity() {
                 addView(ImageView(this@MainActivity).apply {
                     scaleType = ImageView.ScaleType.FIT_CENTER
                     setImageBitmap(bitmap)
-                    contentDescription = state.accessibilityLabel
+                    contentDescription = if (photo.local) state.accessibilityLabel else state.heading + " · Otwórz w Google Drive"
                     isFocusable = true
-                    setOnClickListener { openPhoto(uri) }
+                    setOnClickListener {
+                        if (photo.local) openPhoto(photo.uri)
+                        else openLink("https://drive.google.com/open?id=" + Uri.encode(photo.remoteId.orEmpty()))
+                    }
                 }, LinearLayout.LayoutParams(-1, dp(if (columns == 2) 120 else 180)))
             } else {
                 addView(TextView(this@MainActivity).apply {
@@ -2922,6 +3207,7 @@ class MainActivity : Activity() {
 
     private fun newForm(key:String,id:String="",objectId:String="",sendAfterSave:Boolean=false) {
         quickPhotoUpload=sendAfterSave
+        startAfterObjectSave = false
         formReturn=screen; formKind=key
         draft=if(id.isNotBlank()) JSONObject(rows(data(),key).find { it.optString("id")==id }?.toString() ?: "{}")
             else if(key=="objects") {
@@ -2951,43 +3237,80 @@ class MainActivity : Activity() {
         })
         root.addView(e,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
     }
+    private fun currentObjectFix(objectId: String, received: (GpsObjectLocationRules.Capture) -> Unit) {
+        fun failure(reason:String) {
+            AlertDialog.Builder(this,dialogStyle).setTitle("Nie można ustalić lokalizacji")
+                .setMessage(reason)
+                .setPositiveButton("Spróbuj ponownie") { _,_ -> currentObjectFix(objectId,received) }
+                .setNegativeButton(if(screen=="home" && active(data())!=null) "Wybierz obiekt ręcznie" else "Anuluj") { _,_ ->
+                    if(screen=="home" && active(data())!=null) switchObject()
+                }.show()
+        }
+        if(checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)!=PackageManager.PERMISSION_GRANTED) {
+            failure("Zezwól aplikacji na dokładną lokalizację w ustawieniach Android."); return
+        }
+        val manager=getSystemService(LocationManager::class.java) ?: return
+        val provider=try { listOf(LocationManager.GPS_PROVIDER,LocationManager.NETWORK_PROVIDER)
+            .firstOrNull { manager.isProviderEnabled(it) } } catch (_:RuntimeException) { null }
+        if(provider==null) { failure("Włącz lokalizację w telefonie."); return }
+        cancelStartAttempt?.invoke()
+        val signal=android.os.CancellationSignal()
+        val timeout=Runnable { if(!signal.isCanceled) { signal.cancel(); failure("Brak świeżego pomiaru GPS. Dane obiektu nie zostały zmienione.") } }
+        cancelStartAttempt={ signal.cancel(); ticker.removeCallbacks(timeout) }
+        ticker.postDelayed(timeout,12_000)
+        toast("Pobieranie aktualnej lokalizacji GPS…")
+        try {
+            androidx.core.location.LocationManagerCompat.getCurrentLocation(manager,provider,signal,
+                androidx.core.content.ContextCompat.getMainExecutor(this)) { loc ->
+                if(!signal.isCanceled) {
+                    signal.cancel(); ticker.removeCallbacks(timeout); cancelStartAttempt=null
+                    val capture=loc?.let { GpsObjectLocationRules.Capture(objectId,it.latitude,it.longitude,it.accuracy.toDouble(),it.time) }
+                    if(capture==null || !GpsObjectLocationRules.valid(capture,System.currentTimeMillis()))
+                        failure("Pomiar GPS jest niedokładny lub nieaktualny. Dane obiektu nie zostały zmienione.")
+                    else received(capture)
+                }
+            }
+        } catch (_:RuntimeException) { signal.cancel(); ticker.removeCallbacks(timeout); failure("Nie udało się pobrać lokalizacji GPS.") }
+    }
+    private fun canSaveHomeGps(a: JSONObject?): Boolean = a!=null &&
+        WorkPlaceRules.isOnSiteStage(a.optString("kind")) &&
+        selectableObjects().count { it.optString("id")==a.optString("objectId") }==1
+
+    private fun saveHomeGps() {
+        val running=active(data()) ?: return
+        if(!canSaveHomeGps(running)) return
+        val objectId=running.optString("objectId")
+        val sessionId=running.optString("id")
+        currentObjectFix(objectId) { capture ->
+            fun persist() {
+                val now=active(data())
+                if(!canSaveHomeGps(now) || now?.optString("id")!=sessionId || now.optString("objectId")!=objectId ||
+                    !GpsObjectLocationRules.valid(capture,System.currentTimeMillis())) {
+                    toast("Etap lub pomiar zmienił się. Pobierz GPS ponownie."); return
+                }
+                if(prefs.edit().putString("gps_object_"+objectId,JSONObject()
+                    .put("lat",capture.latitude).put("lon",capture.longitude).put("accuracy",capture.accuracyM)
+                    .put("time",capture.fixTimeMs).put("radius",GpsObjectLocationRules.RADIUS_M).toString()).commit()) {
+                    toast("Zapisano GPS obiektu"); home()
+                } else toast("Nie udało się zapisać GPS")
+            }
+            if(prefs.contains("gps_object_"+objectId)) AlertDialog.Builder(this,dialogStyle)
+                .setTitle("Zastąpić GPS obiektu?").setNegativeButton("Nie",null)
+                .setPositiveButton("Tak") { _, _ -> persist() }.show()
+            else persist()
+        }
+    }
     private fun captureObjectGps() {
         if(formKind!="objects") return
         val targetId=draft.optString("id")
-        val manager=getSystemService(LOCATION_SERVICE) as LocationManager
-        if(checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)!=PackageManager.PERMISSION_GRANTED &&
-            checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION)!=PackageManager.PERMISSION_GRANTED) {
-            toast("Zezwól aplikacji na lokalizację w ustawieniach Android")
-            return
-        }
-        try {
-            val provider=when {
-                manager.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
-                manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
-                else -> null
+        currentObjectFix(targetId) { capture ->
+            if(formKind=="objects" && draft.optString("id")==targetId && screen=="form") {
+                draft.put("_gps_capture",JSONObject().put("objectId",targetId).put("lat",capture.latitude)
+                    .put("lon",capture.longitude).put("accuracy",capture.accuracyM).put("time",capture.fixTimeMs))
+                prefs.edit().putString("draft_objects",draft.toString()).apply()
+                toast("Lokalizacja pobrana. Naciśnij Zapisz, aby przypisać ją do obiektu."); renderForm()
             }
-            if(provider==null) { toast("Włącz lokalizację w telefonie");return }
-            toast("Pobieranie aktualnej lokalizacji GPS…")
-            manager.requestSingleUpdate(provider,object:LocationListener {
-                override fun onLocationChanged(loc:Location) {
-                    if(formKind!="objects" || draft.optString("id")!=targetId || screen!="form") return
-                    val now=System.currentTimeMillis()
-                    val capture=GpsObjectLocationRules.Capture(targetId,loc.latitude,loc.longitude,
-                        loc.accuracy.toDouble(),loc.time)
-                    if(!GpsObjectLocationRules.valid(capture,now)) {
-                        toast("Pomiar GPS niedokładny lub nieaktualny. Spróbuj ponownie.")
-                        return
-                    }
-                    draft.put("_gps_capture",JSONObject()
-                        .put("objectId",targetId).put("lat",loc.latitude).put("lon",loc.longitude)
-                        .put("accuracy",loc.accuracy.toDouble()).put("time",loc.time))
-                    prefs.edit().putString("draft_objects",draft.toString()).apply()
-                    toast("Lokalizacja pobrana. Naciśnij Zapisz, aby przypisać ją do obiektu.")
-                    renderForm()
-                }
-            },Looper.getMainLooper())
-        } catch(_:SecurityException) { toast("Brak uprawnienia do lokalizacji GPS") }
-        catch(_:RuntimeException) { toast("Nie udało się pobrać lokalizacji GPS") }
+        }
     }
     private fun renderForm() {
         if(formKind=="expenses" && !walletUnlocked) { settings(); confirmPin { walletUnlocked=true; renderForm() }; return }
@@ -3087,7 +3410,7 @@ class MainActivity : Activity() {
             }
         }
         if(formKind=="materials" && rows(data(),"materials").none { it.optString("id")==draft.optString("id") }) button("+ DODAJ MATERIAŁ") { addBatchLine() }
-        button(if(quickPhotoUpload) "Zapisz i wyślij zdjęcia" else "Zapisz") { saveForm() }
+        button("Zapisz") { saveForm() }
         if(formKind=="materials") label(WorkRecordFormUi.pendingBatch(rows(draft,"batch").size))
         if(formKind=="materials") for((i,row) in rows(draft,"batch").withIndex()) {
             label(materialLine(row))
@@ -3176,17 +3499,22 @@ class MainActivity : Activity() {
         val list=arr(d,formKind); val index=(0 until list.length()).find { list.optJSONObject(it)?.optString("id")==draft.optString("id") }
         if(index==null) list.put(draft) else list.put(index,draft)
         save(d,"SAVE_"+formKind,draft.optString("id"))
+        if(formKind in listOf("materials","notes","links")) toast("Zapisano lokalnie")
         if(geoCapture!=null) {
             prefs.edit().putString("gps_object_"+objectId,JSONObject()
-                .put("lat",geoCapture.latitude).put("lon",geoCapture.longitude)
+                .put("lat",geoCapture.latitude).put("lon",geoCapture.longitude).put("accuracy",geoCapture.accuracyM).put("time",geoCapture.fixTimeMs)
                 .put("radius",GpsObjectLocationRules.RADIUS_M).toString()).commit()
         }
         PhotoQueue.markPending(this,formKind,draft)
-        val send=quickPhotoUpload && formKind=="links" && arr(draft,"photos").length()>0
-        val reference=formKind+":"+draft.optString("id")
         quickPhotoUpload=false
-        prefs.edit().remove("draft_"+formKind).apply(); openScreen(formReturn)
-        if(send) { pendingUpload=reference; authorizeDrive() }
+        prefs.edit().remove("draft_"+formKind).apply()
+        if (formKind == "objects" && startAfterObjectSave) {
+            startAfterObjectSave = false
+            home()
+            startOnObject(draft,startObjectSessionId)
+            return
+        }
+        openScreen(formReturn)
     }
     private fun pickPhotos() {
         prefs.edit().putString("draft_"+formKind,draft.toString()).apply()
@@ -3358,15 +3686,25 @@ class MainActivity : Activity() {
         }
         if(range==null) { label("Data do nie może być wcześniejsza niż Data od."); return }
         label("Wybrany okres: "+dateText(range.first.toString())+" — "+dateText(range.second.toString()))
-        val shifts=(rows(data(),"shifts")+listOfNotNull(active(data()))).map { sh ->
-            val end=sh.optLong("end",System.currentTimeMillis())
-            val stages=rows(sh,"stages").toMutableList()
-            if(!sh.has("end")) stages.add(JSONObject().put("start",sh.optLong("stageStart",sh.optLong("start"))).put("end",end).put("kind",sh.optString("kind","Obiekt")).put("objectId",sh.optString("objectId")))
-            TimeAnalytics.Shift(sh.optLong("start"),end,stages.map { st -> TimeAnalytics.Stage(st.optLong("start"),st.optLong("end"),when(st.optString("kind")) { PrivateTimeRules.KIND -> TimeAnalytics.PERSONAL; "Biuro" -> TimeAnalytics.OFFICE; "Obiekt" -> if(st.optString("objectId").isNotBlank() || st.optString("object").isNotBlank()) 0 else 3; "Zakupy" -> 1; "Przejazd" -> 2; else -> 3 }) })
-        }
+        val shifts=TimeAnalyticsSnapshot.shifts(data(),System.currentTimeMillis())
         val result=TimeAnalytics.calculate(shifts,range.first,range.second,ZoneId.systemDefault())
-        label("Statystyka czasu pracy")
-        root.addView(TimeChart(this,result,false),LinearLayout.LayoutParams(-1,dp(230)))
+        financeCard("Czas pracy w wybranym okresie", "Łączny czas: "+duration(result.workMillis))
+        if(result.personalMillis>0) label("Prywatnie (poza wynagrodzeniem): "+duration(result.personalMillis))
+        label("Czas według godzin")
+        TimeChartCategory.entries.take(TimeAnalytics.WORK_CATEGORY_COUNT).forEach { category ->
+            if(result.totals[category.ordinal]>0 || category in listOf(TimeChartCategory.ON_SITE,TimeChartCategory.TRAVEL,TimeChartCategory.SHOPPING)) {
+                val legend=TextView(this).apply { text="● "+category.label; setTextColor(palette.textPrimary); textSize=14f; setPadding(0,dp(4),0,dp(4)) }
+                val colored=android.text.SpannableString(legend.text)
+                colored.setSpan(android.text.style.ForegroundColorSpan(category.color),0,1,android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                legend.text=colored; root.addView(legend)
+            }
+        }
+        root.addView(TimeChart(this,result,false) { hour ->
+            val title="%02d:00–%02d:00".format(hour,hour+1)
+            val lines=result.hours[hour].mapIndexed { index,ms -> TimeChartCategory.entries[index].label+": "+(ms/60_000)+" min" }
+            AlertDialog.Builder(this,dialogStyle).setTitle(title).setMessage(lines.joinToString("\n"))
+                .setPositiveButton("Zamknij",null).show()
+        },LinearLayout.LayoutParams(-1,dp(230)))
         label("Suma czasu w każdej godzinie doby, ze wszystkich dni wybranego okresu.")
         filters("chartHours",caption="Szczegóły godzinowe") {
             result.hours.forEachIndexed { hour,values -> if(values.sum()>0) label("%02d:00".format(hour)+" · "+values.mapIndexed { i,n -> TimeChartCategory.entries[i].label+": "+duration(n) }.joinToString(" · ")) }
@@ -3398,7 +3736,7 @@ class MainActivity : Activity() {
             label("Poprzedni okres: "+dateText(previous.first.toString())+" — "+dateText(previous.second.toString()))
             label("Czas pracy: "+duration(sum)+" · wcześniej: "+duration(comparison.workMillis))
             result.totals.forEachIndexed { category, millis ->
-                label(TimeChart.names[category]+": "+duration(millis)+" · wcześniej: "+
+                label(TimeChartCategory.entries[category].label+": "+duration(millis)+" · wcześniej: "+
                     duration(comparison.totals[category]))
             }
         }
@@ -3440,8 +3778,13 @@ class MainActivity : Activity() {
     }
     private fun uploadQueue() {
         base("Kolejka wysyłania");screen="queue";nav()
-        button("WYŚLIJ TERAZ") { sendQueue() }
-        button("PONÓW WYSYŁANIE") { sendQueue() }
+        button("Wyślij / Kolejka") { sendQueue() }
+        if(!prefs.getBoolean("driveConnected",false)) button("Połącz Google Drive") { pendingUpload="queue"; authorizeDrive() }
+        val statuses=listOf("links","materials","notes","expenses").flatMap { key -> rows(data(),key).map { PhotoQueue.status(this,key,it) } }
+        label("Wysłano: ${statuses.sumOf { it.sent }} · Do wysłania: ${statuses.sumOf { it.pending }} · Błędy: ${statuses.sumOf { it.failed }}")
+        val network=getSystemService(android.net.ConnectivityManager::class.java)
+        val internet=network?.getNetworkCapabilities(network.activeNetwork)?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED)==true
+        label(if(internet) "Internet dostępny" else "Brak potwierdzonego dostępu do internetu — zdjęcia pozostają lokalnie.")
         var count=0
         for(key in listOf("links","materials","notes","expenses")) for(row in rows(data(),key)) {
             if(arr(row,"photos").length()==0) continue
@@ -3455,8 +3798,9 @@ class MainActivity : Activity() {
         label("Zdjęcia pozostają na telefonie. Kolejka jest wznawiana po odzyskaniu internetu.")
     }
     private fun sendQueue() {
-        if(prefs.getBoolean("driveConnected",false)) { PhotoQueue.enqueueAll(this);uploadQueue() }
-        else { pendingUpload="queue";authorizeDrive() }
+        if(prefs.getBoolean("driveConnected",false)) PhotoQueue.enqueueAll(this)
+        uploadQueue()
+        if(!prefs.getBoolean("driveConnected",false)) toast("Połącz Google Drive, aby wysłać zdjęcia")
     }
     private fun shareFolder(id:String,token:String) {
         if(!prefs.getBoolean("shareConfirmed_"+id,false)) return
@@ -3569,6 +3913,7 @@ class MainActivity : Activity() {
         }
         if(!validStock(d)) { toast("Niewystarczający stan w samochodzie lub zmiana powiązanego materiału");return }
         save(d,"MATERIALS_SAVE",saved.joinToString { it.toString() })
+        toast("Zapisano lokalnie")
         saved.forEach { PhotoQueue.markPending(this,"materials",it) }
         prefs.edit().remove("draft_materials").apply();openScreen(formReturn)
     }
@@ -3605,3 +3950,4 @@ class MainActivity : Activity() {
     }
 
 }
+
