@@ -89,6 +89,10 @@ class BackupSettingsPanel(
 
         val local = status.local
         text("Kopia zapasowa", heading = true)
+        text("ZIP zawiera obiekty z GPS, zdjęcia, dziennik i diagnostykę. Osobne pliki obiektów i diagnostyki zapisują się także lokalnie oraz przy kopii Google Drive.")
+        button("Pliki obiektów, diagnostyka i folder telefonu",!state.busy) {
+            context.startActivity(android.content.Intent(context,ObjectTransferActivity::class.java))
+        }
         text(local.lastSuccess?.let { "Ostatnia kopia lokalna: ${date.format(it)}" }
             ?: "Brak zapisanej kopii lokalnej.")
         local.error?.let { text(it) }
@@ -234,6 +238,12 @@ class BackupSettingsPanel(
             appearance.input(this)
         }
         content.addView(interval, row())
+        text("Godzina codziennej kopii · Europe/Warsaw (Android może opóźnić wykonanie)")
+        val evening=EditText(context).apply {
+            inputType=InputType.TYPE_CLASS_NUMBER;setText(current.eveningHour.toString());isEnabled=!busy
+            contentDescription="Godzina codziennej kopii";appearance.text(this);appearance.input(this)
+        }
+        content.addView(evening,row())
         text("Liczba zachowanych kopii (1–30)")
         val retention = EditText(context).apply {
             inputType = InputType.TYPE_CLASS_NUMBER
@@ -247,12 +257,14 @@ class BackupSettingsPanel(
         content.addView(retention, row())
         button("Zapisz harmonogram", !busy) {
             val count = retention.text.toString().toIntOrNull()
+            val selectedHour=evening.text.toString().toIntOrNull()
+            if(selectedHour==null || selectedHour !in 0..23) { evening.error="Wpisz godzinę 0–23";return@button }
             if (count == null || count !in 1..30) {
                 retention.error = "Wpisz liczbę od 1 do 30."
                 retention.requestFocus()
             } else {
                 onAction(Action.UpdateSchedule(LocalBackups.Schedule(enabled.isChecked,
-                    hours[interval.selectedItemPosition], count)))
+                    hours[interval.selectedItemPosition], count,selectedHour)))
             }
         }
     }

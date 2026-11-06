@@ -15,7 +15,7 @@ object PhotoArchivePackage {
 
     fun write(
         json: String, photoUris: Iterable<String>,
-        openPhoto: (String) -> InputStream, destination: OutputStream
+        openPhoto: (String) -> InputStream, destination: OutputStream, attachments: Map<String,ByteArray> = emptyMap()
     ): WorkMeterArchive.Inspection {
         require(JournalValidator.inspect(json).canRestore) { "Invalid journal" }
         val journal = json.toByteArray(Charsets.UTF_8)
@@ -29,6 +29,8 @@ object PhotoArchivePackage {
         for (item in entries) {
             sources.add(WorkMeterArchive.Source(item.path) { openPhoto(item.uri) })
         }
+        require(attachments.keys.all { it in BackupCompanions.paths })
+        attachments.forEach { (path,bytes) -> sources.add(WorkMeterArchive.Source(path) { ByteArrayInputStream(bytes) }) }
         return WorkMeterArchive.write(destination, sources)
     }
 

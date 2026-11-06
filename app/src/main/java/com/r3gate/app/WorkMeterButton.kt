@@ -20,7 +20,10 @@ internal fun workMeterButton(
     return Button(context).apply {
         text = label
         styleWorkMeterButton(this, role)
-        setOnClickListener { onClick() }
+        setOnClickListener {
+            WorkMeterDiagnostics.record(context,"UI_BUTTON",org.json.JSONObject().put("label",label.take(120)))
+            onClick()
+        }
     }
 }
 

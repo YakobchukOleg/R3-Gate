@@ -128,6 +128,7 @@ class BackupSettingsController(
             }
             is BackupSettingsPanel.Action.UpdateSchedule -> task({
                 LocalBackups.updateSchedule(application, action.schedule).result.get(5, TimeUnit.SECONDS)
+                DriveBackupWorker.schedule(application).result.get(5,TimeUnit.SECONDS)
             }) { load("Zapisano harmonogram.") }
         }
     }
@@ -186,16 +187,18 @@ class BackupSettingsController(
                     if (session != null) {
                         try {
                             session.commit(application, confirmed = true)
+                            session.attachmentWarning
                         } catch (failure: Exception) {
                             runCatching { session.discard() }
                             throw failure
                         }
                     } else {
                         JournalRestoreStore.recover(application, requireNotNull(previous), confirmed = true)
+                        null
                     }
-                }) {
+                }) { warning ->
                     host?.restored()
-                    if (!closed) load("Przywrócono dane.")
+                    if (!closed) load(warning ?: "Przywrócono dane.")
                 }
             }
         }, cancelled = {

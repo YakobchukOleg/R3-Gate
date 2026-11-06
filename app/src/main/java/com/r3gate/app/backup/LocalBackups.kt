@@ -9,10 +9,11 @@ import java.time.Instant
 
 /** Storage and schedule API for the settings screen. File I/O must run off the UI thread. */
 object LocalBackups {
-    data class Schedule(val enabled: Boolean, val intervalHours: Int = 24, val retention: Int = 7) {
+    data class Schedule(val enabled: Boolean, val intervalHours: Int = 24, val retention: Int = 7, val eveningHour:Int = 21) {
         init {
             require(intervalHours in 1..168)
             require(retention in 1..30)
+            require(eveningHour in 0..23)
         }
     }
 
@@ -24,7 +25,8 @@ object LocalBackups {
         val schedule = Schedule(
             preferences.getBoolean(LocalBackupWorker.ENABLED, false),
             preferences.getInt(LocalBackupWorker.INTERVAL_HOURS, 24).coerceIn(1, 168),
-            preferences.getInt(LocalBackupWorker.RETENTION, 7).coerceIn(1, 30)
+            preferences.getInt(LocalBackupWorker.RETENTION, 7).coerceIn(1, 30),
+            preferences.getInt(EveningBackup.HOUR,21).coerceIn(0,23)
         )
         val latest = copies(context).firstOrNull { it.name == preferences.getString(LocalBackupWorker.LAST_FILE, null) }
         val timestamp = latest?.let {
@@ -38,7 +40,7 @@ object LocalBackups {
     fun updateSchedule(context: Context, schedule: Schedule): androidx.work.Operation {
         check(settings(context).edit().putBoolean(LocalBackupWorker.ENABLED, schedule.enabled)
             .putInt(LocalBackupWorker.INTERVAL_HOURS, schedule.intervalHours)
-            .putInt(LocalBackupWorker.RETENTION, schedule.retention).commit()) {
+            .putInt(LocalBackupWorker.RETENTION, schedule.retention).putInt(EveningBackup.HOUR,schedule.eveningHour).commit()) {
             "Cannot save local backup settings"
         }
         return LocalBackupWorker.schedule(context)
@@ -51,8 +53,10 @@ object LocalBackups {
 
     internal fun createNow(context: Context, checkActive: () -> Unit): Copy = synchronized(LocalBackupStore) {
         val preferences = settings(context)
-        val retention = preferences.getInt(LocalBackupWorker.RETENTION, 7).coerceIn(1, 30)
+        val retention = preferences.getInt(LocalBackupWorker.RETENTION, 7).coerceIn(1, 30),
+            preferences.getInt(EveningBackup.HOUR,21).coerceIn(0,23)
         val archive = BackupSnapshot.create(context, directory(context), retention, checkActive)
+        BackupDirectoryExport.copy(context,archive)
         val saved = preferences.edit().putString(LocalBackupWorker.LAST_SUCCESS, Instant.now().toString())
             .putString(LocalBackupWorker.LAST_FILE, archive.name).remove(LocalBackupWorker.STATUS_ERROR).commit()
         if (!saved) throw IOException("Cannot record the latest local backup")

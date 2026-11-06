@@ -25,7 +25,8 @@ internal object LocalBackupStore {
         openPhoto: (String) -> InputStream,
         retain: Int,
         now: Instant = Instant.now(),
-        beforePublish: () -> Unit = {}
+        beforePublish: () -> Unit = {},
+        attachments: Map<String,ByteArray> = emptyMap()
     ): File {
         require(retain in 1..30)
         require(directory.isDirectory || directory.mkdirs()) { "Private backup directory unavailable" }
@@ -40,7 +41,7 @@ internal object LocalBackupStore {
                     override fun close() = flush()
                     override fun write(bytes: ByteArray, offset: Int, length: Int) = out.write(bytes, offset, length)
                 }
-                PhotoArchivePackage.write(journal, references, openPhoto, flushOnly)
+                PhotoArchivePackage.write(journal, references, openPhoto, flushOnly, attachments)
                 output.fd.sync()
             }
             val open = { staging.inputStream() }
@@ -49,6 +50,7 @@ internal object LocalBackupStore {
             beforePublish()
             Files.move(staging.toPath(), destination.toPath(), ATOMIC_MOVE)
             list(directory).filterNot { it == destination }.drop(retain - 1).forEach { it.delete() }
+            BackupCompanions.publish(destination)
             return destination
         } finally {
             staging.delete()

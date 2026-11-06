@@ -121,7 +121,9 @@ object CoreGpsStageBridge {
     fun refresh(context: Context) {
         val prefs = context.getSharedPreferences("r3_gate", Context.MODE_PRIVATE)
         val data = try { JSONObject(prefs.getString("data", "{}") ?: "{}") } catch (_: Exception) { return }
-        val active = data.optJSONObject("active") ?: run { dismiss(context); return }
+        val active = data.optJSONObject("active") ?: run {
+            WorkMeterDiagnostics.record(context,"PROPOSAL_BLOCKED_NO_DAY",throttleMs=60_000);dismiss(context); return
+        }
         val nowMs = System.currentTimeMillis()
         val shiftStart = active.optLong("start")
         val stageStart = maxOf(shiftStart, active.optLong("stageStart", shiftStart))
@@ -134,6 +136,8 @@ object CoreGpsStageBridge {
             return
         }
         val canOfferStage = CoreGpsSessionGate.isEligible(session)
+        WorkMeterDiagnostics.record(context,"PROPOSAL_SESSION",JSONObject().put("eligible",canOfferStage)
+            .put("stage",active.optString("kind")).put("stageStart",stageStart).put("now",nowMs),30_000)
         val objects = data.optJSONArray("objects") ?: JSONArray()
         val activeIds = ObjectIntegrityRules.assignableIds((0 until objects.length()).mapNotNull { i ->
             objects.optJSONObject(i)?.let {
@@ -148,6 +152,8 @@ object CoreGpsStageBridge {
             CoreGpsJournalAdapter.convert(raw,shift,activeIds,stageStart,nowMs)
                 .filter { it.eventId !in travelIds && hasContinuousCoverage(context,it.timestampMs,nowMs) }
         else emptyList()
+        WorkMeterDiagnostics.record(context,"PROPOSAL_FILTER",JSONObject().put("raw",raw.size).put("travel",travel.size)
+            .put("eligibleIncoming",incoming.size).put("eligibleObjects",activeIds.size),30_000)
         val evidence = raw + travel
         val observations = CoreGpsJournalAdapter.observations(evidence,shiftStart,nowMs).toMutableList()
         val visit = CoreGpsJournalAdapter.visitFromEvidence(evidence,activeIds,shiftStart,nowMs)
@@ -165,7 +171,9 @@ object CoreGpsStageBridge {
         val choice = CoreGpsStageReviewQueue.choose(
             updated.state.events, shift, activeIds, stageStart, nowMs
         )
-        val event = choice.event ?: run { dismiss(context); return }
+        val event = choice.event ?: run {
+            WorkMeterDiagnostics.record(context,"PROPOSAL_QUEUE_NO_CANDIDATE",throttleMs=30_000);dismiss(context); return
+        }
         if (!hasContinuousCoverage(context,event.timestampMs,nowMs) ||
             !CoreGpsProposalEvidenceGuard.matches(event, raw)) {
             dismiss(context)
@@ -174,12 +182,14 @@ object CoreGpsStageBridge {
         val notifier = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= 33 &&
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            WorkMeterDiagnostics.record(context,"PROPOSAL_BLOCKED_NOTIFICATION_PERMISSION",throttleMs=30_000)
             dismiss(context)
             return
         }
         notifier.createNotificationChannel(NotificationChannel(CHANNEL, "WorkMeter · etapy GPS", NotificationManager.IMPORTANCE_HIGH))
         if (!notifier.areNotificationsEnabled() ||
             notifier.getNotificationChannel(CHANNEL)?.importance == NotificationManager.IMPORTANCE_NONE) {
+            WorkMeterDiagnostics.record(context,"PROPOSAL_BLOCKED_NOTIFICATION_CHANNEL",throttleMs=30_000)
             dismiss(context)
             return
         }
@@ -217,6 +227,8 @@ object CoreGpsStageBridge {
             notifier.cancel(previous, 4502)
         try {
             notifier.notify(event.eventId, 4502, notification)
+            WorkMeterDiagnostics.record(context,"GPS_PROPOSAL_NOTIFICATION",JSONObject().put("eventId",event.eventId)
+                .put("eventTime",event.timestampMs).put("notifiedAt",System.currentTimeMillis()))
         } catch (_: RuntimeException) {
             // Don't mark as delivered: a later refresh may retry.
             return

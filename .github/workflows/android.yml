@@ -80,15 +80,16 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs app/build/outputs/apk/debug/app-debug.apk | tee apk-signature.txt
           cat signing-report.txt
           grep -qi 'Signer #1 certificate SHA-256 digest: 1491132babc034e3bbe89c34a2f94f91616df2b0677fa63a615fde57c50aeaf1' apk-signature.txt
+          cp app/build/outputs/apk/debug/app-debug.apk WorkMeter_SOLO_v2.7.2.apk
           git rev-parse HEAD > tested-sha.txt
           sha256sum app/build/outputs/apk/debug/app-debug.apk > apk-checksum.txt
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging app/build/outputs/apk/debug/app-debug.apk > apk-package-info.txt
       - uses: actions/upload-artifact@v4
         if: github.head_ref != 'feature/gps-watchdog-motion-geofence'
         with:
-          name: R3-Gate-APK
+          name: WorkMeter_SOLO_v2.7.2
           path: |
-            app/build/outputs/apk/debug/app-debug.apk
+            WorkMeter_SOLO_v2.7.2.apk
             signing-report.txt
             apk-signature.txt
             tested-sha.txt

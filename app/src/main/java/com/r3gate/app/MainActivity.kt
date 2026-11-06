@@ -103,6 +103,7 @@ class MainActivity : Activity() {
             setGpsEnabled(false)
         }
         migrateWallet()
+        com.r3gate.app.backup.EveningBackup.initialize(this)
         DriveBackupWorker.schedule(this)
         expandedFilters.addAll(savedInstanceState?.getStringArrayList("expandedFilters") ?: emptyList())
         currentSection=savedInstanceState?.getString("currentSection") ?: "Obiekty"
@@ -181,6 +182,7 @@ class MainActivity : Activity() {
     }
     private fun handleLaunch() {
         val action=intent?.getStringExtra("widget_action")
+        if(action!=null) WorkMeterDiagnostics.record(this,"WIDGET_ACTION",JSONObject().put("action",action))
         intent?.removeExtra("widget_action")
         val gpsResumeAlert=intent?.getBooleanExtra("gps_resume_alert",false)==true
         intent?.removeExtra("gps_resume_alert")
@@ -364,6 +366,10 @@ class MainActivity : Activity() {
     private fun data(): JSONObject = try { JSONObject(prefs.getString("data","{}")!!) } catch (_: Exception) { JSONObject() }
     private fun arr(d:JSONObject,key:String):JSONArray = d.optJSONArray(key) ?: JSONArray().also { d.put(key,it) }
     private fun save(d:JSONObject, kind:String, detail:String) {
+        if(kind in listOf("START","STOP","STAGE","ARRIVAL","PRIVATE_START","PRIVATE_END"))
+            WorkMeterDiagnostics.record(this,"MANUAL_STAGE_COMMIT",JSONObject().put("action",kind)
+                .put("stage",d.optJSONObject("active")?.optString("kind"))
+                .put("objectId",d.optJSONObject("active")?.optString("objectId")))
         val log=arr(d,"logs"); log.put(JSONObject().put("at",fmt.format(Date())).put("type",kind).put("detail",detail)); d.put("logs",log)
         prefs.edit().putString("data",d.toString()).apply(); GateWidget.refresh(this)
         if(kind=="START" || kind=="STOP" || kind=="STAGE" || kind=="ARRIVAL")
@@ -439,7 +445,10 @@ class MainActivity : Activity() {
     private fun confirmWorkday(start: Boolean, action: () -> Unit) {
         AlertDialog.Builder(this,dialogStyle)
             .setTitle(if(start) "Rozpocząć dzień pracy?" else "Zakończyć dzień pracy?")
-            .setNegativeButton("Nie",null).setPositiveButton("Tak") { _, _ -> action() }.show()
+            .setNegativeButton("Nie") { _,_ -> WorkMeterDiagnostics.record(this,"DAY_CONFIRMATION",JSONObject().put("start",start).put("answer",false)) }
+            .setPositiveButton("Tak") { _, _ ->
+                WorkMeterDiagnostics.record(this,"DAY_CONFIRMATION",JSONObject().put("start",start).put("answer",true)); action()
+            }.show()
     }
     private fun startShift() {
         if(active(data())!=null) { toast("Dzień pracy już rozpoczęty"); return }
@@ -1313,6 +1322,8 @@ class MainActivity : Activity() {
     }
 
     private fun setGpsEnabled(value:Boolean) {
+        WorkMeterDiagnostics.record(this,"GPS_ENABLE_REQUEST",JSONObject().put("requested",value)
+            .put("workdayOpen",GpsWorkdaySession.workdayOpen(prefs)).put("consent",GpsWorkdaySession.hasConsent(prefs)))
         if (value && (!GpsWorkdaySession.workdayOpen(prefs) || !GpsWorkdaySession.hasConsent(prefs) ||
             active(data())?.optString("kind") == PrivateTimeRules.KIND)) return
         if(!value) {
@@ -1500,7 +1511,7 @@ class MainActivity : Activity() {
                 .setPositiveButton("Zamknij",null).show()
         }
         button("Typy geostref: obiekt / sklep / biuro") { gpsPlaceKinds() }
-        val adaptive=prefs.getBoolean("gps_adaptive_sampling",false)
+        val adaptive=prefs.getBoolean("gps_adaptive_sampling",true)
         button("Oszczędzanie GPS z akcelerometrem: "+if(adaptive) "WŁĄCZONE" else "WYŁĄCZONE") {
             prefs.edit().putBoolean("gps_adaptive_sampling",!adaptive).apply()
             if(prefs.getBoolean("gps_enabled",false)) {
@@ -1509,7 +1520,7 @@ class MainActivity : Activity() {
             }
             gpsScreen()
         }
-        label("Eksperymentalne: po 5 minutach bez wykrytego ruchu GPS co 90 sekund zamiast co 30 sekund. Nie wyłącza GPS; ruch telefonu nie potwierdza przejazdu.")
+        label("Czujniki ruchu uruchamiają kontrolę GPS co 3 sekundy przez maksymalnie minutę. W potwierdzonym przejeździe GPS co 10 sekund. Ruch telefonu sam nie zmienia etapu.")
 
         val enabled = prefs.getBoolean("gps_enabled",false)
         button(if(GpsWorkdaySession.hasConsent(prefs)) "GPS: dozwolony w pracy — wyłącz" else "GPS: wyłączony — włącz") {
@@ -1980,6 +1991,7 @@ class MainActivity : Activity() {
     }
     private fun objectSettings() {
         base("Ustawienia obiektów"); screen="objectSettings"; nav()
+        button("Eksport i import obiektów z GPS") { startActivity(Intent(this,com.r3gate.app.backup.ObjectTransferActivity::class.java)) }
         val state=objectFilters ?: ObjectFilterUiState.State(archived=prefs.getBoolean("archived_objects",false),grouped=prefs.getBoolean("objects_grouped",true))
         button("Grupowanie według miast: "+if(state.grouped) "Tak" else "Nie") {
             objectFilters=ObjectFilterUiState.toggleGrouping(state)
@@ -2581,11 +2593,12 @@ class MainActivity : Activity() {
 
     private fun logs() {
         base("Logi i kopia zapasowa"); screen = "logs"; nav()
+        button("Pliki obiektów, diagnostyka i folder telefonu") { startActivity(Intent(this,com.r3gate.app.backup.ObjectTransferActivity::class.java)) }
         button("Kopia zapasowa i synchronizacja") { backupSettings() }
-        label("Kopia JSON zawiera dane i odnośniki. Zachowaj również zdjęcia na Google Disk; zdjęcia lokalne nie są dołączane do JSON.")
+        label("Pełna kopia ZIP zawiera zdjęcia, GPS obiektów i diagnostykę. Stary import JSON pozostaje dla wcześniejszych kopii.")
         label(prefs.getString("backupStatus","Kopia Google Disk nie została jeszcze wykonana").orEmpty())
         button("Eksportuj dziennik na Google Disk") { confirmAction("Zapisać kopię dziennika w WorkMeter / Backup na osobistym Google Disk?") { pendingUpload="backup"; authorizeDrive() } }
-        button("Zapisz kopię lokalną JSON") { confirmAction { startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type="application/json"; putExtra(Intent.EXTRA_TITLE,"WorkMeter-backup.json") },100) } }
+        button("Zapisz pełną kopię ZIP") { backupSettings() }
         button("Importuj dziennik JSON") { confirmAction { startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type="application/json" },101) } }
         val list=arr(data(),"logs"); for(i in list.length()-1 downTo 0) { val x=list.optJSONObject(i)?:continue; label("${x.optString("at")} | ${x.optString("type")} | ${x.optString("detail")}") }
     }

@@ -100,6 +100,23 @@ class DriveBackupWorker(context:Context,params:WorkerParameters):Worker(context,
                     check(queue.edit().putString(key, operation.toString()).commit())
                 }, checkActive = ::checkActive)
             operation.remove("session")
+            com.r3gate.app.backup.BackupCompanions.publish(archive)
+            for(path in com.r3gate.app.backup.BackupCompanions.paths) {
+                val companion=com.r3gate.app.backup.BackupCompanions.file(archive,path)
+                if(!companion.exists()) continue // Resuming an older, pre-diagnostics backup.
+                val prefix=if(path==com.r3gate.app.backup.BackupCompanions.OBJECTS) "objects" else "diagnostics"
+                val companionId=operation.optString(prefix+"Id").ifBlank {
+                    upload.allocateId().also { allocated ->
+                        operation.put(prefix+"Id",allocated)
+                        check(queue.edit().putString(key,operation.toString()).commit())
+                    }
+                }
+                upload.upload(companionId,parent,companion,operation.optString(prefix+"Session").takeIf(String::isNotBlank),
+                    saveSession={ session ->
+                        if(session==null) operation.remove(prefix+"Session") else operation.put(prefix+"Session",session)
+                        check(queue.edit().putString(key,operation.toString()).commit())
+                    },checkActive=::checkActive,mimeType=if(prefix=="objects") "application/json" else "application/x-ndjson")
+            }
             checkActive()
             val whenSaved=java.text.SimpleDateFormat("dd-MM-yyyy HH:mm",java.util.Locale.US).format(java.util.Date())
             check(prefs.edit().putString("lastDriveBackup", whenSaved)
@@ -199,6 +216,7 @@ class DriveBackupWorker(context:Context,params:WorkerParameters):Worker(context,
                 return manager.cancelUniqueWork(BackupStatus.DAILY_TAG)
             }
             val request=PeriodicWorkRequestBuilder<DriveBackupWorker>(1,TimeUnit.DAYS)
+                .setInitialDelay(com.r3gate.app.backup.EveningBackup.delay(context),TimeUnit.MILLISECONDS)
                 .setInputData(workDataOf("backupAccount" to p.getString("driveEmail", "").orEmpty()))
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL,30,TimeUnit.SECONDS).addTag(BackupStatus.DRIVE_TAG).addTag(BackupStatus.DAILY_TAG).build()

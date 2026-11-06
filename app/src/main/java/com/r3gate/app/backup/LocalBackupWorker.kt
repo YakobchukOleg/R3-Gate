@@ -61,7 +61,8 @@ internal class LocalBackupWorker(context: Context, parameters: WorkerParameters)
             }
             val hours = settings.getInt(INTERVAL_HOURS, 24).coerceIn(1, 168).toLong()
             return manager.enqueueUniquePeriodicWork(WORK, ExistingPeriodicWorkPolicy.UPDATE,
-                PeriodicWorkRequestBuilder<LocalBackupWorker>(hours, TimeUnit.HOURS).build())
+                PeriodicWorkRequestBuilder<LocalBackupWorker>(hours, TimeUnit.HOURS)
+                    .setInitialDelay(if(hours==24L) EveningBackup.delay(context) else 0L,TimeUnit.MILLISECONDS).build())
         }
     }
 }
