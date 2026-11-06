@@ -29,6 +29,7 @@ class BackupSettingsActivity : Activity(), BackupSettingsController.Host {
     private var selectionDialog: AlertDialog? = null
     private var stopped = false
     private var interruptedPicker = false
+    private var didRestore = false
     private val prefs by lazy { getSharedPreferences("r3_gate", MODE_PRIVATE) }
     private val theme get() = WorkMeterAppearance.theme(this)
     private fun dp(value: Int) = (value * resources.displayMetrics.density + .5f).toInt()
@@ -36,10 +37,15 @@ class BackupSettingsActivity : Activity(), BackupSettingsController.Host {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         interruptedPicker = savedInstanceState?.getBoolean("externalPending") == true
+        didRestore = savedInstanceState?.getBoolean("didRestore") == true
+        if (didRestore) setResult(RESULT_OK)
         val palette = theme.palette
         window.statusBarColor = palette.header
         window.navigationBarColor = palette.background
-        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+        val lightBars = WorkMeterTheme.contrast(android.graphics.Color.BLACK, palette.background) >
+            WorkMeterTheme.contrast(android.graphics.Color.WHITE, palette.background)
+        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+            (if (lightBars) View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR else 0)
         val frame = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(palette.background)
@@ -160,7 +166,9 @@ class BackupSettingsActivity : Activity(), BackupSettingsController.Host {
     }
 
     override fun restored() {
-        // MainActivity reads the authoritative preferences on return; no cached journal is reused.
+        // Returning to MainActivity re-runs its existing migrations without duplicating Core logic here.
+        didRestore = true
+        setResult(RESULT_OK)
         GateWidget.refresh(this)
         CoreGpsStageBridge.refresh(this)
     }
@@ -189,6 +197,7 @@ class BackupSettingsActivity : Activity(), BackupSettingsController.Host {
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean("externalPending", documentResult != null || authorizationResult != null)
+        outState.putBoolean("didRestore", didRestore)
         super.onSaveInstanceState(outState)
     }
 

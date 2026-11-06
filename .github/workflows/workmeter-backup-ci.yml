@@ -1,7 +1,14 @@
 name: WorkMeter Backup CI
 on:
   push:
-    branches: [feature/workmeter-backup]
+    branches: [feature/workmeter-backup, main]
+    paths:
+      - 'app/src/main/java/com/r3gate/app/backup/**'
+      - 'app/src/main/java/com/r3gate/app/MainActivity.kt'
+      - 'app/src/main/java/com/r3gate/app/WorkMeterButton.kt'
+      - 'app/src/androidTest/java/com/r3gate/app/backup/**'
+      - 'app/src/test/java/com/r3gate/app/backup/**'
+      - '.github/workflows/workmeter-backup-ci.yml'
   pull_request:
     branches: [main]
     paths:
@@ -11,6 +18,11 @@ on:
       - 'app/build.gradle.kts'
       - '.github/workflows/workmeter-backup-ci.yml'
   workflow_dispatch:
+    inputs:
+      full_android:
+        description: Build APK and run emulator instrumentation (only when explicitly requested)
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -32,7 +44,10 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+      - name: Record tested revision
+        run: git rev-parse HEAD > tested-sha.txt
       - name: Restore required stable WT signing key
+        if: github.event_name == 'workflow_dispatch' && inputs.full_android
         env:
           R3_DEBUG_KEYSTORE_BASE64: ${{ secrets.R3_DEBUG_KEYSTORE_BASE64 }}
         run: |
@@ -48,14 +63,21 @@ jobs:
           keytool -list -v -keystore "$selected" -storepass android | sed -n '/SHA1:/p'
       - name: Prepare licensed Clash Grotesk fonts from publisher
         run: python3 .github/scripts/prepare-fonts.py
-      - name: Test, build and lint
-        run: gradle --no-daemon testDebugUnitTest assembleDebug lintDebug
+      - name: Compile, test and lint without APK
+        run: gradle --no-daemon testDebugUnitTest lintDebug compileDebugAndroidTestKotlin
+      - name: Verify no APK was created
+        run: python3 -c "from pathlib import Path; assert not list(Path('app/build/outputs').rglob('*.apk')), 'Unexpected APK'"
+      - name: Build requested Android test target
+        if: github.event_name == 'workflow_dispatch' && inputs.full_android
+        run: gradle --no-daemon assembleDebug
       - name: Enable emulator acceleration
+        if: github.event_name == 'workflow_dispatch' && inputs.full_android
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - name: Android 15 navigation and forms smoke tests
+        if: github.event_name == 'workflow_dispatch' && inputs.full_android
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -66,11 +88,13 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: bash .github/scripts/device-tests.sh
       - name: Verify actual APK signature and create signing report
+        if: github.event_name == 'workflow_dispatch' && inputs.full_android
         run: |
           gradle --no-daemon signingReport > signing-report.txt
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs app/build/outputs/apk/debug/app-debug.apk | tee apk-signature.txt
           cat signing-report.txt
       - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch' && inputs.full_android
         with:
           name: WorkMeter-Backup-APK
           path: |
@@ -83,6 +107,8 @@ jobs:
         with:
           name: WorkMeter-Backup-check-results
           path: |
+            tested-sha.txt
+            app/build/test-results/testDebugUnitTest/
             app/build/reports/tests/testDebugUnitTest/
             app/build/reports/lint-results-debug.html
             app/build/reports/androidTests/connected/

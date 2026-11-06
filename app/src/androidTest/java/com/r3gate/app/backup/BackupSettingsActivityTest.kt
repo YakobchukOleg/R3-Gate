@@ -27,10 +27,13 @@ class BackupSettingsActivityTest {
     private val context get() = instrumentation.targetContext
     private val prefs get() = context.getSharedPreferences("r3_gate", 0)
     private var previous = emptyMap<String, Any?>()
+    private var checkpointBytes: ByteArray? = null
+    private val checkpoint get() = JournalRecoveryCheckpoint.file(context.noBackupFilesDir)
     private val initial = """{"objects":[{"id":"current","organization":"Łódź"}],"shifts":[],"materials":[],"payments":[]}"""
     private val incoming = """{"objects":[{"id":"historical","archived":true}],"shifts":[]}"""
     @Before fun seed() {
         previous = prefs.all.toMap()
+        checkpointBytes = checkpoint.takeIf(File::isFile)?.readBytes()
         prefs.edit().clear().putString("data", initial).putString("pin", "not-used")
             .putBoolean("gps_enabled", false).commit()
     }
@@ -45,6 +48,7 @@ class BackupSettingsActivityTest {
             is Set<*> -> edit.putStringSet(key, value.filterIsInstance<String>().toSet())
         } }
         edit.commit()
+        if (checkpointBytes == null) checkpoint.delete() else checkpoint.writeBytes(requireNotNull(checkpointBytes))
     }
     private fun views(view: View): List<View> = listOf(view) + if (view is ViewGroup)
         (0 until view.childCount).flatMap { views(view.getChildAt(it)) } else emptyList()
@@ -102,6 +106,8 @@ class BackupSettingsActivityTest {
                     assertEquals(theme.palette.textPrimary, title.currentTextColor)
                     val primary = views(panel).filterIsInstance<Button>().single { it.text == "Utwórz kopię lokalną" }
                     assertEquals(theme.palette.onPrimary, primary.currentTextColor)
+                    val light = theme != WorkMeterTheme.GRAPHITE_DARK
+                    assertEquals(light, (activity.window.decorView.systemUiVisibility and View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR) != 0)
                 }
                 instrumentation.waitForIdleSync()
                 SystemClock.sleep(250)
@@ -110,6 +116,19 @@ class BackupSettingsActivityTest {
                 instrumentation.uiAutomation.executeShellCommand("cp ${screenshot.absolutePath} /sdcard/Download/${screenshot.name}").use {
                     java.io.FileInputStream(it.fileDescriptor).use { input -> input.readBytes() }
                 }
+            }
+        }
+    }
+
+    @Test fun selectedReportKeepsTheRoundedFieldAndShowsADropdownArrow() {
+        ActivityScenario.launch(BackupSettingsActivity::class.java).use { scenario ->
+            await(scenario, "Eksportuj CSV")
+            scenario.onActivity { activity ->
+                val picker = views(activity.window.decorView).filterIsInstance<android.widget.Spinner>()
+                    .single { it.contentDescription == "Rodzaj raportu" }
+                val value = picker.adapter.getView(picker.selectedItemPosition, null, picker) as TextView
+                assertEquals(android.graphics.Color.TRANSPARENT, (value.background as ColorDrawable).color)
+                assertNotNull(value.compoundDrawablesRelative[2])
             }
         }
     }
@@ -195,6 +214,57 @@ class BackupSettingsActivityTest {
                 assertEquals(initial, prefs.getString("data", null))
             }
         } finally { instrumentation.removeMonitor(monitor); file.delete() }
+    }
+
+    @Test fun confirmedRestoreReturnsToCoreAndRunsItsExistingLegacyMigrations() {
+        val file = File.createTempFile("backup-host-", ".zip", context.cacheDir)
+        file.outputStream().use { JournalSnapshot.write(incoming, it) }
+        val childMonitor = instrumentation.addMonitor(BackupSettingsActivity::class.java.name, null, false)
+        val pickerMonitor = instrumentation.addMonitor(documentFilter(Intent.ACTION_OPEN_DOCUMENT),
+            Instrumentation.ActivityResult(Activity.RESULT_OK, Intent().setData(Uri.fromFile(file))), true)
+        var child: Activity? = null
+        fun waitForText(activity: Activity, label: String) {
+            val deadline = SystemClock.uptimeMillis() + 10000
+            while (SystemClock.uptimeMillis() < deadline) {
+                var ready = false
+                instrumentation.runOnMainSync {
+                    ready = has(activity, label) && views(activity.window.decorView).filterIsInstance<Button>()
+                        .filter { it.text.toString() == label }.all { it.isEnabled }
+                }
+                if (ready) return
+                SystemClock.sleep(30)
+            }
+            fail("Missing restore flow text: $label")
+        }
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                scenario.onActivity { activity ->
+                    views(activity.window.decorView).single { it.contentDescription == "Ustawienia" }.performClick()
+                    click(activity, "Kopia zapasowa i synchronizacja")
+                }
+                val activity = requireNotNull(instrumentation.waitForMonitorWithTimeout(childMonitor, 5000))
+                child = activity
+                waitForText(activity, "Importuj z pliku")
+                instrumentation.runOnMainSync { click(activity, "Importuj z pliku") }
+                waitForText(activity, "Znaleziono kopię zapasową")
+                instrumentation.runOnMainSync { click(activity, "Przywróć dane") }
+                waitForText(activity, "Przywrócono dane.")
+                val restored = org.json.JSONObject(prefs.getString("data", "{}")!!)
+                assertEquals("historical", restored.getJSONArray("objects").getJSONObject(0).getString("id"))
+                assertFalse(restored.has("walletSettings"))
+                instrumentation.runOnMainSync { activity.finish() }
+                val deadline = SystemClock.uptimeMillis() + 10000
+                while (!org.json.JSONObject(prefs.getString("data", "{}")!!).has("walletSettings") && SystemClock.uptimeMillis() < deadline)
+                    SystemClock.sleep(30)
+                val migrated = org.json.JSONObject(prefs.getString("data", "{}")!!)
+                assertTrue(migrated.has("walletSettings"))
+                assertEquals(2, migrated.getInt("schemaVersion"))
+                assertEquals("historical", migrated.getJSONArray("objects").getJSONObject(0).getString("id"))
+            }
+        } finally {
+            instrumentation.runOnMainSync { child?.finish() }
+            instrumentation.removeMonitor(childMonitor); instrumentation.removeMonitor(pickerMonitor); file.delete()
+        }
     }
 
     @Test fun openWorkdayBlocksReplacementInTheRealHost() {

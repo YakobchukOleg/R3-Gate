@@ -183,7 +183,7 @@ class BackupSettingsPanel(
                     it.minimumHeight=dp(48)
                 }
                 override fun getView(position: Int, convertView: View?, parent: ViewGroup): View =
-                    style(super.getView(position,convertView,parent))
+                    selectorValue(style(super.getView(position,convertView,parent)))
                 override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View =
                     style(super.getDropDownView(position,convertView,parent))
             }
@@ -223,7 +223,7 @@ class BackupSettingsPanel(
             adapter = object : ArrayAdapter<String>(context, android.R.layout.simple_spinner_item, choices) {
                 init { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
                 override fun getView(position: Int, convertView: View?, parent: ViewGroup): View =
-                    super.getView(position, convertView, parent).also { appearance.text(it as TextView) }
+                    selectorValue(super.getView(position, convertView, parent).also { appearance.text(it as TextView) })
                 override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View =
                     super.getDropDownView(position, convertView, parent).also { appearance.surface(it); appearance.text(it as TextView) }
             }
@@ -255,6 +255,20 @@ class BackupSettingsPanel(
                     hours[interval.selectedItemPosition], count)))
             }
         }
+    }
+
+    /** Keep the host's rounded input visible, with an explicit affordance after replacing Spinner background. */
+    private fun selectorValue(view: View): View = view.also {
+        val value = it as TextView
+        value.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+        value.setPadding(dp(12), dp(8), dp(12), dp(8))
+        value.gravity = android.view.Gravity.CENTER_VERTICAL
+        value.setSingleLine(false)
+        val arrow = context.getDrawable(android.R.drawable.arrow_down_float)?.mutate()?.apply {
+            setTint(value.currentTextColor)
+        }
+        value.setCompoundDrawablesRelativeWithIntrinsicBounds(null, null, arrow, null)
+        value.compoundDrawablePadding = dp(8)
     }
 
     private fun text(value: String, heading: Boolean = false) {

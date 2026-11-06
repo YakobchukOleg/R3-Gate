@@ -222,9 +222,21 @@ explicit preview action. The host refuses replacement while the current workday 
 open or an unfinished photo upload exists, with Polish guidance. This supplements,
 but does not replace, the documented requirement to serialize all journal writers.
 
-The restored callback refreshes the widget and Core GPS proposals. MainActivity reads
-current preferences on return. Instrumentation covers real settings navigation,
+The restored callback refreshes the widget and Core GPS proposals and sets the activity
+result. On return MainActivity recreates to run its existing Core/legacy migrations;
+ordinary back/export/cancellation does not trigger that reload. The restore-result flag
+survives configuration recreation without serializing a journal or token.
+Instrumentation covers real settings navigation,
 all three app palettes, screen recreation/back, actual activity-result CSV/PDF writes,
 SAF cancellation/write failure, import-preview rejection and open-day protection.
 Synthetic screenshots for the three palettes are collected with the CI artifacts.
 Real Google account and physical-phone acceptance remain required.
+
+
+Per the user's no-APK instruction, automatic Backup CI now runs JVM tests, lint and
+Android-test Kotlin compilation, then asserts that no APK exists. Full APK/emulator/
+signature verification remains an explicit `workflow_dispatch` option (`full_android`).
+The general APK workflow skips this Backup PR and main commits marked `[no apk]`.
+The final merge uses that marker; automatic Backup verification also runs on main.
+The last emulator run before this change is separate evidence; newly added tests after
+that revision are compile-checked only until APK-based device testing is authorized.

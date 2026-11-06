@@ -2375,7 +2375,7 @@ class MainActivity : Activity() {
         dialog.show()
     }
     private fun backupSettings() {
-        startActivity(Intent(this, com.r3gate.app.backup.BackupSettingsActivity::class.java))
+        startActivityForResult(Intent(this, com.r3gate.app.backup.BackupSettingsActivity::class.java), 403)
     }
 
     private fun logs() {
@@ -2391,6 +2391,11 @@ class MainActivity : Activity() {
     @Deprecated("Legacy activity result")
     override fun onActivityResult(requestCode:Int,resultCode:Int,dataIntent:Intent?) {
         super.onActivityResult(requestCode,resultCode,dataIntent)
+        if (requestCode == 403) {
+            // Re-run the existing Core/legacy migrations after an explicitly confirmed restore.
+            if (resultCode == RESULT_OK) recreate()
+            return
+        }
         if(requestCode==203) {
             if(dataIntent!=null) {
                 try { authorized(Identity.getAuthorizationClient(this).getAuthorizationResultFromIntent(dataIntent)) }
