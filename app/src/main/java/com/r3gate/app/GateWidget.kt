@@ -94,8 +94,7 @@ class GateWidget : AppWidgetProvider() {
             val backing=when(theme) { WorkMeterTheme.SLATE_SAGE -> R.drawable.widget_bg;WorkMeterTheme.NORDIC_BLUE -> R.drawable.widget_bg_nordic;WorkMeterTheme.GRAPHITE_DARK -> R.drawable.widget_bg_graphite }
             v.setImageViewResource(R.id.wbackground,backing)
             v.setInt(R.id.wbackground,"setImageAlpha",appearance.backgroundAlpha(prefs.getInt("widgetTransparency",0)))
-            // The foreground remains opaque when background transparency is selected.
-            v.setInt(R.id.wsummary,"setBackgroundResource",backing)
+            // The shared background controls transparency; text has no separate backing.
             val travel=a?.optString("kind")=="Przejazd"
             val personal=a?.optString("kind")=="Prywatnie"
             val shopping=a?.optString("kind")=="Zakupy"

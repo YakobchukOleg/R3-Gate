@@ -1904,7 +1904,7 @@ class MainActivity : Activity() {
             override fun onStopTrackingTouch(bar:SeekBar?) { GateWidget.refresh(this@MainActivity) }
         })
         root.addView(slider,LinearLayout.LayoutParams(-1,dp(44)))
-        label("0% — pełne tło. Do 50% — przezroczyste tło z kontrastową podkładką tekstu.")
+        label("0% — pełne tło. Do 50% — przezroczyste tło.")
         root.addView(previewFrame)
         label("Rozmiar zmienisz, przytrzymując widżet na pulpicie i przeciągając jego ramkę.")
     }
