@@ -19,11 +19,11 @@ internal class DriveBackupUpload(private val drive: DriveStore, private val toke
 
     fun upload(
         id: String, parent: String, file: File, session: String?,
-        saveSession: (String?) -> Unit, checkActive: () -> Unit
+        saveSession: (String?) -> Unit, mimeType:String="application/zip", checkActive: () -> Unit
     ) {
         require(id.matches(Regex("[A-Za-z0-9_-]+")))
         val metadata = JSONObject().put("id", id).put("name", file.name)
-            .put("mimeType", "application/zip").put("parents", JSONArray().put(parent))
+            .put("mimeType", mimeType).put("parents", JSONArray().put(parent))
         val checksum = file.inputStream().use { input ->
             val digest = MessageDigest.getInstance("MD5") // Compare against Drive's transport checksum.
             val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
@@ -41,7 +41,7 @@ internal class DriveBackupUpload(private val drive: DriveStore, private val toke
             if (failure.status != 409) throw failure
             drive.json("GET", "$API/files/$id?fields=$FIELDS", token)
         }
-        if (!matches(uploaded, id, parent, file.name, file.length(), checksum)) {
+        if (!matches(uploaded, id, parent, file.name, file.length(), checksum,mimeType)) {
             throw IOException("Drive did not confirm the uploaded archive")
         }
     }
@@ -92,7 +92,7 @@ internal class DriveBackupUpload(private val drive: DriveStore, private val toke
         try {
             val body = metadata.toString().toByteArray(Charsets.UTF_8)
             connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
-            connection.setRequestProperty("X-Upload-Content-Type", "application/zip")
+            connection.setRequestProperty("X-Upload-Content-Type", metadata.getString("mimeType"))
             connection.setRequestProperty("X-Upload-Content-Length", size.toString())
             connection.setFixedLengthStreamingMode(body.size)
             connection.outputStream.use { it.write(body) }
@@ -110,7 +110,7 @@ internal class DriveBackupUpload(private val drive: DriveStore, private val toke
         val connection = connection(session, "PUT")
         try {
             connection.setRequestProperty("Content-Range", range)
-            connection.setRequestProperty("Content-Type", "application/zip")
+            connection.setRequestProperty("Content-Type", "application/octet-stream")
             connection.setFixedLengthStreamingMode(length)
             connection.outputStream.use(write)
             return when (connection.responseCode) {
@@ -179,10 +179,10 @@ internal class DriveBackupUpload(private val drive: DriveStore, private val toke
 
         private const val FIELDS = "id,name,parents,size,md5Checksum,trashed,mimeType"
 
-        internal fun matches(file: JSONObject, id: String, parent: String, name: String, size: Long, md5: String): Boolean =
+        internal fun matches(file: JSONObject, id: String, parent: String, name: String, size: Long, md5: String, mimeType:String="application/zip"): Boolean =
             file.optString("id") == id && file.optString("name") == name &&
                 file.optJSONArray("parents")?.optString(0) == parent &&
                 file.optLong("size", -1) == size && file.optString("md5Checksum").equals(md5, true) &&
-                !file.optBoolean("trashed") && file.optString("mimeType") == "application/zip"
+                !file.optBoolean("trashed") && file.optString("mimeType") == mimeType
     }
 }

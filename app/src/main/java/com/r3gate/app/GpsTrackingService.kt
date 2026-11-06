@@ -36,6 +36,9 @@ class GpsTrackingService : Service(), LocationListener {
     private var activeGeofenceProbeSinceMs=0L
     private var lastGeofenceProbeMs=0L
     private var motionWakeState=GpsMotionWakeRules.State()
+    private var motionWindow=GpsMotionWindow()
+    private var motionProbeElapsedMs=0L
+    private var significantMotionRegistered=false
     private var lastSensorBurstStartMs=0L
     private var lastSensorEvaluationMs=0L
     private val watchdogTick=object:Runnable {
@@ -53,7 +56,7 @@ class GpsTrackingService : Service(), LocationListener {
             val now=System.currentTimeMillis()
             prefs.edit().putLong("gps_service_heartbeat_ms",now).apply()
             // Settings can be changed without restarting the foreground service.
-            val adaptiveEnabled=prefs.getBoolean("gps_adaptive_sampling",false)
+            val adaptiveEnabled=prefs.getBoolean("gps_adaptive_sampling",true)
             when(GpsAdaptiveToggleRules.sensorAction(adaptiveEnabled,motionListenerRegistered)) {
                 GpsAdaptiveToggleRules.Action.START_SENSOR -> startMotionSensor()
                 GpsAdaptiveToggleRules.Action.STOP_SENSOR -> stopMotionSensor()
@@ -72,19 +75,8 @@ class GpsTrackingService : Service(), LocationListener {
                 catch(_:RuntimeException) { trace("ADAPTIVE_DISABLED_RESTORE_FAILED",now) }
             }
             // Temporary 15-second geofence probes must end even with zero new GPS fixes.
-            val cadence=GpsProbeCadenceRules.evaluate(now,activeGeofenceProbeSinceMs,
-                GpsSamplingSafety.interval(GpsAdaptiveSampling.interval(samplingState,now,true),
-                    now,
-                    try { JSONObject(prefs.getString("gps_last_fix","{}") ?: "{}").optLong("time") }
-                        catch(_:Exception) { 0L },
-                    try { JSONObject(prefs.getString("gps_last_fix","{}") ?: "{}").optDouble("accuracy",Double.NaN) }
-                        catch(_:Exception) { Double.NaN },
-                    try {
-                        val trip=JSONObject(prefs.getString("gps_trip_state","{}") ?: "{}")
-                        trip.optString("mode")=="MOVING" &&
-                            now-trip.optLong("last") in 0..GpsSamplingSafety.MAX_FIX_AGE_MS
-                    } catch(_:Exception) { false }),
-                samplingIntervalMs,true)
+            val desiredCadence=if(adaptiveEnabled) safeSamplingInterval(now) else GpsAdaptiveSampling.ACTIVE_INTERVAL_MS
+            val cadence=GpsProbeCadenceRules.Change(desiredCadence!=samplingIntervalMs,desiredCadence)
             if(cadence.update) {
                 samplingIntervalMs=cadence.intervalMs
                 try {
@@ -142,8 +134,11 @@ class GpsTrackingService : Service(), LocationListener {
             watchdogHandler.postDelayed(this,GpsWatchdogRules.CHECK_INTERVAL_MS)
         }
     }
-    private fun trace(kind:String,now:Long=System.currentTimeMillis(),details:JSONObject=JSONObject()) =
+    private fun trace(kind:String,now:Long=System.currentTimeMillis(),details:JSONObject=JSONObject()) {
         GpsTraceJournal.append(prefs,kind,now,details)
+        WorkMeterDiagnostics.record(this,"GPS_"+kind,JSONObject(details.toString()).put("evidenceTime",now),
+            if(kind in listOf("FIX","ZONE","TRIP_EVIDENCE","REJECT_QUALITY","REJECT_ORDER","REJECT_JUMP","APPROXIMATE_LOCATION")) 10_000 else 0)
+    }
     private fun provisionalRow(
         kind: String, time: Long, eventId: String,
         evidenceStart: Long? = null, tripId: String? = null
@@ -179,40 +174,28 @@ class GpsTrackingService : Service(), LocationListener {
             now-motion.optLong("last") in 0..GpsSamplingSafety.MAX_FIX_AGE_MS
         val baseline=GpsSamplingSafety.interval(suggested,now,last.optLong("time"),
             last.optDouble("accuracy",Double.NaN),confirmedTravel)
-        return GpsGeofenceProbeRules.interval(now,activeGeofenceProbeSinceMs,baseline)
+        val travelling=if(confirmedTravel) minOf(baseline,10_000L) else baseline
+        return GpsMotionProbe.interval(android.os.SystemClock.elapsedRealtime(),motionProbeElapsedMs,
+            GpsGeofenceProbeRules.interval(now,activeGeofenceProbeSinceMs,travelling))
     }
 
     private val sensorListener=object:SensorEventListener {
         override fun onAccuracyChanged(sensor:Sensor?,accuracy:Int) {}
         override fun onSensorChanged(event:SensorEvent) {
-            if(event.sensor.type!=Sensor.TYPE_ACCELEROMETER || !sessionStarted ||
+            if(event.sensor.type !in listOf(Sensor.TYPE_ACCELEROMETER,Sensor.TYPE_LINEAR_ACCELERATION) || !sessionStarted ||
                 !prefs.getBoolean("gps_enabled",false) ||
-                !prefs.getBoolean("gps_adaptive_sampling",false)) return
+                !prefs.getBoolean("gps_adaptive_sampling",true)) return
             val x=event.values[0].toDouble()
             val y=event.values[1].toDouble()
             val z=event.values[2].toDouble()
-            val delta=kotlin.math.abs(sqrt(x*x+y*y+z*z)-SensorManager.GRAVITY_EARTH)
+            val delta=GpsAcceleration.magnitude(x,y,z,event.sensor.type==Sensor.TYPE_LINEAR_ACCELERATION)
             val now=System.currentTimeMillis()
             samplingState=GpsAdaptiveSampling.observe(samplingState,now,delta)
-            val wake=GpsMotionWakeRules.observe(motionWakeState,now,delta)
-            motionWakeState=wake.state
-            if(wake.wake) {
-                if(GpsSensorBurstRules.clockRollbackRequiresReset(
-                        now,lastSensorBurstStartMs,activeGeofenceProbeSinceMs)) {
-                    lastSensorBurstStartMs=0L
-                    activeGeofenceProbeSinceMs=0L
-                    trace("SENSOR_BURST_CLOCK_RESET",now)
-                }
-                if(GpsSensorBurstRules.mayStart(now,lastSensorBurstStartMs,
-                    activeGeofenceProbeSinceMs)) {
-                    lastSensorBurstStartMs=now
-                    activeGeofenceProbeSinceMs=now
-                    trace("SENSOR_MOTION_WAKE",now)
-                } else {
-                    trace("SENSOR_WAKE_THROTTLED",now)
-                }
-                // Sensor motion is only a hint; never GPS evidence of travel.
-            }
+            val evidence=motionWindow.observe(event.timestamp/1_000_000,delta)
+            WorkMeterDiagnostics.record(this@GpsTrackingService,"SENSOR_WINDOW",JSONObject()
+                .put("sensorType",event.sensor.type).put("rms",evidence.rms).put("activeFraction",evidence.activeFraction).put("samples",evidence.samples),15_000)
+            val wake=GpsMotionWakeRules.Result(motionWakeState,evidence.wake)
+            if(evidence.wake) beginMotionProbe("accelerometer")
             if(!GpsSensorEvaluationRules.shouldEvaluate(
                     now,lastSensorEvaluationMs,wake.wake)) return
             lastSensorEvaluationMs=now
@@ -225,14 +208,42 @@ class GpsTrackingService : Service(), LocationListener {
             }
         }
     }
+    private val significantListener=object:android.hardware.TriggerEventListener() {
+        override fun onTrigger(event:android.hardware.TriggerEvent?) {
+            significantMotionRegistered=false
+            if(!sessionStarted || !GpsWorkdaySession.shouldTrack(prefs) || !prefs.getBoolean("gps_adaptive_sampling",true)) return
+            beginMotionProbe("significant_motion")
+            armSignificantMotion()
+        }
+    }
+    private fun armSignificantMotion() {
+        if(significantMotionRegistered) return
+        val sensor=sensors.getDefaultSensor(Sensor.TYPE_SIGNIFICANT_MOTION) ?: return
+        significantMotionRegistered=sensors.requestTriggerSensor(significantListener,sensor)
+    }
+    private fun beginMotionProbe(source:String) {
+        val elapsed=android.os.SystemClock.elapsedRealtime()
+        if(!GpsMotionProbe.mayStart(elapsed,motionProbeElapsedMs)) return
+        motionProbeElapsedMs=elapsed
+        trace("SENSOR_MOTION_WAKE",details=JSONObject().put("source",source).put("durationMs",GpsMotionProbe.DURATION_MS))
+        samplingIntervalMs=safeSamplingInterval(System.currentTimeMillis())
+        try { updateSubscription() }
+        catch(_:SecurityException) { trace("SENSOR_PERMISSION_MISSING"); shutdown() }
+        catch(_:RuntimeException) { trace("SENSOR_PROVIDER_UNAVAILABLE") }
+    }
     private fun startMotionSensor() {
-        if(motionListenerRegistered) return
-        val sensor=sensors.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) ?: return
-        motionListenerRegistered=sensors.registerListener(sensorListener,sensor,SensorManager.SENSOR_DELAY_NORMAL)
+        if(motionListenerRegistered || significantMotionRegistered) return
+        motionWindow=GpsMotionWindow()
+        val sensor=sensors.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION) ?: sensors.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        motionListenerRegistered=sensor!=null && sensors.registerListener(sensorListener,sensor,SensorManager.SENSOR_DELAY_NORMAL)
+        armSignificantMotion()
+        trace("SENSORS_STARTED",details=JSONObject().put("accelerometer",motionListenerRegistered).put("significantMotion",significantMotionRegistered))
     }
     private fun stopMotionSensor() {
         if(motionListenerRegistered) sensors.unregisterListener(sensorListener)
-        motionListenerRegistered=false
+        if(significantMotionRegistered) sensors.cancelTriggerSensor(significantListener,null)
+        motionListenerRegistered=false; significantMotionRegistered=false; motionProbeElapsedMs=0L
+        motionWindow=GpsMotionWindow()
     }
     private val providerReceiver=object:BroadcastReceiver() {
         override fun onReceive(context:Context?,intent:Intent?) {
@@ -420,7 +431,7 @@ class GpsTrackingService : Service(), LocationListener {
                 GpsRecoveryMonitorWorker.dismissAlert(this)
             }
             // With no provider keep the visible foreground service listening for location changes.
-            if(prefs.getBoolean("gps_adaptive_sampling",false)) startMotionSensor()
+            if(prefs.getBoolean("gps_adaptive_sampling",true)) startMotionSensor()
             else {
                 stopMotionSensor()
                 samplingIntervalMs=GpsAdaptiveSampling.ACTIVE_INTERVAL_MS
@@ -694,7 +705,7 @@ class GpsTrackingService : Service(), LocationListener {
             val previousPoint=GpsWorkRules.Point(previous.optDouble("lat"),previous.optDouble("lon"),
                 previous.optDouble("accuracy"),lastTime)
             val moving=GpsWorkRules.traveling(previousPoint,point)
-            if(moving && prefs.getBoolean("gps_adaptive_sampling",false)) {
+            if(moving && prefs.getBoolean("gps_adaptive_sampling",true)) {
                 samplingState=GpsAdaptiveSampling.gpsTravel(samplingState,now)
                 val desired=safeSamplingInterval(now)
                 if(desired!=samplingIntervalMs) {
@@ -789,7 +800,7 @@ class GpsTrackingService : Service(), LocationListener {
         }
         if(decision.event!=null || tripTransitionRecorded || recovery.recordGap ||
             motionEvidenceGap || transition.resetMotion) CoreGpsStageBridge.refresh(this)
-        if(prefs.getBoolean("gps_adaptive_sampling",false)) {
+        if(prefs.getBoolean("gps_adaptive_sampling",true)) {
             val desired=safeSamplingInterval(now)
             if(desired!=samplingIntervalMs) {
                 samplingIntervalMs=desired

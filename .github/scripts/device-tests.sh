@@ -27,6 +27,7 @@ if [ "$test_status" -ne 0 ] && grep -q 'RootViewWithoutFocusException' /tmp/work
   gradle --no-daemon connectedDebugAndroidTest || test_status=$?
 fi
 mkdir -p device-screenshots
+adb logcat -d > device-screenshots/widget-host-logcat.txt || true
 adb pull /sdcard/Download/. device-screenshots/ || true
 find app/build/outputs/androidTest-results/connected -name '*.xml' -exec cat {} \;
 # Synthetic emulator UI only: keep two previews available for visual review.

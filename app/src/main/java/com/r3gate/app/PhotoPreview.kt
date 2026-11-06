@@ -8,6 +8,36 @@ import android.view.*
 import android.widget.ImageView
 
 object PhotoPreview {
+    private fun thumbnailFile(context: Context, remoteId: String): java.io.File {
+        val key = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(remoteId.toByteArray()).joinToString("") { "%02x".format(it) }
+        return java.io.File(context.cacheDir, "drive-photo-$key.jpg")
+    }
+
+    internal fun cachedThumbnail(context: Context, remoteId: String): Bitmap? =
+        BitmapFactory.decodeFile(thumbnailFile(context, remoteId).path)
+
+    internal fun rememberThumbnail(context: Context, uri: Uri, remoteId: String) {
+        val target = thumbnailFile(context, remoteId)
+        if (target.exists()) return
+        val bitmap = decode(context, uri, 320)
+        try {
+            val file = android.util.AtomicFile(target)
+            val output = file.startWrite()
+            try {
+                if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 82, output)) {
+                    throw java.io.IOException("Thumbnail encoding failed")
+                }
+                file.finishWrite(output)
+            } catch (e: Exception) {
+                file.failWrite(output)
+                throw e
+            }
+        } finally {
+            bitmap.recycle()
+        }
+    }
+
     internal fun sampleSize(width: Int, height: Int, maxSize: Int): Int? {
         if (width <= 0 || height <= 0 || maxSize <= 0) return null
         val edge = maxOf(width, height).toLong()

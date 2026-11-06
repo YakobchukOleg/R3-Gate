@@ -112,4 +112,34 @@ class PhotoRestoreCoordinatorTest {
             .getJSONArray("objects").getJSONObject(0).getString("id"))
     }
 
+    @Test fun confirmedRestoreImportsObjectGpsAndHistoricalDiagnosticsWithoutStartingGps() {
+        val incoming="""{"objects":[{"id":"diagnostic-site","TAG":"DIA-01","city":"Test","Adres":"1"}]}"""
+        val catalog=ObjectCatalog.export(incoming,mapOf("diagnostic-site" to """{"lat":54.0,"lon":18.0,"radius":100}"""))
+        val bytes=ByteArrayOutputStream().also { output ->
+            PhotoArchivePackage.write(incoming,emptyList(),{ error("No photos") },output,mapOf(
+                BackupCompanions.OBJECTS to catalog.toByteArray(),
+                BackupCompanions.DIAGNOSTICS to "{\"kind\":\"historic-test\"}\n".toByteArray()))
+        }.toByteArray()
+        prefs.edit().remove("gps_object_diagnostic-site").putBoolean("gps_enabled",false).commit()
+        val task=PhotoRestoreCoordinator.prepare(context) { ByteArrayInputStream(bytes) }
+        madeStages.add(task.stagingDirectory)
+        try {
+            task.commit(context,true)
+            assertNull(task.attachmentWarning)
+            val gps=org.json.JSONObject(prefs.getString("gps_object_diagnostic-site",null)!!)
+            assertEquals(54.0,gps.getDouble("lat"),0.0)
+            assertFalse(prefs.getBoolean("gps_enabled",true))
+            assertTrue(java.io.File(context.filesDir,"diagnostics/imported.jsonl").readText().contains("historic-test"))
+        } finally { prefs.edit().remove("gps_object_diagnostic-site").commit() }
+    }
+    @Test fun cancelledPreviewDoesNotRestoreGpsAttachment() {
+        val incoming="""{"objects":[{"id":"cancel-site"}]}"""
+        val catalog=ObjectCatalog.export(incoming,mapOf("cancel-site" to """{"lat":54.0,"lon":18.0}"""))
+        val output=ByteArrayOutputStream();PhotoArchivePackage.write(incoming,emptyList(),{error("No photos")},output,
+            mapOf(BackupCompanions.OBJECTS to catalog.toByteArray()))
+        prefs.edit().remove("gps_object_cancel-site").commit()
+        val task=PhotoRestoreCoordinator.prepare(context) { ByteArrayInputStream(output.toByteArray()) }
+        task.discard()
+        assertFalse(prefs.contains("gps_object_cancel-site"));assertEquals(old,prefs.getString("data",null))
+    }
 }
