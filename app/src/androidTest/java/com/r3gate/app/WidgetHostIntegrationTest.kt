@@ -1,5 +1,6 @@
 package com.r3gate.app
 
+import android.app.Activity
 import android.appwidget.AppWidgetHost
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
@@ -10,6 +11,9 @@ import android.view.ViewGroup
 import android.widget.TextView
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.runner.lifecycle.ActivityLifecycleCallback
+import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
+import androidx.test.runner.lifecycle.Stage
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -26,6 +30,18 @@ class WidgetHostIntegrationTest {
         val host=AppWidgetHost(context,7301)
         val id=host.allocateAppWidgetId()
         val provider=ComponentName(context,GateWidget::class.java)
+        // PendingIntent uses NEW_TASK/CLEAR_TOP, so Android may route it to another
+        // MainActivity instead of the one owned by ActivityScenario. Track both;
+        // moving only the scenario to RESUMED cannot bring that task forward.
+        val activities=linkedSetOf<Activity>()
+        val lifecycle=ActivityLifecycleMonitorRegistry.getInstance()
+        val callback=ActivityLifecycleCallback { activity, stage ->
+            if(activity is MainActivity) {
+                if(stage==Stage.CREATED) activities.add(activity)
+                if(stage==Stage.DESTROYED) activities.remove(activity)
+            }
+        }
+        instrumentation.runOnMainSync { lifecycle.addLifecycleCallback(callback) }
         instrumentation.uiAutomation.adoptShellPermissionIdentity("android.permission.BIND_APPWIDGET")
         try {
             assertTrue("System refused binding widget",manager.bindAppWidgetIdIfAllowed(id,provider))
@@ -68,19 +84,27 @@ class WidgetHostIntegrationTest {
                     }
                     assertTrue("Widget did not inflate through system host at ${width}x${height}",inflated)
                 }
-                scenario.onActivity {
-                    assertTrue("Host action did not launch its PendingIntent",view.findViewById<View>(R.id.wstartbutton).performClick())
+                try {
+                    scenario.onActivity {
+                        assertTrue("Host action did not launch its PendingIntent",view.findViewById<View>(R.id.wstartbutton).performClick())
+                    }
+                    instrumentation.waitForIdleSync()
+                    androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.withText("Nie"))
+                        .inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog())
+                        .perform(androidx.test.espresso.action.ViewActions.click())
+                    assertEquals("Widget start bypassed Tak/Nie",before,prefs.getString("data",null))
+                } finally {
+                    // Close every Activity created by this test, including the widget's
+                    // destination, before ActivityScenario.close waits for its host.
+                    // Run on the main thread, where lifecycle callbacks update the set.
+                    instrumentation.runOnMainSync {
+                        activities.toList().asReversed().forEach { it.finish() }
+                    }
+                    instrumentation.waitForIdleSync()
                 }
-                instrumentation.waitForIdleSync()
-                androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.withText("Nie"))
-                    .inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog())
-                    .perform(androidx.test.espresso.action.ViewActions.click())
-                assertEquals("Widget start bypassed Tak/Nie",before,prefs.getString("data",null))
-                // A widget PendingIntent may leave the scenario Activity PAUSED on Android 15.
-                // Bring it back to the foreground before ActivityScenario.close() waits for DESTROYED.
-                scenario.moveToState(androidx.lifecycle.Lifecycle.State.RESUMED)
             }
         } finally {
+            instrumentation.runOnMainSync { lifecycle.removeLifecycleCallback(callback) }
             host.stopListening(); host.deleteAppWidgetId(id)
             instrumentation.uiAutomation.dropShellPermissionIdentity()
             prefs.edit().putString("data",original).commit()
