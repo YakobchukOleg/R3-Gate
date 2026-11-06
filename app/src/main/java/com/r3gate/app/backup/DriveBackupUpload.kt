@@ -19,7 +19,7 @@ internal class DriveBackupUpload(private val drive: DriveStore, private val toke
 
     fun upload(
         id: String, parent: String, file: File, session: String?,
-        saveSession: (String?) -> Unit, checkActive: () -> Unit, mimeType:String="application/zip"
+        saveSession: (String?) -> Unit, mimeType:String="application/zip", checkActive: () -> Unit
     ) {
         require(id.matches(Regex("[A-Za-z0-9_-]+")))
         val metadata = JSONObject().put("id", id).put("name", file.name)
