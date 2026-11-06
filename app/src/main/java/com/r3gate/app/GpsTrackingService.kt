@@ -241,7 +241,7 @@ class GpsTrackingService : Service(), LocationListener {
     }
     private fun stopMotionSensor() {
         if(motionListenerRegistered) sensors.unregisterListener(sensorListener)
-        if(significantMotionRegistered) sensors.cancelTriggerSensor(significantListener)
+        if(significantMotionRegistered) sensors.cancelTriggerSensor(significantListener,null)
         motionListenerRegistered=false; significantMotionRegistered=false; motionProbeElapsedMs=0L
         motionWindow=GpsMotionWindow()
     }

@@ -53,8 +53,7 @@ object LocalBackups {
 
     internal fun createNow(context: Context, checkActive: () -> Unit): Copy = synchronized(LocalBackupStore) {
         val preferences = settings(context)
-        val retention = preferences.getInt(LocalBackupWorker.RETENTION, 7).coerceIn(1, 30),
-            preferences.getInt(EveningBackup.HOUR,21).coerceIn(0,23)
+        val retention = preferences.getInt(LocalBackupWorker.RETENTION, 7).coerceIn(1, 30)
         val archive = BackupSnapshot.create(context, directory(context), retention, checkActive)
         BackupDirectoryExport.copy(context,archive)
         val saved = preferences.edit().putString(LocalBackupWorker.LAST_SUCCESS, Instant.now().toString())

@@ -17,6 +17,7 @@ internal object EveningBackup {
         val p=context.getSharedPreferences("workmeter_diagnostics",0)
         if(p.getBoolean("evening_initialized",false)) return
         LocalBackups.updateSchedule(context,LocalBackups.Schedule(true,24,7,21))
+        context.getSharedPreferences("r3_gate",0).edit().putBoolean("dailyBackupEnabled",true).apply()
         p.edit().putBoolean("evening_initialized",true).apply()
     }
 }
