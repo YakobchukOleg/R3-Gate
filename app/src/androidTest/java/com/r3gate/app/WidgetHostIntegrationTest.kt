@@ -18,6 +18,10 @@ class WidgetHostIntegrationTest {
     @Test fun systemHostInflatesResponsiveWidgetAndUpdatesEverySize() {
         val instrumentation=InstrumentationRegistry.getInstrumentation()
         val context=instrumentation.targetContext
+        val prefs=context.getSharedPreferences("r3_gate",0)
+        val original=prefs.getString("data","{}")
+        prefs.edit().putString("data","{\"objects\":[]}").commit()
+        val before=prefs.getString("data",null)
         val manager=AppWidgetManager.getInstance(context)
         val host=AppWidgetHost(context,7301)
         val id=host.allocateAppWidgetId()
@@ -40,7 +44,7 @@ class WidgetHostIntegrationTest {
                         putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH,width)
                         putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT,height)
                         putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT,height)
-                        putParcelableArrayList(AppWidgetManager.OPTION_APPWIDGET_SIZES,arrayListOf(SizeF(width.toFloat(),height.toFloat())))
+                        putParcelableArrayList(AppWidgetManager.OPTION_APPWIDGET_SIZES,arrayListOf(SizeF(width.toFloat(),height.toFloat()),SizeF(height.toFloat(),width.toFloat())))
                     }
                     manager.updateAppWidgetOptions(id,options)
                     GateWidget.update(context,manager,id,options)
@@ -52,7 +56,8 @@ class WidgetHostIntegrationTest {
                             scenario.onActivity {
                                 fun descendants(v:View):List<View> = listOf(v)+if(v is ViewGroup) (0 until v.childCount).flatMap { descendants(v.getChildAt(it)) } else emptyList()
                                 val children=descendants(view)
-                                inflated=children.any { it.id==R.id.wduration } && children.any { it.id==R.id.wstartbutton }
+                                inflated=children.any { it.id==R.id.wduration } && children.any { it.id==R.id.wstartbutton } &&
+                                    children.filterIsInstance<TextView>().any { it.id==R.id.wstatus && it.text.toString().startsWith("● ") }
                                 assertFalse("Host displays loading error: "+children.filterIsInstance<TextView>().joinToString { it.text },children.filterIsInstance<TextView>().any {
                                     it.text.toString().contains("Problem loading",true) || it.text.toString().contains("Can't load",true)
                                 })
@@ -61,10 +66,19 @@ class WidgetHostIntegrationTest {
                     }
                     assertTrue("Widget did not inflate through system host at ${width}x${height}",inflated)
                 }
+                scenario.onActivity {
+                    assertTrue("Host action did not launch its PendingIntent",view.findViewById<View>(R.id.wstartbutton).performClick())
+                }
+                instrumentation.waitForIdleSync()
+                androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.withText("Nie"))
+                    .inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog())
+                    .perform(androidx.test.espresso.action.ViewActions.click())
+                assertEquals("Widget start bypassed Tak/Nie",before,prefs.getString("data",null))
             }
         } finally {
             host.stopListening(); host.deleteAppWidgetId(id)
             instrumentation.uiAutomation.dropShellPermissionIdentity()
+            prefs.edit().putString("data",original).commit()
         }
     }
 }
