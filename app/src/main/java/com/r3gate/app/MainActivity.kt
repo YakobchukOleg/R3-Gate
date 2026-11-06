@@ -565,9 +565,10 @@ class MainActivity : Activity() {
 
     private fun stopShift() {
         val d=data(); val a=active(d); if(a==null) { toast("Brak rozpoczętej pracy"); home(); return }
-        val end=System.currentTimeMillis()
+        val recordedEnd=System.currentTimeMillis()
+        val end=WorkTimeRounding.end(recordedEnd)
         if (GpsWorkdaySession.hasConsent(prefs)) prefs.edit().putBoolean(GpsWorkdaySession.CONSENT,true).apply()
-        if(!canCloseCurrentStage(a,end)) {
+        if(!canCloseCurrentStage(a,recordedEnd)) {
             setGpsEnabled(false)
             return
         }
@@ -577,7 +578,7 @@ class MainActivity : Activity() {
             toast("Zmiana koliduje z zapisaną historią")
             return
         }
-        closeStage(a,end); a.put("end",end); arr(d,"shifts").put(a); d.remove("active"); save(d,"STOP",fmt.format(Date(end)))
+        closeStage(a,end); a.put("end",end).put("recordedEnd",recordedEnd); arr(d,"shifts").put(a); d.remove("active"); save(d,"STOP",fmt.format(Date(end)))
         setGpsEnabled(false)
         home()
     }
@@ -727,11 +728,11 @@ class MainActivity : Activity() {
             val work=workedMillis(shift,slice.start,slice.end)
             sum += work
             "${date.format(df)} ${pl[date.dayOfWeek.value - 1]} " +
-                "${clock.format(Date(slice.start))}–${clock.format(Date(slice.end))}" +
-                if(work != slice.end-slice.start) " · czas pracy: "+duration(work) else ""
+                "${clock.format(Date(slice.start))}–${clock.format(Date(WorkTimeRounding.end(slice.end)))}" +
+                if(work != slice.end-slice.start) " · czas pracy: "+WorkTimeRounding.format(work) else ""
         }
         val worked = reportWorkedMillis(slices)
-        val minutes = worked / 60000
+        val minutes = WorkTimeRounding.minutes(worked)
         val overlapNote = if(worked != sum) "\nNakładający się czas uwzględniono tylko raz." else ""
         val sms = lines.joinToString("\n\n") + "\n\nRazem\n${minutes / 60} godz. ${minutes % 60} min" + overlapNote
         label(sms)
@@ -2250,7 +2251,8 @@ class MainActivity : Activity() {
         val entries=shifts.flatMap { shift -> HistoryRules.slices(shift.optLong("start"),shift.optLong("end"),ZoneId.systemDefault()).map { shift to it } }
             .filter { DomainRules.inRange(it.second.day,from,to) }
         val total=reportWorkedMillis(entries)
-        label("Łączny czas: "+duration(total))
+        label("Łączny czas: "+WorkTimeRounding.format(total))
+        label("Sumy i zakończenie zmiany zaokrąglone w górę do 5 min.")
         if(total!=entries.sumOf { workedMillis(it.first,it.second.start,it.second.end) })
             label("Nakładający się czas uwzględniono tylko raz.")
         if(entries.isEmpty()) label("Brak zmian w wybranym okresie")
@@ -2269,13 +2271,13 @@ class MainActivity : Activity() {
                     textSize=14f; setTextColor(palette.textPrimary); setPadding(0,dp(4),0,dp(4))
                 },LinearLayout.LayoutParams(0,-2,1f))
                 heading.addView(TextView(this).apply {
-                    text=duration(reportWorkedMillis(items)); textSize=14f; setTextColor(palette.textPrimary)
+                    text=WorkTimeRounding.format(reportWorkedMillis(items)); textSize=14f; setTextColor(palette.textPrimary)
                     contentDescription="Czas dnia: "+text
                 })
                 root.addView(heading)
                 for((shift,slice) in items.sortedByDescending { it.second.start }) {
                     val row=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; isBaselineAligned=false }
-                    row.addView(workMeterButton(this,intervalLabel(slice.start,slice.end)+" · "+duration(workedMillis(shift,slice.start,slice.end)),WorkMeterButtonRole.TEXT) {
+                    row.addView(workMeterButton(this,intervalLabel(slice.start,WorkTimeRounding.end(slice.end))+" · "+WorkTimeRounding.format(workedMillis(shift,slice.start,slice.end)),WorkMeterButtonRole.TEXT) {
                         shiftDetails(shift.optString("id"))
                     },LinearLayout.LayoutParams(0,-2,1f))
                     row.addView(workMeterButton(this,"⋮",WorkMeterButtonRole.TEXT) { shiftOptions(shift.optString("id")) }.apply {
@@ -2323,8 +2325,8 @@ class MainActivity : Activity() {
         })
         if(diagnostics.overlapMillis>0) label("Nakładające się etapy: "+duration(diagnostics.overlapMillis))
         if(diagnostics.invalidStages>0) label("Nieprawidłowe etapy: "+diagnostics.invalidStages)
-        label("Zakończenie pracy: "+fmt.format(Date(end)))
-        label("Łączny czas: "+duration(workedMillis(shift,start,end)))
+        label("Zakończenie pracy: "+fmt.format(Date(WorkTimeRounding.end(end))))
+        label("Łączny czas: "+WorkTimeRounding.format(workedMillis(shift,start,end)))
         button("Edytuj etapy") { selectStageEdit(id) }
         if(rows(shift,"stageEdits").isNotEmpty()) button("Cofnij zmianę etapów") {
             confirmAction("Przywrócić poprzednią historię etapów?") { undoStageEdit(id) }
@@ -2390,7 +2392,7 @@ class MainActivity : Activity() {
         startDate.setOnClickListener { pickReportDate(start.toLocalDate()) { start=LocalDateTime.of(it,start.toLocalTime()); refresh() } }
         endDate.setOnClickListener { pickReportDate(end.toLocalDate()) { end=LocalDateTime.of(it,end.toLocalTime()); refresh() } }
         startTime.setOnClickListener { TimePickerDialog(this,{ _,h,m -> start=start.withHour(h).withMinute(m); refresh() },start.hour,start.minute,true).show() }
-        endTime.setOnClickListener { TimePickerDialog(this,{ _,h,m -> end=end.withHour(h).withMinute(m); refresh() },end.hour,end.minute,true).show() }
+        endTime.setOnClickListener { TimePickerDialog(this,{ _,h,m -> end=end.withHour(h).withMinute(m).withSecond(0).withNano(0); refresh() },end.hour,end.minute,true).show() }
         listOf(category, objectButton, startDate, startTime, endDate, endTime).forEach { layout.addView(it) }
         refresh()
         val builder = AlertDialog.Builder(this,R.style.WorkMeterDialogTheme)
@@ -2547,14 +2549,15 @@ class MainActivity : Activity() {
         dateStart.setOnClickListener { pickReportDate(start.toLocalDate()) { start=LocalDateTime.of(it,start.toLocalTime()); refresh() } }
         dateEnd.setOnClickListener { pickReportDate(end.toLocalDate()) { end=LocalDateTime.of(it,end.toLocalTime()); refresh() } }
         timeStart.setOnClickListener { TimePickerDialog(this,{ _,h,m -> start=start.withHour(h).withMinute(m); refresh() },start.hour,start.minute,true).show() }
-        timeEnd.setOnClickListener { TimePickerDialog(this,{ _,h,m -> end=end.withHour(h).withMinute(m); refresh() },end.hour,end.minute,true).show() }
+        timeEnd.setOnClickListener { TimePickerDialog(this,{ _,h,m -> end=end.withHour(h).withMinute(m).withSecond(0).withNano(0); refresh() },end.hour,end.minute,true).show() }
         listOf(dateStart,dateEnd,timeStart,timeEnd).forEach { layout.addView(it) }; refresh()
         val dialog=AlertDialog.Builder(this,dialogStyle).setTitle("Edytuj zmianę").setView(layout)
             .setNegativeButton("Anuluj",null).setPositiveButton("Zapisz",null).create()
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val st=WorkShiftIntegrity.resolveEditTime(start,zone,original.start)
-                val en=WorkShiftIntegrity.resolveEditTime(end,zone,original.end)
+                val selectedEnd=WorkShiftIntegrity.resolveEditTime(end,zone,original.end)
+                val en=selectedEnd?.let(WorkTimeRounding::end)
                 if(st==null || en==null) {
                     toast("Wybrana godzina nie istnieje w tej strefie czasowej")
                     return@setOnClickListener
