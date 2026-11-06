@@ -1,0 +1,242 @@
+# Backup and UI integration
+
+The local scheduler is independent of Drive authentication and uses unique WorkManager periodic work. Backup settings belong under **Ustawienia → Kopia zapasowa i synchronizacja**. The UI should reuse the shared theme tokens and should surface actionable errors only on Home or the widget.
+
+## Local worker contract
+
+- Preferences: `workmeter_local_backup`; keys `enabled` (default false), `interval_hours` (1–168, default 24), and `retention` (1–30, default 7).
+- After changing a preference, call `LocalBackupWorker.schedule(context)` to update or cancel the unique job. Existing startup calls to `DriveBackupWorker.schedule` also reconcile the local schedule, including when Drive is disconnected.
+- `last_success` is an ISO instant, `last_file` is the private ZIP basename, and `error` is the latest Polish failure message. A failure preserves the last successful result. The UI must check that the corresponding file still exists before displaying it as available.
+- ZIP files are under `filesDir/local-backups`, with per-entry SHA-256 and a dated name. A complete archive includes the journal and referenced photo bytes. A missing attachment prevents publication and pruning. Copies in this directory can be lost when the app is uninstalled.
+- The configuration controls, local ZIP picker and preview/restore screens still require integration by the UI owner. Never replace existing work or finance records without preview, consent and a recovery checkpoint.
+
+## Initial readiness audit
+
+| Capability | State | Evidence |
+|---|---|---|
+| ZIP format and preflight | Library implemented | `WorkMeterArchiveTest`, `ArchivePreflightTest` |
+| Journal/attachment export and verification | Library implemented, not exposed by app settings | `JournalSnapshotTest`, `PhotoArchivePackageTest` |
+| Local scheduled ZIP | Store and worker implemented, UI opt-in pending | `LocalBackupStoreTest`; scheduling on device pending |
+| Safe restore | Plan, staging and recovery components implemented; full user flow pending | `RestorePlanTest`, `PhotoRestoreStageTest` |
+| Google Drive | Existing JSON upload and authorization; ZIP listing/import pending | `DriveBackupWorker`; real account verification pending |
+| CSV / PDF | Export components present; integration and device validation pending | `WorkMeterCsvTest`, `BackupOutputTest` |
+| UI / themes | Integration contract only | Three-theme and accessibility QA pending |
+
+`LocalBackups` is the entry point for UI integration. Use `status` and `copies` for the screen, `updateSchedule` for changes, and `export` for saving a verified local ZIP to a SAF document. `prepareRestore` and `prepareImport` return a session with a preview. Keep the session until explicit confirmation or cancellation and invoke its `commit` or `discard` accordingly. These operations perform disk I/O and should run off the UI thread. A dated export filename is available from `BackupFilePicker.suggestName`.
+
+## Drive upload
+
+The existing manual and daily workers now create a verified ZIP in private storage before
+uploading. WorkManager waits for connectivity. Once a Drive ID is allocated, the worker
+persists it with the account, destination and archive filename. Retries use those same
+bytes and the same create-only ID. A conflict is accepted only after Drive confirms the
+expected file metadata and transport checksum. The user-facing success status is written
+after that check. Existing JSON backups are kept.
+
+Quota exhaustion stops immediate retries. Rate limiting uses WorkManager backoff.
+The next Drive backup run clears abandoned private queue directories older than 24 hours,
+while preserving unfinished work and active writers. A resumable upload session is stored
+privately with the pending operation. Retry queries the server offset before sending
+more bytes. An expired session can be replaced using the same Drive file ID. Real-account
+testing remains pending.
+
+The settings screen can call `DriveBackups.copies` using the existing Drive authorization
+token. The adapter lists accessible WorkMeter ZIP archives and checks the selected file
+against Drive metadata again before downloading. `DriveBackups.prepareRestore` returns
+the same preview session as local restore after checking the downloaded bytes and ZIP.
+Run both operations off the UI thread and keep the token in memory. Legacy JSON files
+remain in Drive. Settings integration and verification with a real account are pending.
+
+## Manual local ZIP and restore summary
+
+`LocalBackups.createNow` creates an offline copy even when the schedule is disabled.
+`LocalBackups.exportCurrent` writes a freshly verified snapshot to the user's SAF
+destination, while keeping the local copy under the configured retention policy.
+Manual, scheduled and Drive backups use the same snapshot path.
+
+Use `Session.summary` for counts of objects, archived objects, closed and active work,
+verified photos, materials, notes, payments, expenses and reference warnings. It
+indicates whether confirming would replace the current journal. Localize these counts
+with the common UI resources. Confirming an identical archive releases its staging
+directory without replacing the journal.
+
+## Shared status
+
+`BackupStatus.read` returns local schedule and last copy, Drive connectivity and
+the verified ZIP timestamp for the connected account, plus WorkManager states.
+Use `BackupState.label` for Polish labels and `needsAttention` for contextual
+indicators. Present scheduled periodic work separately from a retry waiting
+for connectivity. Older successful workers without a verified result are
+excluded from the operation list. Read this snapshot off the UI thread.
+
+## Recovery after restore
+
+`JournalRestoreStore.previewRecovery` inspects the private checkpoint made before
+the last replacement and checks that referenced local photos remain readable.
+Present its summary and ask for explicit confirmation before calling `recover`.
+Recovery rejects an edited journal or replaced checkpoint after preview. It saves
+a separate rollback checkpoint before writing, leaving the original recovery copy
+intact. This checkpoint contains journal data and local photo references, so it is
+an on-device recovery option and requires those original files to remain available.
+
+Drive browsing checks cancellation between result pages. Import checks the connected
+account throughout the download and again before returning a restore preview. A
+downloaded file is discarded after truncation, excess bytes, checksum mismatch,
+revoked access or cancellation. Partial imports do not change the journal.
+
+Import rejects unsupported explicit journal or backup versions, while retaining
+unversioned and supported legacy journals. Active shift references and nested stages
+are included in preflight. Duplicate explicit record IDs are shown as warnings and
+preserved for review. The restore summary's warning count includes these conflicts,
+so render it as general data warnings rather than only missing object references.
+
+Schedule reconciliation now cancels an existing daily Drive job when Drive is
+disconnected or daily backup is disabled. Local scheduling remains independent.
+The scheduling APIs return WorkManager's operation so callers and Android tests can
+wait for persistence without polling. Manual and periodic Drive backup workers share
+one process-wide upload slot. An overlapping worker retries with its existing queue
+entry instead of uploading concurrently.
+
+`Snapshot.driveProblem` keeps the last unresolved Drive backup error independently
+of a periodic task's current waiting state. It is scoped to the selected account,
+survives reopening settings, and is cleared after a verified upload. Show its message
+as an actionable problem. `driveDetail` remains the most recent operation detail.
+
+## Settings panel for the shared UI host
+
+`BackupSettingsPanel` renders local/cloud status, local schedule, ZIP export,
+imports and existing copies. Its `Appearance` interface receives the shared theme's
+surface, text, button and input styling. No backup-specific palette or theme setting
+is created. Pass a themed context from the common screen.
+
+The host loads `BackupStatus.read` and `LocalBackups.copies` off the UI thread,
+then calls `render`. Handle each emitted `Action` with the existing adapters:
+create/export through `LocalBackups`, schedule through `updateSchedule`,
+cloud creation through `DriveBackupWorker.manual`, and imports through the
+existing file picker/Drive authorization flow. A local selection emits a preview
+request only. After preparing a restore session, call `preview` with its verified
+summary. On explicit confirmation call `Session.commit` off the UI thread,
+and on cancellation call `Session.discard`. Keep the session in the navigation
+host and discard it on navigation away. Repeated confirmation is suppressed.
+Connecting this panel to the common navigation remains a UI-owner task.
+
+## Screen controller
+
+`BackupSettingsController` owns `view`, runs backup work on a single worker
+thread and handles local ZIP creation/export, schedule updates, import previews,
+confirmed restoration and recovery. The host supplies existing document picking
+and Drive authorization, cloud-copy selection, and a callback to reload Core data.
+Host callbacks must return on the main thread. Pass the common appearance/context,
+add `controller.view` to the settings destination, then call `refresh`.
+Call `close` when leaving the screen. It discards a prepared restore session after
+any current operation finishes. A restore already explicitly confirmed may finish.
+Tokens remain in memory. Duplicate document/auth/selection callbacks are ignored.
+
+## Manual queue cancellation and resume
+
+The panel offers cancellation and retry only for eligible manual Drive jobs.
+`BackupQueueActions` validates the selected WorkManager job before acting.
+Cancellation retains the original archive and upload session. A retry resolves
+the job to its persisted queue identity and verifies the connected account and
+local archive. It resumes that operation with its original Drive ID and session,
+rather than taking a new snapshot. An already completed or missing queue entry
+cannot start another upload. Cloud files are not deleted by cancellation.
+
+Manual requests now carry a queue-identity tag. Cleanup protects queue entries
+referenced by unfinished retry jobs. Existing requests without that tag retain
+their original WorkManager UUID as their queue identity. Before resuming, the
+worker revalidates the stored ZIP to detect changes since its creation.
+
+## Reconnecting Drive
+
+Persisted problems include a required action. Revoked/missing authorization offers
+`Połącz ponownie Google Drive` even when the account preference is still connected.
+Storage quota retains its separate message. After the existing host returns a token,
+the controller verifies the authorized Drive account off the UI thread before clearing
+an access problem. This never advances the timestamp of the last verified ZIP.
+Quota and file problems remain until addressed. Older records without an action remain
+readable with a generic check-files action.
+
+## Complete PDF cells (2026-11-05)
+
+PDF columns and headings wrap without inserting ellipses or dropping characters.
+A long row continues on subsequent pages with repeated headings. Explicit line breaks,
+Polish text and Unicode code points remain intact. An indivisible oversized glyph is
+scaled inside its cell. A header that leaves no room for body data is rejected before
+writing a document. This changes export presentation only; journal/time/pay data are
+not modified. The Android regression emits `backup-pdf-wrapped-row.pdf` as a synthetic
+CI fixture for text extraction and visual review.
+
+## Restore failure and concurrent edits (2026-11-05)
+
+The final journal write is checked against its observed in-memory value even when
+SharedPreferences reports failure or throws. A cached replacement is rolled back only
+to the verified original checkpoint. If a different journal is observed, including
+during checkpoint verification, rollback preserves that newer journal and reports a
+conflict. Failed rollback is never reported as success; the checkpoint remains.
+These checks do not turn SharedPreferences and photo files into an ACID transaction
+or make uncoordinated writers atomically compare-and-swap. Core integration still must
+serialize journal mutations or quiesce active writers around confirmed replacement.
+
+## File reports in the shared Backup panel (2026-11-05)
+
+The existing panel/controller now offers CSV and PDF with a report selector: closed shift
+intervals, on-site totals, materials, and recorded stages/trip endpoints. Existing generic
+SAF host callbacks suffice; no MainActivity change is required. The panel exports all
+saved history and excludes the still-open day from time reports. Integrators may supply
+an immutable `BackupReportExport.Request.period` for an existing date-filtered screen.
+
+Reports are rendered completely in private cache before opening the target document.
+A validation failure leaves an existing destination untouched; temporary reports are
+removed after success or failure. Actual provider write failures remain failures and
+may leave a partial external document; no atomic SAF replacement is promised.
+Report generation never writes journal, GPS, wallet or cloud-success preferences.
+Rates, payments, PIN and other protected finance fields are not part of these public reports.
+
+`WORK_TIME` is explicitly **gross stored shift intervals**, not payroll or net work time;
+its duration heading now says so. `STAGES` retains personal/office/shopping/travel labels,
+including saved travel endpoints; absent stage history is marked unassigned. Periods are
+inclusive calendar dates in the existing Europe/Warsaw export zone, converted to half-open
+instant bounds. Overnight rows and object stages are clipped to the selected period;
+DST days use actual elapsed time. No stored intervals or billing formula are changed.
+Ambiguous object IDs keep the saved label rather than choosing one duplicate object.
+The new stage format and clarified gross heading should be accounted for by CSV consumers.
+
+
+## Shared settings destination (2026-11-06)
+
+`MainActivity` now opens the non-exported `BackupSettingsActivity` from
+**Ustawienia → Kopia zapasowa i synchronizacja**, the backups menu module and
+an entry in the existing legacy log screen. Legacy JSON tools remain available.
+This destination uses `WorkMeterAppearance`, `WorkMeterTheme` and the shared
+button styling; it adds no independent colors or theme preferences.
+
+The activity supplies real SAF launch/result/cancellation callbacks, Google Identity
+Drive authorization, account lookup and the dated cloud-copy selection dialog.
+Authorization tokens stay in memory. Duplicate/late document results have no callback
+and cannot start an additional write. Destroying the screen closes its controller and
+discards an unconfirmed preview. After recreation an interrupted external picker/auth
+operation is safely abandoned and can be retried; no success is reported and no token
+or restore decision is serialized. Confirmed restore still requires the controller's
+explicit preview action. The host refuses replacement while the current workday is
+open or an unfinished photo upload exists, with Polish guidance. This supplements,
+but does not replace, the documented requirement to serialize all journal writers.
+
+The restored callback refreshes the widget and Core GPS proposals and sets the activity
+result. On return MainActivity recreates to run its existing Core/legacy migrations;
+ordinary back/export/cancellation does not trigger that reload. The restore-result flag
+survives configuration recreation without serializing a journal or token.
+Instrumentation covers real settings navigation,
+all three app palettes, screen recreation/back, actual activity-result CSV/PDF writes,
+SAF cancellation/write failure, import-preview rejection and open-day protection.
+Synthetic screenshots for the three palettes are collected with the CI artifacts.
+Real Google account and physical-phone acceptance remain required.
+
+
+Per the user's no-APK instruction, automatic Backup CI now runs JVM tests, lint and
+Android-test Kotlin compilation, then asserts that no APK exists. Full APK/emulator/
+signature verification remains an explicit `workflow_dispatch` option (`full_android`).
+The general APK workflow skips this Backup PR and main commits marked `[no apk]`.
+The final merge uses that marker; automatic Backup verification also runs on main.
+The last emulator run before this change is separate evidence; newly added tests after
+that revision are compile-checked only until APK-based device testing is authorized.

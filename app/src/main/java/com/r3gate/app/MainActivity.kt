@@ -1055,7 +1055,7 @@ class MainActivity : Activity() {
     }
     private fun menuFeature(id:String) {
         when(id) {
-            "backups" -> { logs(); return }
+            "backups" -> { backupSettings(); return }
             "widgets" -> { widgetSettings(); return }
             "inventory" -> { carStock(); return }
             "insights" -> { charts(); return }
@@ -1629,7 +1629,7 @@ class MainActivity : Activity() {
         button("Logi / eksport / import") { logs() }
         label("Kopie i synchronizacja")
         button("Google Disk") { driveSettings() }
-        button("Centrum kopii / eksport / import") { logs() }
+        button("Kopia zapasowa i synchronizacja") { backupSettings() }
         label("Widżet i interfejs")
         button("Motyw aplikacji · "+appearance.title) {
             val themes=WorkMeterTheme.entries
@@ -2374,8 +2374,13 @@ class MainActivity : Activity() {
         }
         dialog.show()
     }
+    private fun backupSettings() {
+        startActivityForResult(Intent(this, com.r3gate.app.backup.BackupSettingsActivity::class.java), 403)
+    }
+
     private fun logs() {
         base("Logi i kopia zapasowa"); screen = "logs"; nav()
+        button("Kopia zapasowa i synchronizacja") { backupSettings() }
         label("Kopia JSON zawiera dane i odnośniki. Zachowaj również zdjęcia na Google Disk; zdjęcia lokalne nie są dołączane do JSON.")
         label(prefs.getString("backupStatus","Kopia Google Disk nie została jeszcze wykonana").orEmpty())
         button("Eksportuj dziennik na Google Disk") { confirmAction("Zapisać kopię dziennika w WorkMeter / Backup na osobistym Google Disk?") { pendingUpload="backup"; authorizeDrive() } }
@@ -2386,6 +2391,11 @@ class MainActivity : Activity() {
     @Deprecated("Legacy activity result")
     override fun onActivityResult(requestCode:Int,resultCode:Int,dataIntent:Intent?) {
         super.onActivityResult(requestCode,resultCode,dataIntent)
+        if (requestCode == 403) {
+            // Re-run the existing Core/legacy migrations after an explicitly confirmed restore.
+            if (resultCode == RESULT_OK) recreate()
+            return
+        }
         if(requestCode==203) {
             if(dataIntent!=null) {
                 try { authorized(Identity.getAuthorizationClient(this).getAuthorizationResultFromIntent(dataIntent)) }

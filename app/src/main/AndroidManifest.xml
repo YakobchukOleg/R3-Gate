@@ -14,6 +14,7 @@
     </receiver>
     <service android:name=".GpsTrackingService" android:exported="false" android:foregroundServiceType="location"/>
     <service android:name="androidx.work.impl.foreground.SystemForegroundService" android:foregroundServiceType="dataSync" tools:node="merge"/>
+    <activity android:name=".backup.BackupSettingsActivity" android:exported="false"/>
     <activity android:name=".MainActivity" android:exported="true">
       <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
     </activity>

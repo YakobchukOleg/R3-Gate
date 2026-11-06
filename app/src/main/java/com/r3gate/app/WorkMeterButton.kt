@@ -17,6 +17,15 @@ internal fun workMeterButton(
     role: WorkMeterButtonRole,
     onClick: () -> Unit
 ): Button {
+    return Button(context).apply {
+        text = label
+        styleWorkMeterButton(this, role)
+        setOnClickListener { onClick() }
+    }
+}
+
+internal fun styleWorkMeterButton(button: Button, role: WorkMeterButtonRole) {
+    val context = button.context
     val palette = WorkMeterAppearance.theme(context).palette
     val fill = when (role) {
         WorkMeterButtonRole.PRIMARY -> palette.primary
@@ -37,8 +46,7 @@ internal fun workMeterButton(
         if (role == WorkMeterButtonRole.SECONDARY) setStroke(dp(1), palette.border)
     }
     val ripple = ColorStateList.valueOf((ink and 0x00FFFFFF) or 0x22000000)
-    return Button(context).apply {
-        text = label
+    button.apply {
         textSize = 14f
         isAllCaps = false
         minHeight = dp(48)
@@ -49,6 +57,5 @@ internal fun workMeterButton(
         backgroundTintList = null
         elevation = 0f
         setPadding(dp(12), dp(6), dp(12), dp(6))
-        setOnClickListener { onClick() }
     }
 }

@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   build:
-    if: github.head_ref != 'feature/workmeter-core'
+    if: github.head_ref != 'feature/workmeter-core' && github.head_ref != 'feature/workmeter-backup' && !contains(github.event.head_commit.message, '[no apk]')
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
