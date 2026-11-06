@@ -80,9 +80,9 @@ class UXPackageV2FlowTest {
             val parent=FrameLayout(context)
             val widget=GateWidget.render(context,WidgetLayoutProfile.LARGE,WidgetAppearance(theme=theme),interactive=false,widthDp=300,heightDp=260).apply(context,parent)
             assertEquals(View.VISIBLE,widget.findViewById<View>(R.id.wstagecolumn).visibility)
-            assertEquals("Czas etapu",widget.findViewById<TextView>(R.id.wday).text.toString())
-            assertTrue(widget.findViewById<Chronometer>(R.id.wstage).base>widget.findViewById<Chronometer>(R.id.wduration).base)
-            assertTrue(widget.findViewById<TextView>(R.id.wdetails).text.toString().startsWith("Etapy dzisiaj"))
+            assertEquals("Dziś",widget.findViewById<TextView>(R.id.wday).text.toString())
+            assertTrue(widget.findViewById<Chronometer>(R.id.wstage).base<widget.findViewById<Chronometer>(R.id.wduration).base)
+            assertEquals(View.GONE,widget.findViewById<TextView>(R.id.wdetails).visibility)
         }
         assertEquals(before,data().toString())
     }

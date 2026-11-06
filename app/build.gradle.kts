@@ -9,8 +9,8 @@ android {
         applicationId = "com.r3gate.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 29
-        versionName = "2.7.2"
+        versionCode = 30
+        versionName = "2.7.3"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     signingConfigs {

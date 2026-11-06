@@ -58,7 +58,7 @@ class WidgetAppearanceActivity : Activity() {
             setBackgroundColor(palette.background)
         }
         val preview = FrameLayout(this)
-        val sizes=listOf(144 to 68, 180 to 170, 300 to 90, 300 to 180, 300 to 260)
+        val sizes=listOf(180 to 76, 180 to 170, 300 to 80, 300 to 216, 300 to 260)
         var previewSize=sizes[3]
         val transparencyLabel = TextView(this).apply { setTextColor(palette.textPrimary) }
         val slider = SeekBar(this).apply {

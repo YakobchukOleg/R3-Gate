@@ -1881,8 +1881,8 @@ class MainActivity : Activity() {
         label("Domyślna przezroczystość tła widżetu")
         val value=TextView(this).apply { setTextColor(palette.textPrimary); text=prefs.getInt("widgetTransparency",0).coerceIn(0,50).toString()+"% · maks. 50%" }
         root.addView(value)
-        val previewFrame=FrameLayout(this).apply { setBackgroundColor(0xFF90A4AE.toInt()); setPadding(dp(8),dp(8),dp(8),dp(8)) }
-        var previewSize=300 to 180
+        val previewFrame=FrameLayout(this).apply { setBackgroundColor(palette.background); setPadding(0,0,0,0) }
+        var previewSize=300 to 216
         lateinit var preview: View
         fun drawPreview() {
             previewFrame.removeAllViews()
@@ -1891,7 +1891,7 @@ class MainActivity : Activity() {
             previewFrame.addView(preview,FrameLayout.LayoutParams(dp(previewSize.first),dp(previewSize.second)))
         }
         drawPreview()
-        for(size in listOf(144 to 68,180 to 170,300 to 90,300 to 180,300 to 260)) button("Podgląd ${size.first} × ${size.second} dp") {
+        for(size in listOf(180 to 76,180 to 170,300 to 80,300 to 216,300 to 260)) button("Podgląd ${size.first} × ${size.second} dp") {
             previewSize=size; drawPreview()
         }
         val slider=SeekBar(this).apply { max=50; progress=prefs.getInt("widgetTransparency",0).coerceIn(0,50); contentDescription="Przezroczystość tła widżetu" }

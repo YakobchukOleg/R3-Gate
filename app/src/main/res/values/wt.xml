@@ -10,7 +10,7 @@
     <string name="widget_theme_value">Motyw · %1$s</string>
     <string name="widget_transparency">Przezroczystość tła</string>
     <string name="widget_transparency_value">Przezroczystość tła · %1$d%%</string>
-    <string name="widget_show_gps">Pokaż stan GPS</string>
+    <string name="widget_show_gps">Pokaż stan kopii Google Drive</string>
     <string name="widget_show_object">Pokaż obiekt</string>
     <string name="widget_show_actions">Pokaż szybkie działania</string>
     <string name="widget_reset">Przywróć ustawienia domyślne</string>
