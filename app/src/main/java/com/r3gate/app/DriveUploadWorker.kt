@@ -85,18 +85,11 @@ class DriveUploadWorker(context:Context,params:WorkerParameters):Worker(context,
             val currentEmail=driveJson("GET","https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)",token).optJSONObject("user")?.optString("emailAddress")
             if(!email.equals(currentEmail,true)) return finishJob("Wybierz wcześniej połączone konto Google Disk",true)
             val rootId=driveRoot(token)
-            val linked=PhotoQueue.folderId(row.optString("Link Google Drive"))
-            val dayId=if(linked!=null) {
-                val info=driveJson("GET","https://www.googleapis.com/drive/v3/files/"+linked+"?fields=id,mimeType,capabilities(canAddChildren)",token)
-                if(info.optString("mimeType")!="application/vnd.google-apps.folder" || info.optJSONObject("capabilities")?.optBoolean("canAddChildren")!=true) throw DriveHttpException(403)
-                linked
-            } else {
-                val date=LocalDate.parse(recordDate(row))
-                val year=driveFolder(date.year.toString(),rootId,token)
-                val month=driveFolder("%02d".format(date.monthValue),year,token)
-                val day=driveFolder(date.format(DateTimeFormatter.ofPattern("dd.MM.yyyy")),month,token)
-                driveFolder(if(obj==null) { if(row.optString("storage")=="car") "W samochodzie" else "Bez obiektu" } else obj.optString("TAG")+" "+obj.optString("organization"),day,token)
-            }
+            // Always resolve the current canonical path. Saved links may point to the old
+            // year/month/day hierarchy and must not route new photos back into it.
+            val folders=PhotoDriveLayout.path(LocalDate.parse(recordDate(row)),obj,row.optString("storage"))
+            var photoFolderId=rootId
+            for(name in folders) photoFolderId=driveFolder(name,photoFolderId,token)
             for((index,photo) in photoList.withIndex()) {
                 currentPhoto=photo
                 if(isStopped) throw InterruptedException()
@@ -105,13 +98,13 @@ class DriveUploadWorker(context:Context,params:WorkerParameters):Worker(context,
                 if(already.isNotBlank()) continue
                 // appProperties makes retries idempotent, even if a response was lost after upload.
                 val uploadKey=id+"-"+hash(photo).take(24)
-                val q="trashed = false and '"+dayId+"' in parents and appProperties has { key='r3Upload' and value='"+uploadKey+"' }"
+                val q="trashed = false and '"+photoFolderId+"' in parents and appProperties has { key='r3Upload' and value='"+uploadKey+"' }"
                 val matches=driveJson("GET","https://www.googleapis.com/drive/v3/files?q="+URLEncoder.encode(q,"UTF-8")+"&fields=files(id)&pageSize=1",token).optJSONArray("files")
                 val remoteId=if(matches!=null && matches.length()>0) matches.getJSONObject(0).getString("id") else {
                     val mime=contentResolver.getType(Uri.parse(photo)) ?: android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(Uri.parse(photo).lastPathSegment.orEmpty().substringAfterLast(".").lowercase()) ?: "image/jpeg"
                     val ext=android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(mime) ?: "jpg"
                     val meta=JSONObject().put("name",key+"-"+id+"-"+(index+1)+"."+ext)
-                        .put("parents",JSONArray().put(dayId)).put("appProperties",JSONObject().put("r3Upload",uploadKey))
+                        .put("parents",JSONArray().put(photoFolderId)).put("appProperties",JSONObject().put("r3Upload",uploadKey))
                     val c=URL("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id").openConnection() as HttpURLConnection
                     val location:String
                     try {
@@ -145,7 +138,7 @@ class DriveUploadWorker(context:Context,params:WorkerParameters):Worker(context,
                     val d=data(); val current=rows(d,key).find { it.optString("id")==id }
                     if(current!=null) {
                         val files=current.optJSONObject("driveFiles") ?: JSONObject().also { current.put("driveFiles",it) }
-                        files.put(accountKey+photo,remoteId); current.put("Link Google Drive","https://drive.google.com/drive/folders/"+dayId)
+                        files.put(accountKey+photo,remoteId); current.put("Link Google Drive","https://drive.google.com/drive/folders/"+photoFolderId)
                         save(d,"DRIVE_UPLOAD",id)
                     }
                 }
