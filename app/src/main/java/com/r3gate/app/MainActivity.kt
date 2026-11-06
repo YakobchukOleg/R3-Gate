@@ -839,6 +839,7 @@ class MainActivity : Activity() {
         val role = when {
             accent -> WorkMeterButtonRole.DESTRUCTIVE
             primary -> WorkMeterButtonRole.PRIMARY
+            s=="Przywróć usuniętą zmianę" -> WorkMeterButtonRole.TEXT
             else -> WorkMeterButtonRole.SECONDARY
         }
         return workMeterButton(this, s, role, f)
@@ -868,8 +869,9 @@ class MainActivity : Activity() {
             toggle.text=title()
             toggle.contentDescription=caption+": "+if(key in expandedFilters) "rozwinięte" else "zwinięte"
         }
+        if(key=="report") styleWorkMeterButton(toggle,WorkMeterButtonRole.TEXT)
         toggle.contentDescription=caption+": "+if(key in expandedFilters) "rozwinięte" else "zwinięte"
-        parent.addView(toggle,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
+        parent.addView(toggle,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(8) })
         parent.addView(panel,LinearLayout.LayoutParams(-1,-2))
         root=panel
         try { content() } finally { root=parent }
@@ -2249,8 +2251,16 @@ class MainActivity : Activity() {
             parent.addView(card,LinearLayout.LayoutParams(-1,-2).apply { topMargin=0; bottomMargin=dp(8) })
             root=card
             try {
-                label(dateText(day)+" · "+LocalDate.parse(day).dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL,Locale.forLanguageTag("pl")))
-                label("Czas dnia: "+duration(reportWorkedMillis(items)))
+                val heading=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; gravity=Gravity.CENTER_VERTICAL; isBaselineAligned=false }
+                heading.addView(TextView(this).apply {
+                    text=dateText(day)+" · "+LocalDate.parse(day).dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT,Locale.forLanguageTag("pl"))
+                    textSize=14f; setTextColor(palette.textPrimary); setPadding(0,dp(4),0,dp(4))
+                },LinearLayout.LayoutParams(0,-2,1f))
+                heading.addView(TextView(this).apply {
+                    text=duration(reportWorkedMillis(items)); textSize=14f; setTextColor(palette.textPrimary)
+                    contentDescription="Czas dnia: "+text
+                })
+                root.addView(heading)
                 for((shift,slice) in items.sortedByDescending { it.second.start }) {
                     val row=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; isBaselineAligned=false }
                     row.addView(workMeterButton(this,intervalLabel(slice.start,slice.end)+" · "+duration(workedMillis(shift,slice.start,slice.end)),WorkMeterButtonRole.TEXT) {
