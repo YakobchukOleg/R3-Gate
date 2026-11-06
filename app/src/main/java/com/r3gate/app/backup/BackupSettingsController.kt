@@ -128,7 +128,7 @@ class BackupSettingsController(
             }
             is BackupSettingsPanel.Action.UpdateSchedule -> task({
                 LocalBackups.updateSchedule(application, action.schedule).result.get(5, TimeUnit.SECONDS)
-                DriveBackupWorker.schedule(application).result.get(5,TimeUnit.SECONDS)
+                DriveBackupWorker.schedule(application,replace=true).result.get(5,TimeUnit.SECONDS)
             }) { load("Zapisano harmonogram.") }
         }
     }

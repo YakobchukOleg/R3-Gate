@@ -53,14 +53,14 @@ internal class LocalBackupWorker(context: Context, parameters: WorkerParameters)
         const val DIRECTORY = "local-backups"
         const val WORK = "workmeter-local-backup"
 
-        fun schedule(context: Context): Operation {
+        fun schedule(context: Context, replace:Boolean=false): Operation {
             val settings = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
             val manager = WorkManager.getInstance(context)
             if (!settings.getBoolean(ENABLED, false)) {
                 return manager.cancelUniqueWork(WORK)
             }
             val hours = settings.getInt(INTERVAL_HOURS, 24).coerceIn(1, 168).toLong()
-            return manager.enqueueUniquePeriodicWork(WORK, ExistingPeriodicWorkPolicy.UPDATE,
+            return manager.enqueueUniquePeriodicWork(WORK, if(replace) ExistingPeriodicWorkPolicy.CANCEL_AND_REENQUEUE else ExistingPeriodicWorkPolicy.KEEP,
                 PeriodicWorkRequestBuilder<LocalBackupWorker>(hours, TimeUnit.HOURS)
                     .setInitialDelay(if(hours==24L) EveningBackup.delay(context) else 0L,TimeUnit.MILLISECONDS).build())
         }

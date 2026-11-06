@@ -30,9 +30,11 @@ internal object BackupCompanions {
     }
     fun suffix(path:String)=if(path==OBJECTS) ".objects.json" else ".diagnostics.jsonl"
     fun file(archive:File,path:String)=File(archive.parentFile,archive.name.removeSuffix(".wmb.zip")+suffix(path))
-    fun publish(archive:File) {
+    fun publish(archive:File,snapshot:Map<String,ByteArray>?=null) {
         for(path in paths) {
-            val bytes=read({ archive.inputStream() },path) ?: continue
+            if(snapshot==null && file(archive,path).isFile) continue
+            val bytes=if(snapshot!=null) snapshot[path] else read({ archive.inputStream() },path)
+            if(bytes==null) continue
             val destination=file(archive,path);val temp=File(destination.path+".tmp")
             try { temp.writeBytes(bytes);java.nio.file.Files.move(temp.toPath(),destination.toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING) }
             finally { temp.delete() }

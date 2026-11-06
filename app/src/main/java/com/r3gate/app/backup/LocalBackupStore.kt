@@ -50,7 +50,7 @@ internal object LocalBackupStore {
             beforePublish()
             Files.move(staging.toPath(), destination.toPath(), ATOMIC_MOVE)
             list(directory).filterNot { it == destination }.drop(retain - 1).forEach { it.delete() }
-            BackupCompanions.publish(destination)
+            BackupCompanions.publish(destination,attachments)
             return destination
         } finally {
             staging.delete()

@@ -207,8 +207,8 @@ class DriveBackupWorker(context:Context,params:WorkerParameters):Worker(context,
                 .put("wtSettings",JSONObject().put("widgetTransparency",p.getInt("widgetTransparency",0)))
                 .put("backupCreatedAt",java.time.Instant.now().toString())
         }
-        fun schedule(context:Context): Operation {
-            com.r3gate.app.backup.LocalBackupWorker.schedule(context)
+        fun schedule(context:Context, replace:Boolean=false): Operation {
+            com.r3gate.app.backup.LocalBackupWorker.schedule(context,replace)
             val p=context.getSharedPreferences("r3_gate",Context.MODE_PRIVATE)
             val manager = WorkManager.getInstance(context)
             if (!p.getBoolean("driveConnected", false) || p.getString("driveEmail", "").isNullOrBlank() ||
@@ -220,7 +220,7 @@ class DriveBackupWorker(context:Context,params:WorkerParameters):Worker(context,
                 .setInputData(workDataOf("backupAccount" to p.getString("driveEmail", "").orEmpty()))
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL,30,TimeUnit.SECONDS).addTag(BackupStatus.DRIVE_TAG).addTag(BackupStatus.DAILY_TAG).build()
-            return manager.enqueueUniquePeriodicWork(BackupStatus.DAILY_TAG,ExistingPeriodicWorkPolicy.UPDATE,request)
+            return manager.enqueueUniquePeriodicWork(BackupStatus.DAILY_TAG,if(replace) ExistingPeriodicWorkPolicy.CANCEL_AND_REENQUEUE else ExistingPeriodicWorkPolicy.KEEP,request)
         }
         fun manual(context: Context): Operation = queueManual(context, UUID.randomUUID(), resumeOnly = false)
 

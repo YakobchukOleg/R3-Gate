@@ -18,6 +18,7 @@ internal object EveningBackup {
         if(p.getBoolean("evening_initialized",false)) return
         LocalBackups.updateSchedule(context,LocalBackups.Schedule(true,24,7,21))
         context.getSharedPreferences("r3_gate",0).edit().putBoolean("dailyBackupEnabled",true).apply()
+        com.r3gate.app.DriveBackupWorker.schedule(context,replace=true)
         p.edit().putBoolean("evening_initialized",true).apply()
     }
 }

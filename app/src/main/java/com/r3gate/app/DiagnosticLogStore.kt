@@ -16,7 +16,7 @@ internal class DiagnosticLogStore(private val root:File, private val maxBytes:In
             file.writeText("{\"kind\":\"DIAGNOSTICS_TRUNCATED\"}\n"+tail.joinToString("\n",postfix="\n"))
         }
         file.appendText(line+"\n")
-        daily().filter { it.name<day }.dropLast((days-1).coerceAtLeast(0)).forEach { it.delete() }
+        daily().dropLast(days.coerceAtLeast(1)).forEach { it.delete() }
     }
     private fun daily()=root.listFiles().orEmpty().filter { it.name.matches(Regex("[0-9]{4}-[0-9]{2}-[0-9]{2}\\.jsonl")) }.sortedBy { it.name }
     @Synchronized fun snapshot():String=buildString {

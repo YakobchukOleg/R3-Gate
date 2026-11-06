@@ -43,7 +43,7 @@ object LocalBackups {
             .putInt(LocalBackupWorker.RETENTION, schedule.retention).putInt(EveningBackup.HOUR,schedule.eveningHour).commit()) {
             "Cannot save local backup settings"
         }
-        return LocalBackupWorker.schedule(context)
+        return LocalBackupWorker.schedule(context,replace=true)
     }
 
     fun copies(context: Context): List<Copy> = files(context).map(::describe)
