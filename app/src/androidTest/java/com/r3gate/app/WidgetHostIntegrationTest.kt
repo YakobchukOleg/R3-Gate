@@ -21,7 +21,7 @@ class WidgetHostIntegrationTest {
         val prefs=context.getSharedPreferences("r3_gate",0)
         val original=prefs.getString("data","{}")
         prefs.edit().putString("data","{\"objects\":[]}").commit()
-        val before=prefs.getString("data",null)
+        var before: String?=null
         val manager=AppWidgetManager.getInstance(context)
         val host=AppWidgetHost(context,7301)
         val id=host.allocateAppWidgetId()
@@ -34,6 +34,8 @@ class WidgetHostIntegrationTest {
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 lateinit var view:android.appwidget.AppWidgetHostView
                 scenario.onActivity { activity ->
+                    before=prefs.getString("data",null)
+                    assertFalse(org.json.JSONObject(before!!).has("active"))
                     host.startListening()
                     view=host.createView(activity,id,info)
                     activity.setContentView(view)

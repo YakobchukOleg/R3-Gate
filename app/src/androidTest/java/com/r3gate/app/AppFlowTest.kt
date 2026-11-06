@@ -507,7 +507,7 @@ class AppFlowTest {
             scenario.onActivity { a ->
                 val gear=all(a).filterIsInstance<Button>().first { it.contentDescription=="Ustawienia" }
                 assertTrue(gear.isShown)
-                val stop=all(a).filterIsInstance<Button>().first { it.text.toString().contains("ZAKOŃCZ PRACĘ") }
+                val stop=all(a).filterIsInstance<Button>().first { it.text.toString()=="Zakończ dzień" }
                 assertTrue("Primary action should remain touch-friendly",stop.minimumHeight>=(48*a.resources.displayMetrics.density).toInt())
                 settings(a); click(a,"Wygląd widżetu")
                 all(a).filterIsInstance<android.widget.SeekBar>().first().progress=100

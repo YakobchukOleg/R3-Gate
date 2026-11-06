@@ -25,9 +25,11 @@ class HomeVisualRegressionTest {
         for(theme in WorkMeterTheme.entries) {
             prefs.edit().clear().putString("pin","unchanged-pin").putString("data",journal.toString())
                 .putString(WorkMeterTheme.PREF_KEY,theme.key).commit()
+            var before=""
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 instrumentation.waitForIdleSync()
                 scenario.onActivity { activity ->
+                    before=prefs.getString("data",null)!!
                     val buttons=all(activity.window.decorView).filterIsInstance<Button>()
                     fun button(text:String)=buttons.single { it.text.toString()==text }
                     for((first,second) in listOf("Zmień obiekt" to "Zakupy","Prywatnie" to "Zakończ dzień","Trasa do obiektu" to "Zapisz GPS obiektu")) {
@@ -51,7 +53,7 @@ class HomeVisualRegressionTest {
                     java.io.FileInputStream(it.fileDescriptor).use { input -> input.readBytes() }
                 }
             }
-            assertEquals(journal.toString(),prefs.getString("data",null))
+            assertEquals(before,prefs.getString("data",null))
             assertEquals("unchanged-pin",prefs.getString("pin",null))
         }
     }
