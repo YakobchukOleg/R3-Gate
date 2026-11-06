@@ -24,7 +24,7 @@ class WorkTimeRoundingFlowTest {
     private val prefs get()=context.getSharedPreferences("r3_gate",Context.MODE_PRIVATE)
     private fun all(v:View):List<View> = listOf(v)+if(v is ViewGroup) (0 until v.childCount).flatMap { all(v.getChildAt(it)) } else emptyList()
     private fun texts(a:MainActivity)=all(a.window.decorView).filterIsInstance<TextView>().map { it.text.toString() }
-    @Before fun seed() { prefs.edit().clear().putString("data",JSONObject().put("schemaVersion",2).put("objects",JSONArray()).toString()).commit() }
+    @Before fun seed() { prefs.edit().clear().putString("pin","protected-finance").putString("data",JSONObject().put("schemaVersion",2).put("objects",JSONArray()).toString()).commit() }
     @Test fun historyRoundsSummaryDayAndShiftButKeepsOriginalStart() {
         val day=LocalDate.of(2026,11,2); val zone=ZoneId.systemDefault()
         val start=day.atTime(8,25,45).atZone(zone).toInstant().toEpochMilli()
