@@ -47,7 +47,7 @@ class PhoneReviewFlowTest {
                     assertEquals(destination.label,1,buttons.count { it.contentDescription==destination.label })
                 }
                 assertFalse(buttons.any { it.text.toString() in listOf("🏢  OBIEKTY","◷  MÓJ CZAS","☷  WIĘCEJ · MENU P1–P4") })
-                assertTrue(all(a.window.decorView).filterIsInstance<TextView>().any { it.text.toString()=="Czas dnia" })
+                assertTrue(all(a.window.decorView).filterIsInstance<TextView>().any { it.contentDescription=="Czas dnia" })
             } }
             assertEquals(before,data().toString())
             assertEquals("protected-finance",prefs.getString("pin",null))

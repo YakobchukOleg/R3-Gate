@@ -991,6 +991,8 @@ class MainActivity : Activity() {
             val role=if(plain) WorkMeterButtonRole.TEXT else WorkMeterButtonRole.SECONDARY
             row.addView(action(first.first,role,first.second),LinearLayout.LayoutParams(0,-1,1f).apply { rightMargin=dp(4) })
             row.addView(action(second.first,role,second.second),LinearLayout.LayoutParams(0,-1,1f).apply { leftMargin=dp(4) })
+            if(plain && second.first=="Zakończ dzień") (row.getChildAt(1) as Button).setTextColor(
+                if(appearance==WorkMeterTheme.GRAPHITE_DARK) 0xFFE6ADB5.toInt() else WorkMeterTheme.ERROR)
             root.addView(row,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(8) })
         }
         val hero=LinearLayout(this).apply {
@@ -1000,7 +1002,7 @@ class MainActivity : Activity() {
             elevation=dp(2).toFloat()
         }
         val header=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; gravity=Gravity.CENTER_VERTICAL; isBaselineAligned=false }
-        header.addView(text("TWÓJ DZIEŃ",12f,palette.onHeader),LinearLayout.LayoutParams(0,-2,1f))
+        header.addView(text("TWÓJ DZIEŃ",12f,palette.textPrimary),LinearLayout.LayoutParams(0,-2,1f))
         hero.addView(header)
         val stageTitle=when(state) {
             WorkMeterHomeState.CLOSED -> "Brak zmiany"
@@ -1019,8 +1021,8 @@ class MainActivity : Activity() {
         val stageLabel=android.text.SpannableString("● "+stageTitle).apply {
             setSpan(android.text.style.ForegroundColorSpan(stageInk),0,1,android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         }
-        header.addView(text(stageLabel.toString(),12f,palette.onHeader).apply { this.text=stageLabel })
-        hero.addView(text(shown?.let { duration(workedMillis(it)) } ?: "00:00",34f,palette.onHeader,true),
+        header.addView(text(stageLabel.toString(),12f,palette.textPrimary).apply { this.text=stageLabel })
+        hero.addView(text(shown?.let { duration(workedMillis(it)) } ?: "00:00",34f,palette.textPrimary,true).apply { contentDescription="Czas dnia" },
             LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(12) })
         val place=when {
             privateMode -> "Czas prywatny"
@@ -1029,12 +1031,12 @@ class MainActivity : Activity() {
             state==WorkMeterHomeState.SHOPPING -> "Zakupy"
             else -> a.optString("object").split(" · ").take(2).joinToString(" · ").ifBlank { "Nie przypisano obiektu" }
         }
-        hero.addView(text(place,17f,palette.onHeader,true).apply {
+        hero.addView(text(place,17f,palette.textPrimary,true).apply {
             contentDescription=a?.optString("object")?.ifBlank { place } ?: place
         },LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(12) })
         val gpsLabel=GpsServiceStatusUi.read(this)
         val stageTime=if(a!=null) " · Czas etapu: "+duration(WorkMeterHomeState.stageElapsed(now,a.optLong("start"),a.optLong("stageStart"))) else ""
-        hero.addView(text(gpsLabel+stageTime,12f,palette.onHeader),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(12) })
+        hero.addView(text(gpsLabel+stageTime,12f,palette.textPrimary),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(12) })
         root.addView(hero,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(14) })
 
         root.addView(action(state.primaryActionLabel(gpsHomeArrivalReady(a)), WorkMeterButtonRole.PRIMARY) {
