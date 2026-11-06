@@ -40,8 +40,9 @@ internal object BackupCompanions {
             finally { temp.delete() }
         }
         archive.parentFile?.listFiles().orEmpty().filter { f ->
-            paths.any { f.name.endsWith(suffix(it)) } &&
-            !File(f.parentFile,f.name.removeSuffix(if(f.name.endsWith(".objects.json")) ".objects.json" else ".diagnostics.jsonl")+".wmb.zip").exists()
+            val suffix=paths.map(::suffix).firstOrNull { f.name.endsWith(it) }
+            val archiveName=suffix?.let { f.name.removeSuffix(it)+".wmb.zip" }
+            archiveName!=null && LocalBackupStore.isBackupName(archiveName) && !File(f.parentFile,archiveName).exists()
         }.forEach { it.delete() }
     }
 }

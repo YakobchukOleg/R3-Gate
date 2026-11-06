@@ -30,7 +30,7 @@ class ObjectTransferActivity:Activity() {
         text("Obiekty: TAG, miasto, adres, organizacja, typ i GPS. Bez zdjęć, materiałów, notatek, historii pracy i finansów.")
         button("Eksportuj tylko obiekty z GPS") { choose(1,Intent(Intent.ACTION_CREATE_DOCUMENT).apply { type="application/json";addCategory(Intent.CATEGORY_OPENABLE);putExtra(Intent.EXTRA_TITLE,"WorkMeter-Objects-${LocalDate.now()}.json") }) }
         button("Importuj obiekty z GPS") { choose(2,Intent(Intent.ACTION_OPEN_DOCUMENT).apply { type="application/json";addCategory(Intent.CATEGORY_OPENABLE) }) }
-        text("Diagnostyka zawiera lokalizacje, jakość GPS, sygnały ruchu i przyciski. Przekazuj ją tylko świadomie. Zachowujemy do 3 dni; limity i utracone wpisy są oznaczone w pliku.")
+        text("Diagnostyka zawiera lokalizacje, jakość GPS, sygnały ruchu i przyciski. Przekazuj ją tylko świadomie. Bieżący dziennik obejmuje do 3 dni; historia z przywróconej kopii jest przechowywana oddzielnie. Limity i utracone wpisy są oznaczone w pliku.")
         button("Eksportuj diagnostykę JSONL") { choose(3,Intent(Intent.ACTION_CREATE_DOCUMENT).apply { type="application/x-ndjson";addCategory(Intent.CATEGORY_OPENABLE);putExtra(Intent.EXTRA_TITLE,"WorkMeter-Diagnostics-${LocalDate.now()}.jsonl") }) }
         text("Codziennie wieczorem kopia zawiera ZIP oraz osobne pliki obiektów i diagnostyki. Aby zachować pliki po odinstalowaniu, wybierz folder poza aplikacją.")
         button("Wybierz folder codziennych kopii na telefonie") { choose(4,Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)) }
@@ -42,7 +42,12 @@ class ObjectTransferActivity:Activity() {
         scroll.setOnApplyWindowInsetsListener { view,insets -> view.setPadding(insets.systemWindowInsetLeft,insets.systemWindowInsetTop,insets.systemWindowInsetRight,insets.systemWindowInsetBottom);insets }
         if(savedInstanceState!=null) status.text="Wybór pliku został przerwany. Ponów operację."
     }
-    private fun choose(code:Int,intent:Intent) { pending=code;startActivityForResult(intent,code) }
+    private fun choose(code:Int,intent:Intent) {
+        pending=code
+        try { startActivityForResult(intent,code) }
+        catch(_:android.content.ActivityNotFoundException) { pending=0;status.text="Brak aplikacji do wyboru pliku." }
+        catch(_:SecurityException) { pending=0;status.text="Brak dostępu do wybranego pliku." }
+    }
     private fun runTask(task:()->String) {
         busy=true;status.text="Przetwarzanie…"
         io.execute { val result=runCatching(task).getOrElse { "Błąd: "+(it.message ?: "Nie zapisano danych") }

@@ -27,4 +27,10 @@ class BackupCompanionsTest {
         val next=LocalBackupStore.create(temp.root,"{}",{error("no photos")},1,attachments=extras)
         assertFalse(BackupCompanions.file(first,BackupCompanions.DIAGNOSTICS).exists());assertTrue(BackupCompanions.file(next,BackupCompanions.DIAGNOSTICS).exists())
     }
+    @Test fun retentionDoesNotDeleteUnrelatedJsonOrDiagnosticFiles() {
+        val unrelated=java.io.File(temp.root,"manual.objects.json").apply { writeText("keep") }
+        val log=java.io.File(temp.root,"manual.diagnostics.jsonl").apply { writeText("keep") }
+        LocalBackupStore.create(temp.root,"{}",{error("no photos")},1,attachments=extras)
+        assertEquals("keep",unrelated.readText());assertEquals("keep",log.readText())
+    }
 }
