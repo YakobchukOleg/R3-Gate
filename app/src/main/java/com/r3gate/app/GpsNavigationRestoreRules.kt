@@ -7,7 +7,7 @@ object GpsNavigationRestoreRules {
 
     /** Financial details must re-lock; GPS and other non-sensitive pages remain open. */
     fun lockOnRestart(screen:String):Boolean =
-        screen=="wallet" || screen=="payment" || screen=="expenses" ||
+        screen=="walletSettings" || screen=="wallet" || screen=="payment" || screen=="expenses" ||
         screen.startsWith("detail:expenses:")
 
     fun isSupportedSection(section:String):Boolean =

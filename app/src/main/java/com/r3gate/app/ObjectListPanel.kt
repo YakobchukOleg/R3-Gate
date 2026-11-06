@@ -44,15 +44,22 @@ class ObjectListPanel(
         val pad = dp(16)
         setPadding(pad, pad, pad, pad)
 
+        val add = workMeterButton(context, "＋ Dodaj obiekt", WorkMeterButtonRole.PRIMARY, onAddObject).apply {
+            gravity = Gravity.CENTER
+            setTypeface(null, Typeface.BOLD)
+            contentDescription = "Dodaj obiekt"
+        }
+        addView(add, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(8) })
+
         val search = EditText(context).apply {
-            hint = "Szukaj nazwy, miasta, firmy…"
+            hint = "Szukaj"
             setSingleLine(true)
             textSize = 14f
             setTextColor(ink)
             setHintTextColor(muted)
             setPadding(dp(14), dp(8), dp(14), dp(8))
             background = rounded(palette.surface, 16)
-            contentDescription = "Szukaj obiektu"
+            contentDescription = "Szukaj obiektu: miasto, firma, nazwa, ulica lub adres"
             setText(initialQuery)
         }
         addView(search, LayoutParams(LayoutParams.MATCH_PARENT, dp(52)))
@@ -77,6 +84,7 @@ class ObjectListPanel(
             setOnClickListener { filterState = ObjectFilterUiState.toggleArchive(filterState); filtersChanged() }
         }
         groupToggle.apply {
+            visibility=View.GONE
             textSize = 13f
             gravity = Gravity.CENTER
             minimumHeight = dp(48)
@@ -106,12 +114,6 @@ class ObjectListPanel(
         // The parent screen already scrolls; avoid a nested weighted ScrollView.
         addView(results, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
 
-        val add = workMeterButton(context, "＋ Dodaj obiekt", WorkMeterButtonRole.PRIMARY, onAddObject).apply {
-            gravity = Gravity.CENTER
-            setTypeface(null, Typeface.BOLD)
-            contentDescription = "Dodaj obiekt"
-        }
-        addView(add, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
         render()
     }
 
@@ -131,7 +133,7 @@ class ObjectListPanel(
         val grouped = filterState.grouped
         archiveToggle.isSelected = archived
         groupToggle.isSelected = grouped
-        archiveToggle.text = if (archived) "Archiwum ✓" else "Wszystkie"
+        archiveToggle.text = if (archived) "Archiwum ✓" else "Aktywne"
         groupToggle.text = if (grouped) "▤ Grupuj: miasta" else "☷ Lista"
         archiveToggle.contentDescription = if (archived) "Pokaż aktywne obiekty" else "Pokaż archiwum obiektów"
         groupToggle.contentDescription = if (grouped) "Wyłącz grupowanie" else "Grupuj według miast"

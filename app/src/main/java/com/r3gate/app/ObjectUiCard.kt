@@ -15,17 +15,18 @@ import android.widget.TextView
  * The hosting screen owns navigation and all actions.
  */
 class ObjectUiCard(context: Context) : LinearLayout(context) {
+    private val palette=WorkMeterAppearance.theme(context).palette
     private val density = resources.displayMetrics.density
     private fun dp(value: Int) = (value * density + 0.5f).toInt()
 
     private val titleView = TextView(context).apply {
-        setTextColor(0xFF37474F.toInt())
+        setTextColor(palette.textPrimary)
         textSize = 15f
         setTypeface(typeface, Typeface.BOLD)
         maxLines = 3
     }
     private val statusView = TextView(context).apply {
-        setTextColor(0xFF607D8B.toInt())
+        setTextColor(palette.secondaryText)
         textSize = 12f
         gravity = Gravity.CENTER_VERTICAL
     }
@@ -37,9 +38,9 @@ class ObjectUiCard(context: Context) : LinearLayout(context) {
         minimumHeight = dp(64)
         setPadding(dp(14), dp(12), dp(14), dp(12))
         background = GradientDrawable().apply {
-            setColor(Color.WHITE)
-            cornerRadius = dp(12).toFloat()
-            setStroke(dp(1), 0xFFE3E8EA.toInt())
+            setColor(palette.surface)
+            cornerRadius = dp(16).toFloat()
+            setStroke(dp(1), palette.border)
         }
         addView(titleView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         addView(statusView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
