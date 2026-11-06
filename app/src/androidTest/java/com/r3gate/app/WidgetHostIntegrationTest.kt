@@ -4,6 +4,7 @@ import android.app.Activity
 import android.appwidget.AppWidgetHost
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
+import android.content.Intent
 import android.os.Bundle
 import android.util.SizeF
 import android.view.View
@@ -30,14 +31,16 @@ class WidgetHostIntegrationTest {
         val host=AppWidgetHost(context,7301)
         val id=host.allocateAppWidgetId()
         val provider=ComponentName(context,GateWidget::class.java)
-        // PendingIntent uses NEW_TASK/CLEAR_TOP, so Android may route it to another
-        // MainActivity instead of the one owned by ActivityScenario. Track both;
-        // moving only the scenario to RESUMED cannot bring that task forward.
-        val activities=linkedSetOf<Activity>()
+        // onNewIntent replaces MainActivity.intent with the widget Intent, which
+        // has no MAIN/LAUNCHER action/category. ActivityScenario filters lifecycle
+        // events by its launch Intent and otherwise ignores even DESTROYED.
+        // Keep the original identity for teardown; exercise the real widget Intent
+        // unchanged through the confirmation and journal assertions first.
+        val activities=linkedMapOf<Activity,Intent>()
         val lifecycle=ActivityLifecycleMonitorRegistry.getInstance()
         val callback=ActivityLifecycleCallback { activity, stage ->
             if(activity is MainActivity) {
-                if(stage==Stage.CREATED) activities.add(activity)
+                if(stage==Stage.CREATED) activities[activity]=Intent(activity.intent)
                 if(stage==Stage.DESTROYED) activities.remove(activity)
             }
         }
@@ -94,11 +97,14 @@ class WidgetHostIntegrationTest {
                         .perform(androidx.test.espresso.action.ViewActions.click())
                     assertEquals("Widget start bypassed Tak/Nie",before,prefs.getString("data",null))
                 } finally {
-                    // Close every Activity created by this test, including the widget's
-                    // destination, before ActivityScenario.close waits for its host.
-                    // Run on the main thread, where lifecycle callbacks update the set.
+                    // Restore the scenario's launch identity before finishing so its
+                    // lifecycle observer can see the actual destruction. This only
+                    // changes test teardown, after the real PendingIntent was checked.
                     instrumentation.runOnMainSync {
-                        activities.toList().asReversed().forEach { it.finish() }
+                        activities.toList().asReversed().forEach { (activity, launchIntent) ->
+                            activity.intent=launchIntent
+                            activity.finish()
+                        }
                     }
                     instrumentation.waitForIdleSync()
                 }
