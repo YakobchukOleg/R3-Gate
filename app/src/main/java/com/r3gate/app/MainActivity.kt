@@ -983,7 +983,7 @@ class MainActivity : Activity() {
         fun text(value:String,size:Float,color:Int,bold:Boolean=false):TextView =
             TextView(this).apply {
                 this.text=value; textSize=size; setTextColor(color)
-                if(bold) setTypeface(resources.getFont(R.font.clash_grotesk),android.graphics.Typeface.BOLD)
+                typeface=android.graphics.Typeface.create(if(bold) "sans-serif-medium" else "sans-serif",android.graphics.Typeface.NORMAL)
                 includeFontPadding=false
             }
         fun action(label: String, role: WorkMeterButtonRole = WorkMeterButtonRole.SECONDARY, onClick: () -> Unit): Button =
@@ -1024,7 +1024,7 @@ class MainActivity : Activity() {
             setSpan(android.text.style.ForegroundColorSpan(stageInk),0,1,android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         }
         header.addView(text(stageLabel.toString(),12f,palette.textPrimary).apply { this.text=stageLabel })
-        hero.addView(text(shown?.let { duration(workedMillis(it)) } ?: "00:00",34f,palette.textPrimary,true).apply { contentDescription="Czas dnia" },
+        hero.addView(text(shown?.let { duration(workedMillis(it)) } ?: "00:00",32f,palette.textPrimary,false).apply { contentDescription="Czas dnia" },
             LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(12) })
         val place=when {
             privateMode -> "Czas prywatny"
@@ -1082,9 +1082,9 @@ class MainActivity : Activity() {
         }
         root.addView(View(this).apply { setBackgroundColor(palette.border) },LinearLayout.LayoutParams(-1,dp(1)).apply { topMargin=dp(8); bottomMargin=dp(16) })
         val quick=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; isBaselineAligned=false }
-        val tiles=listOf(Triple("Zdjęcie",android.R.drawable.ic_menu_camera,{ openHomeRecord("links"); camera() }),
-            Triple("Notatka",android.R.drawable.ic_menu_edit,{ openHomeRecord("notes") }),
-            Triple("Materiał",android.R.drawable.ic_menu_agenda,{ openHomeRecord("materials") }))
+        val tiles=listOf(Triple("Zdjęcie",R.drawable.ic_quick_camera,{ openHomeRecord("links"); camera() }),
+            Triple("Notatka",R.drawable.ic_quick_note,{ openHomeRecord("notes") }),
+            Triple("Materiał",R.drawable.ic_quick_material,{ openHomeRecord("materials") }))
         tiles.forEachIndexed { index,tile ->
             quick.addView(action(tile.first,onClick=tile.third).apply {
                 contentDescription=listOf("Zrób zdjęcie","Dodaj notatkę","Dodaj materiał")[index]

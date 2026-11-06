@@ -45,6 +45,7 @@ class HomeVisualRegressionTest {
                     assertTrue(tiles.all { it.width>0 && it.height>0 })
                     assertEquals(tiles.first().height,tiles.last().height)
                 }
+                android.os.SystemClock.sleep(1500)
                 val image=instrumentation.uiAutomation.takeScreenshot()
                 val path="/sdcard/Download/home-compact-${theme.key}.png"
                 val file=java.io.File(context.getExternalFilesDir(null),"home-${theme.key}.png")
