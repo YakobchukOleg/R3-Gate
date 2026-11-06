@@ -76,6 +76,9 @@ class WidgetHostIntegrationTest {
                     .inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog())
                     .perform(androidx.test.espresso.action.ViewActions.click())
                 assertEquals("Widget start bypassed Tak/Nie",before,prefs.getString("data",null))
+                // A widget PendingIntent may leave the scenario Activity PAUSED on Android 15.
+                // Bring it back to the foreground before ActivityScenario.close() waits for DESTROYED.
+                scenario.moveToState(androidx.lifecycle.Lifecycle.State.RESUMED)
             }
         } finally {
             host.stopListening(); host.deleteAppWidgetId(id)
