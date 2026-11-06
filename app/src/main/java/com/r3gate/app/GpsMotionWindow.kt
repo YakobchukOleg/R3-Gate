@@ -35,3 +35,11 @@ internal object GpsMotionProbe {
     fun interval(now:Long,start:Long,baseline:Long):Long=
         if(start>0 && now>=start && now-start<DURATION_MS) minOf(baseline,3_000L) else baseline
 }
+
+/** Linear acceleration preserves horizontal car acceleration; raw fallback removes gravity magnitude. */
+internal object GpsAcceleration {
+    fun magnitude(x:Double,y:Double,z:Double,linear:Boolean):Double {
+        val length=kotlin.math.sqrt(x*x+y*y+z*z)
+        return if(linear) length else kotlin.math.abs(length-9.80665)
+    }
+}

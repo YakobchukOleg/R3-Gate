@@ -56,4 +56,13 @@ class GpsMotionWindowTest {
         for(i in 1001..1060) next=detector.observe(1000L+i*100,0.9).wake || next
         assertTrue(first);assertTrue(next)
     }
+    @Test fun horizontalVehicleAccelerationIsRetainedByLinearSensor() {
+        assertEquals(1.0,GpsAcceleration.magnitude(1.0,0.0,0.0,true),0.0001)
+        val detector=GpsMotionWindow();var wake=false
+        for(i in 0..30) wake=detector.observe(1000L+i*100,GpsAcceleration.magnitude(1.0,0.0,0.0,true)).wake || wake
+        assertTrue(wake)
+    }
+    @Test fun rawFallbackDoesNotTreatGravityAsMotion() {
+        assertEquals(0.0,GpsAcceleration.magnitude(0.0,0.0,9.80665,false),0.0001)
+    }
 }

@@ -182,18 +182,18 @@ class GpsTrackingService : Service(), LocationListener {
     private val sensorListener=object:SensorEventListener {
         override fun onAccuracyChanged(sensor:Sensor?,accuracy:Int) {}
         override fun onSensorChanged(event:SensorEvent) {
-            if(event.sensor.type!=Sensor.TYPE_ACCELEROMETER || !sessionStarted ||
+            if(event.sensor.type !in listOf(Sensor.TYPE_ACCELEROMETER,Sensor.TYPE_LINEAR_ACCELERATION) || !sessionStarted ||
                 !prefs.getBoolean("gps_enabled",false) ||
                 !prefs.getBoolean("gps_adaptive_sampling",true)) return
             val x=event.values[0].toDouble()
             val y=event.values[1].toDouble()
             val z=event.values[2].toDouble()
-            val delta=kotlin.math.abs(sqrt(x*x+y*y+z*z)-SensorManager.GRAVITY_EARTH)
+            val delta=GpsAcceleration.magnitude(x,y,z,event.sensor.type==Sensor.TYPE_LINEAR_ACCELERATION)
             val now=System.currentTimeMillis()
             samplingState=GpsAdaptiveSampling.observe(samplingState,now,delta)
             val evidence=motionWindow.observe(event.timestamp/1_000_000,delta)
             WorkMeterDiagnostics.record(this@GpsTrackingService,"SENSOR_WINDOW",JSONObject()
-                .put("rms",evidence.rms).put("activeFraction",evidence.activeFraction).put("samples",evidence.samples),15_000)
+                .put("sensorType",event.sensor.type).put("rms",evidence.rms).put("activeFraction",evidence.activeFraction).put("samples",evidence.samples),15_000)
             val wake=GpsMotionWakeRules.Result(motionWakeState,evidence.wake)
             if(evidence.wake) beginMotionProbe("accelerometer")
             if(!GpsSensorEvaluationRules.shouldEvaluate(
@@ -234,7 +234,7 @@ class GpsTrackingService : Service(), LocationListener {
     private fun startMotionSensor() {
         if(motionListenerRegistered || significantMotionRegistered) return
         motionWindow=GpsMotionWindow()
-        val sensor=sensors.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        val sensor=sensors.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION) ?: sensors.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
         motionListenerRegistered=sensor!=null && sensors.registerListener(sensorListener,sensor,SensorManager.SENSOR_DELAY_NORMAL)
         armSignificantMotion()
         trace("SENSORS_STARTED",details=JSONObject().put("accelerometer",motionListenerRegistered).put("significantMotion",significantMotionRegistered))
