@@ -1084,7 +1084,7 @@ class MainActivity : Activity() {
             Triple("Notatka",android.R.drawable.ic_menu_edit,{ openHomeRecord("notes") }),
             Triple("Materiał",android.R.drawable.ic_menu_agenda,{ openHomeRecord("materials") }))
         tiles.forEachIndexed { index,tile ->
-            quick.addView(action(tile.first) .apply {
+            quick.addView(action(tile.first,onClick=tile.third).apply {
                 contentDescription=listOf("Zrób zdjęcie","Dodaj notatkę","Dodaj materiał")[index]
                 val icon=getDrawable(tile.second)?.mutate()?.apply { setTint(palette.textPrimary); setBounds(0,0,dp(22),dp(22)) }
                 setCompoundDrawables(null,icon,null,null); compoundDrawablePadding=dp(8)
@@ -3940,3 +3940,4 @@ class MainActivity : Activity() {
     }
 
 }
+
