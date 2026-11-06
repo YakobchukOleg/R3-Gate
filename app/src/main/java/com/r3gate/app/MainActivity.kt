@@ -751,14 +751,7 @@ class MainActivity : Activity() {
         val frame=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setBackgroundColor(palette.header) }
         val top=View(this); frame.addView(top,LinearLayout.LayoutParams(-1,0))
         val header=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; gravity=Gravity.CENTER_VERTICAL; setPadding(dp(16),0,dp(8),0); setBackgroundColor(palette.header) }
-        header.addView(TextView(this).apply { text=title; textSize=27f; minimumHeight=dp(56); gravity=Gravity.CENTER_VERTICAL; setTextColor(palette.onHeader); setTypeface(resources.getFont(R.font.clash_grotesk),android.graphics.Typeface.BOLD) },LinearLayout.LayoutParams(0,-2,1f).apply { gravity=Gravity.CENTER_VERTICAL })
-        if(title=="WorkMeter") header.addView(TextView(this).apply {
-            text="SOLO"
-            textSize=11f
-            setTextColor(palette.onPrimary)
-            setPadding(dp(7),dp(5),dp(7),dp(5))
-            background=background(palette.primary)
-        },LinearLayout.LayoutParams(-2,-2).apply { rightMargin=dp(7) })
+        header.addView(TextView(this).apply { text=title; textSize=22f; minimumHeight=dp(52); gravity=Gravity.CENTER_VERTICAL; setTextColor(palette.onHeader); setTypeface(resources.getFont(R.font.clash_grotesk),android.graphics.Typeface.BOLD) },LinearLayout.LayoutParams(0,-2,1f).apply { gravity=Gravity.CENTER_VERTICAL })
         if(title in listOf("WorkMeter","Portfel","Obiekty")) header.addView(Button(this).apply {
             text="⚙"; textSize=27f; contentDescription=when(title) { "Portfel" -> "Ustawienia portfela"; "Obiekty" -> "Ustawienia obiektów"; else -> "Ustawienia" }; setTextColor(palette.onHeader)
             background=android.graphics.drawable.ColorDrawable(Color.TRANSPARENT); backgroundTintList=null; setPadding(0,0,0,0)
@@ -881,7 +874,7 @@ class MainActivity : Activity() {
         root=panel
         try { content() } finally { root=parent }
     }
-    private fun nav() { button("← Wstecz") { back() } }
+    private fun nav() { root.addView(workMeterButton(this,"← Wstecz",WorkMeterButtonRole.TEXT) { back() },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(8) }) }
     private fun back() {
         when {
             screen == "home" -> finish()
@@ -991,29 +984,23 @@ class MainActivity : Activity() {
                 if(bold) setTypeface(resources.getFont(R.font.clash_grotesk),android.graphics.Typeface.BOLD)
                 includeFontPadding=false
             }
-        fun section(title:String) {
-            root.addView(text(title,14f,palette.textPrimary,true),LinearLayout.LayoutParams(-1,-2).apply {
-                topMargin=dp(20); bottomMargin=dp(10)
-            })
-        }
         fun action(label: String, role: WorkMeterButtonRole = WorkMeterButtonRole.SECONDARY, onClick: () -> Unit): Button =
             workMeterButton(this, label, role, onClick)
-        fun actionRow(first:Pair<String,()->Unit>,second:Pair<String,()->Unit>) {
-            val row=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
-            row.addView(action(first.first,onClick=first.second),LinearLayout.LayoutParams(0,-2,1f).apply { rightMargin=dp(5) })
-            row.addView(action(second.first,onClick=second.second),LinearLayout.LayoutParams(0,-2,1f).apply { leftMargin=dp(5) })
-            root.addView(row,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
+        fun actionRow(first:Pair<String,()->Unit>,second:Pair<String,()->Unit>,plain:Boolean=false) {
+            val row=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; isBaselineAligned=false }
+            val role=if(plain) WorkMeterButtonRole.TEXT else WorkMeterButtonRole.SECONDARY
+            row.addView(action(first.first,role,first.second),LinearLayout.LayoutParams(0,-1,1f).apply { rightMargin=dp(4) })
+            row.addView(action(second.first,role,second.second),LinearLayout.LayoutParams(0,-1,1f).apply { leftMargin=dp(4) })
+            root.addView(row,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(8) })
         }
         val hero=LinearLayout(this).apply {
             orientation=LinearLayout.VERTICAL
-            setPadding(dp(20),dp(19),dp(20),dp(20))
-            background=rounded(slate,22)
+            setPadding(dp(16),dp(16),dp(16),dp(16))
+            background=rounded(palette.surface,16)
             elevation=dp(2).toFloat()
         }
-        val header=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;gravity=Gravity.START }
-        header.addView(text("TWÓJ DZIEŃ",12f,palette.onHeader,true),LinearLayout.LayoutParams(-1,-2))
-        val status=when { privateMode -> "PRYWATNIE";a!=null -> "DZIEŃ OTWARTY";else -> "DZIEŃ ZAMKNIĘTY" }
-        header.addView(text(status,12f,palette.onHeader,true))
+        val header=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; gravity=Gravity.CENTER_VERTICAL; isBaselineAligned=false }
+        header.addView(text("TWÓJ DZIEŃ",12f,palette.onHeader),LinearLayout.LayoutParams(0,-2,1f))
         hero.addView(header)
         val stageTitle=when(state) {
             WorkMeterHomeState.CLOSED -> "Brak zmiany"
@@ -1032,35 +1019,22 @@ class MainActivity : Activity() {
         val stageLabel=android.text.SpannableString("● "+stageTitle).apply {
             setSpan(android.text.style.ForegroundColorSpan(stageInk),0,1,android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         }
-        hero.addView(text(stageLabel.toString(),13f,palette.onHeader).apply { this.text=stageLabel },
-            LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(8) })
-        hero.addView(text(if (a == null && recent != null) "Czas ostatniego dnia" else "Czas dnia",12f,palette.onHeader),
-            LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(10) })
-        hero.addView(text(shown?.let {
-            duration(workedMillis(it))
-        } ?: "00:00",44f,palette.onHeader,true),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(14) })
-        hero.addView(text(
-            when {
-                privateMode -> "Czas prywatny"
-                a==null -> "Gotowy do rozpoczęcia pracy"
-                a.optString("kind")=="Przejazd" -> "W drodze"
-                a.optString("kind")=="Zakupy" -> "Zakupy"
-                a.optString("kind")=="Biuro" -> "Biuro · "+a.optString("object")
-                else -> a.optString("object").ifBlank { "Nie przypisano obiektu" }
-            },14f,palette.onHeader,true),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(5) })
-        hero.addView(text(
-            "Rozpoczęcie: "+(shown?.let { fmt.format(Date(it.optLong("start"))) } ?: "—"),
-            12f,palette.onHeader),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(7) })
-        if(a==null && recent!=null) hero.addView(text(
-            "Zakończenie: "+fmt.format(Date(recent.optLong("end"))),
-            12f,palette.onHeader),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(2) })
-        if (a != null) hero.addView(text(
-            "Czas etapu: " + duration(WorkMeterHomeState.stageElapsed(now, a.optLong("start"), a.optLong("stageStart"))),
-            13f,palette.onHeader,true),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(9) })
-        val gpsLabel = GpsServiceStatusUi.read(this)
-        hero.addView(text(gpsLabel, 13f, palette.onHeader), LinearLayout.LayoutParams(-1, -2).apply {
-            topMargin = dp(8)
-        })
+        header.addView(text(stageLabel.toString(),12f,palette.onHeader).apply { this.text=stageLabel })
+        hero.addView(text(shown?.let { duration(workedMillis(it)) } ?: "00:00",34f,palette.onHeader,true),
+            LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(12) })
+        val place=when {
+            privateMode -> "Czas prywatny"
+            a==null -> "Gotowy do pracy"
+            state==WorkMeterHomeState.TRAVEL -> "W drodze"
+            state==WorkMeterHomeState.SHOPPING -> "Zakupy"
+            else -> a.optString("object").split(" · ").take(2).joinToString(" · ").ifBlank { "Nie przypisano obiektu" }
+        }
+        hero.addView(text(place,17f,palette.onHeader,true).apply {
+            contentDescription=a?.optString("object")?.ifBlank { place } ?: place
+        },LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(12) })
+        val gpsLabel=GpsServiceStatusUi.read(this)
+        val stageTime=if(a!=null) " · Czas etapu: "+duration(WorkMeterHomeState.stageElapsed(now,a.optLong("start"),a.optLong("stageStart"))) else ""
+        hero.addView(text(gpsLabel+stageTime,12f,palette.onHeader),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(12) })
         root.addView(hero,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(14) })
 
         root.addView(action(state.primaryActionLabel(gpsHomeArrivalReady(a)), WorkMeterButtonRole.PRIMARY) {
@@ -1074,52 +1048,51 @@ class MainActivity : Activity() {
         }, LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
 
         if (a != null) {
-            root.addView(action("■  ZAKOŃCZ PRACĘ", WorkMeterButtonRole.SECONDARY) { confirmWorkday(false) { stopShift() } },
-                LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
             pendingGpsStageEventId(d,System.currentTimeMillis())?.let { eventId ->
-                root.addView(action("📍  GPS · POTWIERDŹ ZMIANĘ ETAPU") {
-                    reviewGpsStageProposal(eventId)
-                },LinearLayout.LayoutParams(-1,dp(48)).apply { bottomMargin=dp(10) })
+                root.addView(action("📍  GPS · POTWIERDŹ ZMIANĘ ETAPU") { reviewGpsStageProposal(eventId) },
+                    LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(8) })
             }
-            if (!privateMode) root.addView(action("⏸  PRYWATNIE") {
-                togglePrivateTime()
-            },LinearLayout.LayoutParams(-1,dp(48)).apply { bottomMargin=dp(10) })
-            if (state != WorkMeterHomeState.PERSONAL) {
-                val switch = "↔  ZMIEŃ OBIEKT" to { confirmAction("Zmienić obiekt?") { switchObject() } }
+            if (!privateMode) {
+                val switch = "Zmień obiekt" to { confirmAction("Zmienić obiekt?") { switchObject() } }
                 val travel = "Rozpocznij przejazd" to { toggleTravel() }
-                val shopping = "🛍  ZAKUPY" to { toggleShopping() }
+                val shopping = "Zakupy" to { toggleShopping() }
                 when (state) {
                     WorkMeterHomeState.ON_SITE, WorkMeterHomeState.TRAVEL -> actionRow(switch, shopping)
                     WorkMeterHomeState.SHOPPING -> actionRow(switch, travel)
                     WorkMeterHomeState.UNASSIGNED -> actionRow(travel, shopping)
                     else -> Unit
                 }
-                root.addView(action("↗  TRASA DO OBIEKTU") {
-                    chooseObject(false) { obj ->
-                        if (obj != null) openLink("https://www.google.com/maps/dir/?api=1&destination=" +
-                            URLEncoder.encode(obj.optString("city") + " " + obj.optString("Adres"), "UTF-8"))
-                    }
-                }, LinearLayout.LayoutParams(-1, -2))
-            }
-            if(a.optString("kind")=="Zakupy") {
-                root.addView(action("Dane zakupów / paragony") { shoppingRecord(a.optString("shoppingRecordId")) },
-                    LinearLayout.LayoutParams(-1,dp(48)))
-            }
+                actionRow("Prywatnie" to { togglePrivateTime() },
+                    "Zakończ dzień" to { confirmWorkday(false) { stopShift() } },true)
+            } else root.addView(action("Zakończ dzień",WorkMeterButtonRole.TEXT) { confirmWorkday(false) { stopShift() } },
+                LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(8) })
+            actionRow("Trasa do obiektu" to {
+                chooseObject(false) { obj -> if(obj!=null) openLink("https://www.google.com/maps/dir/?api=1&destination="+
+                    URLEncoder.encode(obj.optString("city")+" "+obj.optString("Adres"),"UTF-8")) }
+            },"Zapisz GPS obiektu" to { saveHomeGps() },true)
+            val gpsRow=root.getChildAt(root.childCount-1) as LinearLayout
+            gpsRow.getChildAt(1).apply { isEnabled=canSaveHomeGps(a); alpha=if(isEnabled) 1f else 0.55f }
+            if(a.optString("kind")=="Zakupy") root.addView(action("Dane zakupów / paragony",WorkMeterButtonRole.TEXT) {
+                shoppingRecord(a.optString("shoppingRecordId"))
+            },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(8) })
         }
-        val saveGpsReady=canSaveHomeGps(a)
-        if (a != null) root.addView(action("Zapisz GPS obiektu") { saveHomeGps() }.apply {
-            isEnabled=saveGpsReady
-            alpha=if(saveGpsReady) 1f else 0.55f
-        },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
-        section("SZYBKIE DZIAŁANIA")
-        root.addView(action("Zrób zdjęcie") { openHomeRecord("links"); camera() },
-            LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(10) })
-        actionRow("Dodaj notatkę" to { openHomeRecord("notes") },
-            "Dodaj materiał" to { openHomeRecord("materials") })
-        actionRow("📷  ZDJĘCIA" to { openScreen("list:links:") },
-            "📦  MATERIAŁY" to { openScreen("list:materials:") })
-        actionRow("📝  NOTATKI" to { openScreen("notes") },
-            "▥  GRAFIKI" to { charts() })
+        root.addView(View(this).apply { setBackgroundColor(palette.border) },LinearLayout.LayoutParams(-1,dp(1)).apply { topMargin=dp(8); bottomMargin=dp(16) })
+        val quick=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; isBaselineAligned=false }
+        val tiles=listOf(Triple("Zdjęcie",android.R.drawable.ic_menu_camera,{ openHomeRecord("links"); camera() }),
+            Triple("Notatka",android.R.drawable.ic_menu_edit,{ openHomeRecord("notes") }),
+            Triple("Materiał",android.R.drawable.ic_menu_agenda,{ openHomeRecord("materials") }))
+        tiles.forEachIndexed { index,tile ->
+            quick.addView(action(tile.first) .apply {
+                contentDescription=listOf("Zrób zdjęcie","Dodaj notatkę","Dodaj materiał")[index]
+                val icon=getDrawable(tile.second)?.mutate()?.apply { setTint(palette.textPrimary); setBounds(0,0,dp(22),dp(22)) }
+                setCompoundDrawables(null,icon,null,null); compoundDrawablePadding=dp(8)
+                setPadding(dp(4),dp(12),dp(4),dp(12))
+                background=rounded(palette.surface,12)
+            },LinearLayout.LayoutParams(0,-1,1f).apply { if(index>0) leftMargin=dp(8) })
+        }
+        root.addView(quick,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(8) })
+        actionRow("📷  ZDJĘCIA" to { openScreen("list:links:") },"📦  MATERIAŁY" to { openScreen("list:materials:") },true)
+        actionRow("📝  NOTATKI" to { openScreen("notes") },"▥  GRAFIKI" to { charts() },true)
     }
 
     private fun openHomeRecord(kind: String) {
@@ -2271,17 +2244,17 @@ class MainActivity : Activity() {
                 orientation=LinearLayout.VERTICAL; setPadding(dp(12),dp(10),dp(12),dp(6))
                 background=background(palette.surface).apply { setStroke(dp(1), palette.border) }
             }
-            parent.addView(card,LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(8); bottomMargin=dp(12) })
+            parent.addView(card,LinearLayout.LayoutParams(-1,-2).apply { topMargin=0; bottomMargin=dp(8) })
             root=card
             try {
                 label(dateText(day)+" · "+LocalDate.parse(day).dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL,Locale.forLanguageTag("pl")))
                 label("Czas dnia: "+duration(reportWorkedMillis(items)))
                 for((shift,slice) in items.sortedByDescending { it.second.start }) {
                     val row=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; isBaselineAligned=false }
-                    row.addView(workMeterButton(this,intervalLabel(slice.start,slice.end)+" · "+duration(workedMillis(shift,slice.start,slice.end)),WorkMeterButtonRole.SECONDARY) {
+                    row.addView(workMeterButton(this,intervalLabel(slice.start,slice.end)+" · "+duration(workedMillis(shift,slice.start,slice.end)),WorkMeterButtonRole.TEXT) {
                         shiftDetails(shift.optString("id"))
                     },LinearLayout.LayoutParams(0,-2,1f))
-                    row.addView(workMeterButton(this,"⋮",WorkMeterButtonRole.SECONDARY) { shiftOptions(shift.optString("id")) }.apply {
+                    row.addView(workMeterButton(this,"⋮",WorkMeterButtonRole.TEXT) { shiftOptions(shift.optString("id")) }.apply {
                         contentDescription="Opcje zmiany"
                     },LinearLayout.LayoutParams(dp(48),-1).apply { marginStart=dp(4) })
                     root.addView(row,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(6) })

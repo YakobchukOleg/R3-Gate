@@ -31,7 +31,7 @@ class WidgetAppearanceActivity : Activity() {
         setResult(RESULT_CANCELED, result)
         val manager = AppWidgetManager.getInstance(this)
         if (id == AppWidgetManager.INVALID_APPWIDGET_ID ||
-            manager.getAppWidgetInfo(id)?.provider != ComponentName(this, GateWidget::class.java)
+            (manager.getAppWidgetInfo(id)?.provider?.let { it != ComponentName(this, GateWidget::class.java) } == true)
         ) {
             finish()
             return

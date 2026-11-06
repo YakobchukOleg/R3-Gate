@@ -38,17 +38,18 @@ class AppFlowTest {
         // explicit about the rendered labels rather than disabling assertions.
         val display=when(text) {
             "🟢 ROZPOCZNIJ PRACĘ" -> "Rozpocznij dzień"
-            "🔴 ZAKOŃCZ PRACĘ" -> "■  ZAKOŃCZ PRACĘ"
-            "🔄 ZMIEŃ OBIEKT" -> "↔  ZMIEŃ OBIEKT"
+            "🔴 ZAKOŃCZ PRACĘ" -> "Zakończ dzień"
+            "🔄 ZMIEŃ OBIEKT" -> "Zmień obiekt"
             "🚗 PRZEJAZD" -> "Rozpocznij przejazd"
             "DOTARŁEM" -> if (all(a).filterIsInstance<Button>().any { it.text.toString()=="Potwierdź przyjazd" }) "Potwierdź przyjazd" else "Wybierz cel"
-            "ZAKUPY" -> "🛍  ZAKUPY"
+            "ZAKUPY" -> "Zakupy"
             "ZAKOŃCZ ZAKUPY" -> "Zakończ zakupy"
             "ZDJĘCIA" -> "📷  ZDJĘCIA"
             "MATERIAŁY" -> "📦  MATERIAŁY"
             "NOTATKI" -> "📝  NOTATKI"
             "OBIEKTY" -> "▦\nObiekty"
             "MÓJ CZAS" -> "◷\nMój czas"
+            "Zrób zdjęcie" -> "Zdjęcie"
             "GRAFIKI" -> "▥  GRAFIKI"
             else -> text
         }
@@ -200,7 +201,7 @@ class AppFlowTest {
         seedActive()
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
-                click(activity, "Dodaj notatkę")
+                click(activity, "Notatka")
                 assertTrue(all(activity).filterIsInstance<Button>()
                     .any { it.text.toString().startsWith("Obiekt: KOP-01") })
             }
@@ -214,7 +215,7 @@ class AppFlowTest {
             .commit()
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
-                click(activity, "Dodaj notatkę")
+                click(activity, "Notatka")
                 assertTrue(has(activity, "Obiekt: Bez obiektu"))
                 assertTrue(has(activity, "Szkic"))
             }
@@ -389,7 +390,7 @@ class AppFlowTest {
                 assertFalse(all(a).filterIsInstance<Button>().any { it.text=="GOOGLE DRIVE" || it.text=="ZAROBEK (pokaż)" })
                 settings(a); assertTrue(has(a,"Ustawienia"))
                 assertTrue(has(a,"GENERUJ RAPORT SMS")); assertTrue(has(a,"Logi / eksport / import")); assertTrue(has(a,"Google Disk"))
-                click(a,"O aplikacji"); assertTrue(has(a,"Wersja: 2.7.0")); a.onBackPressed()
+                click(a,"O aplikacji"); assertTrue(has(a,"Wersja: "+a.packageManager.getPackageInfo(a.packageName,0).versionName)); a.onBackPressed()
                 click(a,"Portfel / rozliczenia (PIN)")
                 assertFalse(has(a,"Portfel"))
                 assertFalse(all(a).filterIsInstance<TextView>().any { it.text.toString().startsWith("Wybrany okres · ") })

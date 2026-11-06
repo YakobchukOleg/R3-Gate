@@ -60,10 +60,10 @@ class PhoneReviewFlowTest {
             scenario.onActivity { action(it,"Rozpocznij dzień") }; answer("Tak")
             assertTrue(data().has("active")); assertFalse(prefs.getBoolean("gps_enabled",false))
             answer("Anuluj")
-            scenario.onActivity { action(it,"■  ZAKOŃCZ PRACĘ") }
+            scenario.onActivity { action(it,"Zakończ dzień") }
             val before=data().getJSONObject("active").toString()
             answer("Nie"); assertEquals(before,data().getJSONObject("active").toString())
-            scenario.onActivity { action(it,"■  ZAKOŃCZ PRACĘ") }; answer("Tak")
+            scenario.onActivity { action(it,"Zakończ dzień") }; answer("Tak")
             assertFalse(data().has("active")); assertEquals(1,data().getJSONArray("shifts").length())
             assertFalse(prefs.getBoolean("gps_enabled",false))
             assertEquals("protected-finance",prefs.getString("pin",null))
