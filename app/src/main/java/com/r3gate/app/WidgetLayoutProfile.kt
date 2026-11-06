@@ -1,13 +1,16 @@
 package com.r3gate.app
 
 internal enum class WidgetLayoutProfile(val minWidthDp: Int, val minHeightDp: Int, val displayName: String) {
-    MINI(110, 68, "Mini"),
-    COMPACT(110, 112, "Compact"),
-    STANDARD(220, 144, "Standard"),
-    EXPANDED(220, 208, "Expanded");
-
+    COMPACT(110, 68, "Mały · 2×1"),
+    MEDIUM(250, 68, "Poziomy · 4×1"),
+    LARGE(110, 110, "Duży · 2×2 / 4×2 / 4×3");
     companion object {
+        // Compatibility for saved preview callers; there are only three rendering classes.
+        val MINI get() = COMPACT
+        val WIDE_SHORT get() = MEDIUM
+        val STANDARD get() = LARGE
+        val EXPANDED get() = LARGE
         fun forBounds(widthDp: Int, heightDp: Int): WidgetLayoutProfile =
-            entries.lastOrNull { widthDp >= it.minWidthDp && heightDp >= it.minHeightDp } ?: MINI
+            if(heightDp>=110) LARGE else if(widthDp>=250) MEDIUM else COMPACT
     }
 }

@@ -11,6 +11,8 @@ import android.widget.TextView
 class WorkRecordListCard(
     context: Context,
     model: WorkRecordListUi.Card,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
     onOpen: () -> Unit
 ) : LinearLayout(context) {
     private fun dp(n: Int) = (n * resources.displayMetrics.density + 0.5f).toInt()
@@ -30,7 +32,7 @@ class WorkRecordListCard(
         isFocusable=true
         setOnClickListener { onOpen() }
         val top=LinearLayout(context).apply {
-            orientation=HORIZONTAL
+            orientation=VERTICAL
             gravity=Gravity.CENTER_VERTICAL
         }
         top.addView(TextView(context).apply {
@@ -38,10 +40,12 @@ class WorkRecordListCard(
             textSize=16f
             setTextColor(palette.textPrimary)
             setTypeface(null,Typeface.BOLD)
-        },LayoutParams(0,LayoutParams.WRAP_CONTENT,1f))
+        },LayoutParams(LayoutParams.MATCH_PARENT,LayoutParams.WRAP_CONTENT))
         top.addView(TextView(context).apply {
             text=model.badge
             textSize=12f
+            maxLines=3
+            ellipsize=android.text.TextUtils.TruncateAt.END
             setTextColor(palette.accentText)
             setPadding(dp(9),dp(5),dp(9),dp(5))
             background=GradientDrawable().apply {
@@ -57,6 +61,11 @@ class WorkRecordListCard(
                 setTextColor(palette.secondaryText)
                 setPadding(0,dp(9),0,0)
             })
+        }
+        if(actionLabel!=null && onAction!=null) {
+            addView(workMeterButton(context,actionLabel,WorkMeterButtonRole.SECONDARY,onAction).apply {
+                contentDescription=actionLabel+" · "+model.title
+            },LayoutParams(LayoutParams.MATCH_PARENT,LayoutParams.WRAP_CONTENT).apply { topMargin=dp(8) })
         }
     }
 }

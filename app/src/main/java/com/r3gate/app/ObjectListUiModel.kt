@@ -12,7 +12,9 @@ object ObjectListUiModel {
         val city: String,
         val address: String,
         val archived: Boolean,
-        val name: String = ""
+        val name: String = "",
+        val searchFields: List<String> = emptyList(),
+        val lastUsed: Long = 0L
     )
     data class Row(
         val id: String, val title: String, val status: String,
@@ -28,11 +30,15 @@ object ObjectListUiModel {
             .filter { it.archived == showArchived }
             .filter { city == null || it.city.equals(city, ignoreCase = true) }
             .filter { item ->
-                query.isBlank() || listOf(
+                ObjectSearch.matchesFields(listOf(
                     item.tag, item.name, item.organization, item.city, item.address
-                ).any { ObjectSearch.matches(it, query) }
+                ) + item.searchFields, query)
             }
-            .sortedWith { a, b -> ObjectSearch.compareTags(a.tag, b.tag).takeIf { it != 0 } ?: a.id.compareTo(b.id) }
+            .sortedWith(compareByDescending<Item> {
+                ObjectSearch.relevance(listOf(it.tag,it.name,it.organization,it.city,it.address)+it.searchFields,query)
+            }.thenByDescending { it.lastUsed }.thenComparator { a,b ->
+                ObjectSearch.compareTags(a.tag,b.tag).takeIf { it!=0 } ?: a.id.compareTo(b.id)
+            })
             .map {
                 val title = ObjectUiPresentation.title(it.tag, it.organization, it.city, it.address)
                 Row(it.id, title, ObjectUiPresentation.status(it.archived),

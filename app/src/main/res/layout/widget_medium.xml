@@ -1,0 +1,32 @@
+<?xml version='1.0' encoding='utf-8'?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/wroot" android:layout_width="match_parent" android:layout_height="match_parent">
+  <ImageView android:id="@+id/wbackground" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" android:src="@drawable/widget_bg" android:importantForAccessibility="no" />
+  <LinearLayout android:id="@+id/wcontent" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:gravity="center_vertical" android:padding="8dp">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+      <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical" android:id="@+id/wsummary">
+        <TextView android:id="@+id/wstatus" android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="12sp" android:textColor="#FFFFFF" android:fontFamily="sans-serif" android:maxLines="1" android:ellipsize="end" android:includeFontPadding="false" />
+        <Chronometer android:id="@+id/wduration" android:minHeight="18dp" android:letterSpacing="0" android:layout_width="match_parent" android:layout_height="wrap_content" android:fontFamily="monospace" android:textColor="#FFFFFF" android:textSize="26sp" android:includeFontPadding="false" android:maxLines="1" />
+      </LinearLayout>
+      <ImageButton android:id="@+id/wswitch" android:layout_width="48dp" android:layout_height="48dp" android:minWidth="48dp" android:minHeight="48dp" android:padding="12dp" android:background="@drawable/widget_button" android:backgroundTint="@null" android:layout_marginEnd="4dp" android:contentDescription="Zmień obiekt" android:src="@drawable/ic_widget_switch" />
+      <FrameLayout android:id="@+id/wprimary" android:layout_width="100dp" android:layout_height="48dp">
+        <Button android:id="@+id/wstartbutton" android:layout_width="match_parent" android:layout_height="48dp" android:minWidth="48dp" android:minHeight="48dp" android:padding="2dp" android:background="@drawable/widget_button" android:backgroundTint="@null" android:textColor="#304953" android:text="Rozpocznij" android:textAllCaps="false" android:textSize="11sp" android:maxLines="2" android:fontFamily="sans-serif" />
+        <Button android:id="@+id/wstopbutton" android:layout_width="match_parent" android:layout_height="48dp" android:minWidth="48dp" android:minHeight="48dp" android:padding="2dp" android:background="@drawable/widget_button" android:backgroundTint="@null" android:textColor="#304953" android:text="Zakończ" android:textAllCaps="false" android:textSize="11sp" android:maxLines="2" android:fontFamily="sans-serif" android:visibility="gone" />
+      </FrameLayout>
+    </LinearLayout>
+    <LinearLayout android:id="@+id/wactions" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone">
+      <Button android:id="@+id/wtravel" android:layout_width="0dp" android:layout_weight="1" android:layout_height="48dp" android:minWidth="48dp" android:minHeight="48dp" android:padding="2dp" android:background="@drawable/widget_button" android:backgroundTint="@null" android:textColor="#304953" android:text="Przejazd" android:textAllCaps="false" android:textSize="11sp" android:maxLines="2" android:fontFamily="sans-serif" />
+      <Button android:id="@+id/wshopping" android:layout_width="0dp" android:layout_weight="1" android:layout_height="48dp" android:minWidth="48dp" android:minHeight="48dp" android:padding="2dp" android:background="@drawable/widget_button" android:backgroundTint="@null" android:textColor="#304953" android:text="Zakupy" android:textAllCaps="false" android:textSize="11sp" android:maxLines="2" android:fontFamily="sans-serif" />
+      <ImageButton android:id="@+id/wcamera" android:layout_width="0dp" android:layout_weight="1" android:layout_height="48dp" android:minWidth="48dp" android:minHeight="48dp" android:padding="12dp" android:background="@drawable/widget_button" android:backgroundTint="@null" android:src="@drawable/ic_widget_camera" android:contentDescription="Zrób zdjęcie" />
+      <TextView android:id="@+id/wobject" android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="12sp" android:textColor="#FFFFFF" android:fontFamily="sans-serif" android:maxLines="1" android:ellipsize="end" android:includeFontPadding="false" />
+    </LinearLayout>
+    <LinearLayout android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone" android:orientation="vertical">
+      <TextView android:id="@+id/wday" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="11sp" android:textColor="#FFFFFF" />
+      <TextView android:id="@+id/wtitle" android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="12sp" android:textColor="#FFFFFF" android:fontFamily="sans-serif" android:maxLines="1" android:ellipsize="end" android:includeFontPadding="false" />
+      <TextView android:id="@+id/wstart" android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="12sp" android:textColor="#FFFFFF" android:fontFamily="sans-serif" android:maxLines="1" android:ellipsize="end" android:includeFontPadding="false" />
+      <TextView android:id="@+id/wend" android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="12sp" android:textColor="#FFFFFF" android:fontFamily="sans-serif" android:maxLines="1" android:ellipsize="end" android:includeFontPadding="false" />
+      <TextView android:id="@+id/wgps" android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="12sp" android:textColor="#FFFFFF" android:fontFamily="sans-serif" android:maxLines="1" android:ellipsize="end" android:includeFontPadding="false" />
+      <Chronometer android:id="@+id/wstage" android:layout_width="0dp" android:layout_height="0dp" />
+      <TextView android:id="@+id/wdetails" android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="12sp" android:textColor="#FFFFFF" android:fontFamily="sans-serif" android:maxLines="1" android:ellipsize="end" android:includeFontPadding="false" />
+    </LinearLayout>
+  </LinearLayout>
+</FrameLayout>
