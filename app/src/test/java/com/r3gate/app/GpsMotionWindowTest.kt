@@ -26,7 +26,7 @@ class GpsMotionWindowTest {
     }
     @Test fun continuousWorkDoesNotKeepRestartingBurst() {
         val detector=GpsMotionWindow();var wakes=0
-        for(i in 0..600) if(detector.observe(1000L+i*100,0.8).wake) wakes++
+        for(i in 0..1800) if(detector.observe(1000L+i*100,0.8).wake) wakes++
         assertEquals(1,wakes)
     }
     @Test fun evidenceGapRequiresFreshWindow() {
@@ -41,5 +41,19 @@ class GpsMotionWindowTest {
     @Test fun burstsHaveBoundedRearm() {
         assertFalse(GpsMotionProbe.mayStart(60000,1000));assertTrue(GpsMotionProbe.mayStart(91000,1000))
         assertFalse(GpsMotionProbe.mayStart(999,1000))
+    }
+    @Test fun highRateCallbacksKeepLastMeasuredSummaryInsteadOfZeros() {
+        val detector=GpsMotionWindow()
+        for(i in 0..40) detector.observe(1000L+i*100,0.9)
+        val summary=detector.observe(5001,0.9)
+        assertEquals(0.9,summary.rms,0.001);assertFalse(summary.wake)
+    }
+    @Test fun aNewMovementAfterQuietCanWakeAgain() {
+        val detector=GpsMotionWindow();var first=false
+        for(i in 0..40) first=detector.observe(1000L+i*100,0.9).wake || first
+        for(i in 41..1000) detector.observe(1000L+i*100,0.01)
+        var next=false
+        for(i in 1001..1060) next=detector.observe(1000L+i*100,0.9).wake || next
+        assertTrue(first);assertTrue(next)
     }
 }
