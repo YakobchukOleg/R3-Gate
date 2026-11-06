@@ -129,7 +129,7 @@ class GateWidget : AppWidgetProvider() {
             }
             v.setInt(R.id.wstartbutton,"setBackgroundResource",if(mini) R.drawable.widget_round_start else R.drawable.widget_start_active)
             v.setInt(R.id.wstopbutton,"setBackgroundResource",if(mini) R.drawable.widget_round_stop else R.drawable.widget_active)
-            v.setTextColor(R.id.wstartbutton,ink);v.setTextColor(R.id.wstopbutton,ink)
+            v.setTextColor(R.id.wstartbutton,android.graphics.Color.WHITE);v.setTextColor(R.id.wstopbutton,android.graphics.Color.WHITE)
             v.setTextViewText(R.id.wstartbutton,if(mini) "" else if(wide && widthDp<220) "Start" else "Rozpocznij")
             v.setTextViewText(R.id.wstopbutton,if(mini) "" else if(wide && widthDp<220) "Stop" else if(wide) "Zakończ pracę" else "Zakończ")
             for((id,icon) in listOf(R.id.wstartbutton to R.drawable.ic_widget_start,R.id.wstopbutton to R.drawable.ic_widget_stop)) {

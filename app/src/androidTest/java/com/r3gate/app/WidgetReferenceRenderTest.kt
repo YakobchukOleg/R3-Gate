@@ -26,15 +26,26 @@ class WidgetReferenceRenderTest {
     private fun withActive(block:()->Unit) {
         val prefs=context.getSharedPreferences("r3_gate",Context.MODE_PRIVATE)
         val previous=prefs.getString("data",null)
+        val cloudKeys=listOf("driveConnected","driveEmail",com.r3gate.app.backup.BackupStatus.VERIFIED_ACCOUNT,com.r3gate.app.backup.BackupStatus.VERIFIED_AT)
+        val previousCloud=cloudKeys.associateWith { prefs.all[it] }
+        prefs.edit().putBoolean("driveConnected",true).putString("driveEmail","reference@example.test")
+            .putString(com.r3gate.app.backup.BackupStatus.VERIFIED_ACCOUNT,"reference@example.test")
+            .putString(com.r3gate.app.backup.BackupStatus.VERIFIED_AT,java.time.Instant.now().minusSeconds(60).toString()).commit()
         val now=System.currentTimeMillis()
         prefs.edit().putString("data",JSONObject().put("objects",org.json.JSONArray())
             .put("active",JSONObject().put("id","widget-reference").put("start",now-5*3_600_000-12*60_000)
                 .put("stageStart",now-58_000).put("kind","Obiekt").put("objectId","reference").put("object","Rokitki 12")).toString()).commit()
-        try { block() } finally { prefs.edit().apply { if(previous==null) remove("data") else putString("data",previous) }.commit() }
+        try { block() } finally {
+            prefs.edit().apply {
+                if(previous==null) remove("data") else putString("data",previous)
+                previousCloud.forEach { (key,value) -> when(value) { is Boolean -> putBoolean(key,value);is String -> putString(key,value);else -> remove(key) } }
+            }.commit()
+        }
     }
     @Test fun largeReferenceKeepsExactButtonSizesAndGaps() = instrumentation.runOnMainSync { withActive {
         val view=render(300,216);val d=context.resources.displayMetrics.density
         val stop=view.findViewById<View>(R.id.wstopbutton);val camera=view.findViewById<View>(R.id.wcamera)
+        assertTrue(WorkMeterTheme.contrast((stop as Button).currentTextColor,0xFFC04A58.toInt())>=4.5)
         assertEquals(48f,stop.height/d,0.6f);assertEquals(48f,camera.width/d,0.6f);assertEquals(48f,camera.height/d,0.6f)
         assertEquals(216f,stop.width/d,1f)
         fun bounds(id:Int)=android.graphics.Rect().also { rect -> val child=view.findViewById<View>(id);child.getDrawingRect(rect);(view as android.view.ViewGroup).offsetDescendantRectToMyCoords(child,rect) }
