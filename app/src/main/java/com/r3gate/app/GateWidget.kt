@@ -137,6 +137,18 @@ class GateWidget : AppWidgetProvider() {
                 v.setContentDescription(id,if(id==R.id.wstartbutton) "Rozpocznij dzień pracy" else "Zakończ dzień pracy")
                 v.setTextViewTextSize(id,android.util.TypedValue.COMPLEX_UNIT_SP,if(widthDp<220) 11f else 14f)
                 if(mini) v.setViewPadding(id,px(12),px(12),px(12),px(12))
+                else {
+                    val label=if(id==R.id.wstartbutton) { if(wide && widthDp<220) "Start" else "Rozpocznij" }
+                        else if(wide && widthDp<220) "Stop" else if(wide) "Zakończ pracę" else "Zakończ"
+                    val metrics=context.resources.displayMetrics
+                    val paint=android.graphics.Paint().apply {
+                        typeface=android.graphics.Typeface.create("sans-serif",android.graphics.Typeface.NORMAL)
+                        textSize=android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP,if(widthDp<220) 11f else 14f,metrics)
+                    }
+                    val buttonWidth=if(shortWide) 110f else widthDp-2f*side-56f
+                    val inset=((buttonWidth-26f-paint.measureText(label)/metrics.density)/2f).toInt().coerceAtLeast(4)
+                    v.setViewPadding(id,px(inset),px(4),px(inset),px(4))
+                }
             }
             v.setContentDescription(R.id.wswitch,"Zmień obiekt")
             if(!shortWide) v.setTextViewText(R.id.wswitch,if(widthDp<220) "" else "Obiekt")
