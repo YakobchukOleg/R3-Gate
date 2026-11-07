@@ -96,6 +96,7 @@ class MainActivity : Activity() {
                 android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS)
         }
         migrate()
+        repairShiftHistory()
         PhotoQueue.preserveLegacyRequests(this)
         if (!GpsWorkdaySession.workdayOpen(prefs) &&
             (prefs.getBoolean("gps_enabled",false) || prefs.getBoolean("gps_resume_pending",false))) {
@@ -456,13 +457,23 @@ class MainActivity : Activity() {
             val d=data()
             if(active(d)!=null) return@confirmWorkday
             val t=System.currentTimeMillis()
-            if(!WorkShiftIntegrity.canSave(WorkShiftIntegrity.Interval(t,Long.MAX_VALUE),validClosedShiftIntervals(d))) {
-                toast("Nowa zmiana koliduje z zapisaną historią"); return@confirmWorkday
+            val closed = rows(d, "shifts")
+            val previous = closed.maxByOrNull { it.optLong("end") }
+            val resumed = previous?.let { ShiftContinuity.reopen(it, t) }
+            val remaining = if (resumed == null) closed else closed.filter { it !== previous }
+            val start = resumed?.optLong("start") ?: t
+            if (!WorkShiftIntegrity.canSave(WorkShiftIntegrity.Interval(start, Long.MAX_VALUE),
+                    remaining.map(ShiftContinuity::bounds).filter { WorkShiftIntegrity.isValid(it.start, it.end) })) {
+                toast("Nowa zmiana koliduje z zapisaną historią")
+                return@confirmWorkday
             }
-            d.put("active",JSONObject().put("id",UUID.randomUUID().toString()).put("start",t)
-                .put("object","").put("objectId","").put("kind","Nieprzypisane")
-                .put("stageStart",t).put("stages",JSONArray()).put("rate",defaultRate().toPlainString()))
-            save(d,"START",fmt.format(Date(t)))
+            if (resumed != null) d.put("shifts", JSONArray(remaining))
+            val shift = resumed ?: JSONObject().put("id", UUID.randomUUID().toString()).put("start", t)
+                .put("object", "").put("objectId", "").put("kind", "Nieprzypisane")
+                .put("stageStart", t).put("stages", JSONArray()).put("rate", defaultRate().toPlainString())
+            d.put("active", shift)
+            save(d, "START", fmt.format(Date(t)))
+            if (resumed != null) toast("Wznowiono poprzednią zmianę")
             if(GpsWorkdaySession.hasConsent(prefs)) setGpsEnabled(true)
             home()
             val waiting=AlertDialog.Builder(this,dialogStyle).setMessage("Sprawdzanie lokalizacji…")
@@ -560,25 +571,34 @@ class MainActivity : Activity() {
             .put("objectId",current.optString("id")).put("object",objectName(current))
         save(d,"STAGE",objectName(current)); home()
     }
-    private fun validClosedShiftIntervals(d: JSONObject): List<WorkShiftIntegrity.Interval> =
-        rows(d,"shifts").map(::stageInterval).filter { WorkShiftIntegrity.isValid(it.start,it.end) }
+    private fun repairShiftHistory() {
+        val journal = data()
+        val original = journal.optJSONArray("shifts") ?: return
+        val repaired = JSONArray(ShiftContinuity.normalizeHistory(rows(journal, "shifts"), active(journal)))
+        if (repaired.toString() != original.toString()) {
+            journal.put("shifts", repaired)
+            save(journal, "ALIGN_SHIFTS", "5 min")
+        }
+    }
 
     private fun stopShift() {
         val d=data(); val a=active(d); if(a==null) { toast("Brak rozpoczętej pracy"); home(); return }
         val recordedEnd=System.currentTimeMillis()
-        val end=WorkTimeRounding.end(recordedEnd)
+        val end=WorkTimeRounding.ceil(recordedEnd)
         if (GpsWorkdaySession.hasConsent(prefs)) prefs.edit().putBoolean(GpsWorkdaySession.CONSENT,true).apply()
         if(!canCloseCurrentStage(a,recordedEnd)) {
             setGpsEnabled(false)
             return
         }
-        if(!WorkShiftIntegrity.canSave(WorkShiftIntegrity.Interval(a.optLong("start",-1L),end),
-                validClosedShiftIntervals(d))) {
-            setGpsEnabled(false)
+        closeStage(a, end)
+        a.put("end", end).put("recordedEnd", recordedEnd)
+        val updated = ShiftContinuity.replace(rows(d, "shifts"), a, null)
+        if (updated == null) {
             toast("Zmiana koliduje z zapisaną historią")
             return
         }
-        closeStage(a,end); a.put("end",end).put("recordedEnd",recordedEnd); arr(d,"shifts").put(a); d.remove("active"); save(d,"STOP",fmt.format(Date(end)))
+        d.put("shifts", JSONArray(updated)).remove("active")
+        save(d, "STOP", fmt.format(Date(end)))
         setGpsEnabled(false)
         home()
     }
@@ -728,7 +748,7 @@ class MainActivity : Activity() {
             val work=workedMillis(shift,slice.start,slice.end)
             sum += work
             "${date.format(df)} ${pl[date.dayOfWeek.value - 1]} " +
-                "${clock.format(Date(slice.start))}–${clock.format(Date(WorkTimeRounding.end(slice.end)))}" +
+                "${clock.format(Date(slice.start))}–${clock.format(Date(WorkTimeRounding.ceil(slice.end)))}" +
                 if(work != slice.end-slice.start) " · czas pracy: "+WorkTimeRounding.format(work) else ""
         }
         val worked = reportWorkedMillis(slices)
@@ -2252,7 +2272,7 @@ class MainActivity : Activity() {
             .filter { DomainRules.inRange(it.second.day,from,to) }
         val total=reportWorkedMillis(entries)
         label("Łączny czas: "+WorkTimeRounding.format(total))
-        label("Sumy i zakończenie zmiany zaokrąglone w górę do 5 min.")
+        label("Początek, koniec i sumy zmian zaokrąglone w górę do 5 min.")
         if(total!=entries.sumOf { workedMillis(it.first,it.second.start,it.second.end) })
             label("Nakładający się czas uwzględniono tylko raz.")
         if(entries.isEmpty()) label("Brak zmian w wybranym okresie")
@@ -2277,7 +2297,7 @@ class MainActivity : Activity() {
                 root.addView(heading)
                 for((shift,slice) in items.sortedByDescending { it.second.start }) {
                     val row=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; isBaselineAligned=false }
-                    row.addView(workMeterButton(this,intervalLabel(slice.start,WorkTimeRounding.end(slice.end))+" · "+WorkTimeRounding.format(workedMillis(shift,slice.start,slice.end)),WorkMeterButtonRole.TEXT) {
+                    row.addView(workMeterButton(this,intervalLabel(slice.start,WorkTimeRounding.ceil(slice.end))+" · "+WorkTimeRounding.format(workedMillis(shift,slice.start,slice.end)),WorkMeterButtonRole.TEXT) {
                         shiftDetails(shift.optString("id"))
                     },LinearLayout.LayoutParams(0,-2,1f))
                     row.addView(workMeterButton(this,"⋮",WorkMeterButtonRole.TEXT) { shiftOptions(shift.optString("id")) }.apply {
@@ -2325,7 +2345,7 @@ class MainActivity : Activity() {
         })
         if(diagnostics.overlapMillis>0) label("Nakładające się etapy: "+duration(diagnostics.overlapMillis))
         if(diagnostics.invalidStages>0) label("Nieprawidłowe etapy: "+diagnostics.invalidStages)
-        label("Zakończenie pracy: "+fmt.format(Date(WorkTimeRounding.end(end))))
+        label("Zakończenie pracy: "+fmt.format(Date(WorkTimeRounding.ceil(end))))
         label("Łączny czas: "+WorkTimeRounding.format(workedMillis(shift,start,end)))
         button("Edytuj etapy") { selectStageEdit(id) }
         if(rows(shift,"stageEdits").isNotEmpty()) button("Cofnij zmianę etapów") {
@@ -2391,7 +2411,7 @@ class MainActivity : Activity() {
         }
         startDate.setOnClickListener { pickReportDate(start.toLocalDate()) { start=LocalDateTime.of(it,start.toLocalTime()); refresh() } }
         endDate.setOnClickListener { pickReportDate(end.toLocalDate()) { end=LocalDateTime.of(it,end.toLocalTime()); refresh() } }
-        startTime.setOnClickListener { TimePickerDialog(this,{ _,h,m -> start=start.withHour(h).withMinute(m); refresh() },start.hour,start.minute,true).show() }
+        startTime.setOnClickListener { TimePickerDialog(this,{ _,h,m -> start=start.withHour(h).withMinute(m).withSecond(0).withNano(0); refresh() },start.hour,start.minute,true).show() }
         endTime.setOnClickListener { TimePickerDialog(this,{ _,h,m -> end=end.withHour(h).withMinute(m).withSecond(0).withNano(0); refresh() },end.hour,end.minute,true).show() }
         listOf(category, objectButton, startDate, startTime, endDate, endTime).forEach { layout.addView(it) }
         refresh()
@@ -2513,19 +2533,12 @@ class MainActivity : Activity() {
             toast("Zmiana z tym identyfikatorem już istnieje")
             return
         }
-        val intervals=rows(d,"shifts").map(::stageInterval).toMutableList()
-        if(active!=null) intervals.add(WorkShiftIntegrity.Interval(active.optLong("start",-1L),Long.MAX_VALUE))
-        if(!WorkShiftIntegrity.canSave(stageInterval(row),intervals)) {
+        val restored = ShiftContinuity.replace(rows(d, "shifts"), row, active)
+        if (restored == null) {
             toast("Nie można przywrócić zmiany, ponieważ jej czas koliduje z historią")
             return
         }
-        val index=undo.optInt("index",shifts.length()).coerceIn(0,shifts.length())
-        val restored=JSONArray()
-        for(i in 0..shifts.length()) {
-            if(i==index) restored.put(row)
-            if(i<shifts.length()) restored.put(shifts.get(i))
-        }
-        d.put("shifts",restored).remove("deletedShiftUndo")
+        d.put("shifts", JSONArray(restored)).remove("deletedShiftUndo")
         save(d,"UNDO_DELETE_SHIFT",id); report()
     }
     private fun editShift(id:String) {
@@ -2548,7 +2561,7 @@ class MainActivity : Activity() {
         }
         dateStart.setOnClickListener { pickReportDate(start.toLocalDate()) { start=LocalDateTime.of(it,start.toLocalTime()); refresh() } }
         dateEnd.setOnClickListener { pickReportDate(end.toLocalDate()) { end=LocalDateTime.of(it,end.toLocalTime()); refresh() } }
-        timeStart.setOnClickListener { TimePickerDialog(this,{ _,h,m -> start=start.withHour(h).withMinute(m); refresh() },start.hour,start.minute,true).show() }
+        timeStart.setOnClickListener { TimePickerDialog(this,{ _,h,m -> start=start.withHour(h).withMinute(m).withSecond(0).withNano(0); refresh() },start.hour,start.minute,true).show() }
         timeEnd.setOnClickListener { TimePickerDialog(this,{ _,h,m -> end=end.withHour(h).withMinute(m).withSecond(0).withNano(0); refresh() },end.hour,end.minute,true).show() }
         listOf(dateStart,dateEnd,timeStart,timeEnd).forEach { layout.addView(it) }; refresh()
         val dialog=AlertDialog.Builder(this,dialogStyle).setTitle("Edytuj zmianę").setView(layout)
@@ -2556,8 +2569,7 @@ class MainActivity : Activity() {
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val st=WorkShiftIntegrity.resolveEditTime(start,zone,original.start)
-                val selectedEnd=WorkShiftIntegrity.resolveEditTime(end,zone,original.end)
-                val en=selectedEnd?.let(WorkTimeRounding::end)
+                val en=WorkShiftIntegrity.resolveEditTime(end,zone,original.end)
                 if(st==null || en==null) {
                     toast("Wybrana godzina nie istnieje w tej strefie czasowej")
                     return@setOnClickListener
@@ -2570,22 +2582,27 @@ class MainActivity : Activity() {
                     toast("Zmiana została zaktualizowana. Otwórz edycję ponownie")
                     return@setOnClickListener
                 }
-                val proposed=WorkShiftIntegrity.Interval(st,en)
-                val otherShifts=saved.filter { it.optString("id")!=id }
-                    .map { WorkShiftIntegrity.Interval(it.optLong("start"),it.optLong("end")) }
-                    .toMutableList()
-                active(current)?.let { otherShifts.add(WorkShiftIntegrity.Interval(it.optLong("start",-1L),Long.MAX_VALUE)) }
-                if(!WorkShiftIntegrity.canSave(proposed,otherShifts)) {
-                    toast("Zmiana nakłada się na inną zmianę lub historia zawiera nieprawidłowe daty")
-                    return@setOnClickListener
-                }
+                val revised = JSONObject(row.toString()).put("start", st).put("end", en)
+                val proposed = ShiftContinuity.bounds(ShiftContinuity.rounded(revised))
                 val stages=rows(row,"stages").map { WorkShiftIntegrity.Interval(it.optLong("start"),it.optLong("end")) }
                 if(!WorkShiftIntegrity.preservesRecordedStages(original,proposed,stages)) {
                     toast("Nowy zakres pominąłby część zapisanego etapu")
                     return@setOnClickListener
                 }
                 arr(row,"edits").put(JSONObject().put("at",System.currentTimeMillis()).put("start",row.optLong("start")).put("end",row.optLong("end")))
-                row.put("start",st).put("end",en); save(current,"EDIT_SHIFT",id); dialog.dismiss(); report()
+                row.put("start", st).put("end", en)
+                if (st != original.start) row.put("recordedStart", st)
+                if (en != original.end) row.put("recordedEnd", en)
+                val updated = ShiftContinuity.replace(saved, row, active(current))
+                if (updated == null) {
+                    toast("Zmiana nakłada się na inną zmianę lub historia zawiera nieprawidłowe daty")
+                    return@setOnClickListener
+                }
+                current.put("shifts", JSONArray(updated))
+                save(current, "EDIT_SHIFT", id)
+                if (updated.size < saved.size) toast("Połączono zmiany")
+                dialog.dismiss()
+                report()
             }
         }
         dialog.show()
@@ -2677,7 +2694,7 @@ class MainActivity : Activity() {
                             toast("Nie udało się potwierdzić zapisu kopii")
                             return@setPositiveButton
                         }
-                        migrate(); migrateWallet(); GateWidget.refresh(this); logs()
+                        migrate(); repairShiftHistory(); migrateWallet(); GateWidget.refresh(this); logs()
                     }.show()
             }
         } catch (_:Exception) { toast("Błąd pliku JSON") }

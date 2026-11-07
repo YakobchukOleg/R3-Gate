@@ -72,15 +72,15 @@ jobs:
           cat signing-report.txt
       - name: Package versioned APK
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk WorkMeter_SOLO_v2.7.5_test.apk
-          sha256sum WorkMeter_SOLO_v2.7.5_test.apk > WorkMeter_SOLO_v2.7.5_test.apk.sha256
-          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging WorkMeter_SOLO_v2.7.5_test.apk | head -1
+          cp app/build/outputs/apk/debug/app-debug.apk WorkMeter_SOLO_v2.7.6_test.apk
+          sha256sum WorkMeter_SOLO_v2.7.6_test.apk > WorkMeter_SOLO_v2.7.6_test.apk.sha256
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging WorkMeter_SOLO_v2.7.6_test.apk | head -1
       - uses: actions/upload-artifact@v4
         with:
-          name: WorkMeter_SOLO_v2.7.5_test
+          name: WorkMeter_SOLO_v2.7.6_test
           path: |
-            WorkMeter_SOLO_v2.7.5_test.apk
-            WorkMeter_SOLO_v2.7.5_test.apk.sha256
+            WorkMeter_SOLO_v2.7.6_test.apk
+            WorkMeter_SOLO_v2.7.6_test.apk.sha256
             signing-report.txt
             apk-signature.txt
           if-no-files-found: error

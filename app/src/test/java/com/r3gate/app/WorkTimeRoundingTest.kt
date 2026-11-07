@@ -8,18 +8,18 @@ import org.junit.Test
 class WorkTimeRoundingTest {
     private fun at(value: String) = LocalDateTime.parse(value).atZone(ZoneId.of("Europe/Warsaw")).toInstant().toEpochMilli()
     @Test fun closingAt1732Records1735() {
-        assertEquals(at("2026-11-06T17:35:00"), WorkTimeRounding.end(at("2026-11-06T17:32:00")))
+        assertEquals(at("2026-11-06T17:35:00"), WorkTimeRounding.ceil(at("2026-11-06T17:32:00")))
     }
     @Test fun exactFiveMinuteBoundaryDoesNotAdvance() {
         val time=at("2026-11-06T17:35:00")
-        assertEquals(time,WorkTimeRounding.end(time)); assertEquals("09:05",WorkTimeRounding.format(545L*60_000L))
+        assertEquals(time,WorkTimeRounding.ceil(time)); assertEquals("09:05",WorkTimeRounding.format(545L*60_000L))
     }
     @Test fun hiddenSecondsCannotTruncateTheUsers0905To0904() {
         val elapsed=at("2026-11-06T17:30:00")-at("2026-11-06T08:25:45")
         assertEquals("09:05",WorkTimeRounding.format(elapsed))
     }
     @Test fun closingAcrossMidnightAdvancesTheDate() {
-        assertEquals(at("2026-11-07T00:00:00"),WorkTimeRounding.end(at("2026-11-06T23:59:01")))
+        assertEquals(at("2026-11-07T00:00:00"),WorkTimeRounding.ceil(at("2026-11-06T23:59:01")))
     }
     @Test fun totalsAlwaysCeilToFiveMinutes() {
         assertEquals("09:05",WorkTimeRounding.format(544L*60_000L))
@@ -35,8 +35,8 @@ class WorkTimeRoundingTest {
     @Test fun roundingIsIdempotentAndNeverBeforeTheClick() {
         for(second in 0L..600L) {
             val input=at("2026-11-06T17:30:00")+second*1000L
-            val end=WorkTimeRounding.end(input)
-            assertTrue(end>=input);assertTrue(end-input<300_000L);assertEquals(end,WorkTimeRounding.end(end))
+            val end=WorkTimeRounding.ceil(input)
+            assertTrue(end>=input);assertTrue(end-input<300_000L);assertEquals(end,WorkTimeRounding.ceil(end))
         }
     }
 }

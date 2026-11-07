@@ -2,10 +2,10 @@ package com.r3gate.app
 
 import java.util.Locale
 
-/** Five-minute ceiling for recorded shift endings and reported work totals. */
+/** Five-minute ceiling for recorded shift boundaries and reported work totals. */
 internal object WorkTimeRounding {
     const val STEP_MILLIS = 5L * 60_000L
-    fun end(timestamp: Long): Long {
+    fun ceil(timestamp: Long): Long {
         require(timestamp >= 0L)
         val remainder = timestamp % STEP_MILLIS
         if (remainder == 0L) return timestamp
