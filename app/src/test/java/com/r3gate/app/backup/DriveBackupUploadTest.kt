@@ -26,4 +26,13 @@ class DriveBackupUploadTest {
     }
     @Test fun refusesDeletedArchive() = assertFalse(matches(metadata().put("trashed", true)))
     @Test fun refusesWrongFileType() = assertFalse(matches(metadata().put("mimeType", "application/json")))
+    @Test fun companionJsonRequiresItsRequestedMimeAndExactChecksum() {
+        val file=metadata().put("mimeType","application/json")
+        assertTrue(DriveBackupUpload.matches(file,"drive-id","folder-id","backup.zip",42,"deadbeef","application/json"))
+        assertFalse(DriveBackupUpload.matches(file,"drive-id","folder-id","backup.zip",42,"other","application/json"))
+    }
+    @Test fun diagnosticsCannotBeMistakenForObjectCatalog() {
+        val file=metadata().put("mimeType","application/x-ndjson")
+        assertFalse(DriveBackupUpload.matches(file,"drive-id","folder-id","backup.zip",42,"deadbeef","application/json"))
+    }
 }

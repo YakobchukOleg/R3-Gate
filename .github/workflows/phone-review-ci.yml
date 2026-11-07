@@ -1,0 +1,96 @@
+name: WorkMeter Phone Review CI
+on:
+  push:
+    branches: [fix/phone-review-20261105]
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/src/main/java/com/r3gate/app/backup/**'
+      - 'app/src/test/java/com/r3gate/app/backup/**'
+      - 'app/src/androidTest/java/com/r3gate/app/backup/**'
+      - 'app/build.gradle.kts'
+      - '.github/workflows/workmeter-backup-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: phone-review-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Restore required stable WT signing key
+        env:
+          R3_DEBUG_KEYSTORE_BASE64: ${{ secrets.R3_DEBUG_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "$R3_DEBUG_KEYSTORE_BASE64" ]; then
+            echo "::error::Stable signing key is required. Refusing to generate a temporary certificate."
+            exit 1
+          fi
+          selected="$RUNNER_TEMP/wt-debug.keystore"
+          printf '%s' "$R3_DEBUG_KEYSTORE_BASE64" | base64 --decode > "$selected"
+          chmod 600 "$selected"
+          echo "WT_KEYSTORE_PATH=$selected" >> "$GITHUB_ENV"
+          keytool -list -v -keystore "$selected" -storepass android | sed -n '/SHA1:/p'
+      - name: Prepare licensed Clash Grotesk fonts from publisher
+        run: python3 .github/scripts/prepare-fonts.py
+      - name: Test, build and lint
+        run: gradle --no-daemon testDebugUnitTest assembleDebug lintDebug
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Android 15 navigation and forms smoke tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash .github/scripts/device-tests.sh
+      - name: Verify actual APK signature and create signing report
+        run: |
+          gradle --no-daemon signingReport > signing-report.txt
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs app/build/outputs/apk/debug/app-debug.apk | tee apk-signature.txt
+          cat signing-report.txt
+      - name: Package versioned APK
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk WorkMeter_SOLO_v2.7.7_test.apk
+          sha256sum WorkMeter_SOLO_v2.7.7_test.apk > WorkMeter_SOLO_v2.7.7_test.apk.sha256
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging WorkMeter_SOLO_v2.7.7_test.apk | head -1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WorkMeter_SOLO_v2.7.7_test
+          path: |
+            WorkMeter_SOLO_v2.7.7_test.apk
+            WorkMeter_SOLO_v2.7.7_test.apk.sha256
+            signing-report.txt
+            apk-signature.txt
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: WorkMeter-Phone-Review-check-results
+          path: |
+            app/build/reports/tests/testDebugUnitTest/
+            app/build/reports/lint-results-debug.html
+            app/build/reports/androidTests/connected/
+            device-screenshots/
+          if-no-files-found: ignore

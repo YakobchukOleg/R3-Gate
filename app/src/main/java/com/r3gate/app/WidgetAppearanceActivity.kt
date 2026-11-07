@@ -3,6 +3,7 @@ package com.r3gate.app
 import android.app.Activity
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.widget.CheckBox
@@ -13,6 +14,10 @@ import android.widget.SeekBar
 import android.widget.TextView
 
 class WidgetAppearanceActivity : Activity() {
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(AppLanguage.context(newBase))
+    }
+
     private var appearance = WidgetAppearance()
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -31,7 +36,7 @@ class WidgetAppearanceActivity : Activity() {
         setResult(RESULT_CANCELED, result)
         val manager = AppWidgetManager.getInstance(this)
         if (id == AppWidgetManager.INVALID_APPWIDGET_ID ||
-            manager.getAppWidgetInfo(id)?.provider != ComponentName(this, GateWidget::class.java)
+            (manager.getAppWidgetInfo(id)?.provider?.let { it != ComponentName(this, GateWidget::class.java) } == true)
         ) {
             finish()
             return
@@ -50,7 +55,7 @@ class WidgetAppearanceActivity : Activity() {
         val appTheme = WorkMeterAppearance.theme(this)
         val palette = appTheme.palette
         val defaultTransparency = getSharedPreferences("r3_gate", MODE_PRIVATE)
-            .getInt("widgetTransparency", 0).coerceIn(0, 100)
+            .getInt("widgetTransparency", 0).coerceIn(0, 50)
         fun dp(size: Int) = (size * resources.displayMetrics.density + 0.5f).toInt()
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -58,16 +63,19 @@ class WidgetAppearanceActivity : Activity() {
             setBackgroundColor(palette.background)
         }
         val preview = FrameLayout(this)
+        val sizes=listOf(180 to 76, 180 to 170, 300 to 80, 300 to 216, 300 to 260)
+        var previewSize=sizes[3]
         val transparencyLabel = TextView(this).apply { setTextColor(palette.textPrimary) }
         val slider = SeekBar(this).apply {
-            max = 100
+            max = 50
             progress = appearance.transparency ?: defaultTransparency
             contentDescription = getString(R.string.widget_transparency)
         }
         fun previewAppearance() {
-            transparencyLabel.text = getString(R.string.widget_transparency_value, appearance.transparency ?: defaultTransparency)
+            transparencyLabel.text = getString(R.string.widget_transparency_limit, (appearance.transparency ?: defaultTransparency).coerceIn(0,50))
             preview.removeAllViews()
-            preview.addView(GateWidget.render(this, WidgetLayoutProfile.EXPANDED, appearance, interactive = false).apply(this, preview))
+            preview.layoutParams=LinearLayout.LayoutParams(dp(previewSize.first),dp(previewSize.second))
+            preview.addView(GateWidget.render(this,WidgetLayoutProfile.forBounds(previewSize.first,previewSize.second),appearance,interactive=false,widthDp=previewSize.first,heightDp=previewSize.second).apply(this,preview))
         }
 
         content.addView(TextView(this).apply {
@@ -133,7 +141,12 @@ class WidgetAppearanceActivity : Activity() {
         content.addView(gpsToggle)
         content.addView(objectToggle)
         content.addView(actionsToggle)
-        content.addView(preview, LinearLayout.LayoutParams(-1, dp(208)))
+        sizes.forEach { size ->
+            content.addView(workMeterButton(this,getString(R.string.widget_preview_size, size.first, size.second),WorkMeterButtonRole.SECONDARY) {
+                previewSize=size; previewAppearance()
+            })
+        }
+        content.addView(preview,LinearLayout.LayoutParams(dp(previewSize.first),dp(previewSize.second)))
         content.addView(workMeterButton(this, getString(R.string.widget_reset), WorkMeterButtonRole.SECONDARY) {
             objectToggle.isChecked = true
             actionsToggle.isChecked = true

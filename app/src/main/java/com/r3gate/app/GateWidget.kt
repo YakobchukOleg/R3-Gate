@@ -5,6 +5,7 @@ import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
 import android.content.*
 import android.os.Build
+import android.os.Bundle
 import android.os.SystemClock
 import android.util.SizeF
 import android.view.View
@@ -16,7 +17,7 @@ import java.util.*
 class GateWidget : AppWidgetProvider() {
     override fun onUpdate(context:Context,manager:AppWidgetManager,ids:IntArray) { ids.forEach { update(context,manager,it) } }
     override fun onAppWidgetOptionsChanged(context:Context,manager:AppWidgetManager,id:Int,options:android.os.Bundle) {
-        update(context,manager,id)
+        update(context,manager,id,options)
     }
     override fun onDeleted(context: Context, appWidgetIds: IntArray) {
         WidgetAppearanceStore(context).delete(appWidgetIds)
@@ -33,27 +34,47 @@ class GateWidget : AppWidgetProvider() {
             val ids=mgr.getAppWidgetIds(ComponentName(context,GateWidget::class.java))
             ids.forEach { update(context,mgr,it) }
         }
-        internal fun update(context: Context, mgr: AppWidgetManager, id: Int) {
+        internal fun update(
+            context: Context, mgr: AppWidgetManager, id: Int, options: Bundle = mgr.getAppWidgetOptions(id)
+        ) {
             val appearance = WidgetAppearanceStore(context).read(id)
-            val views = if (Build.VERSION.SDK_INT >= 31) {
-                RemoteViews(WidgetLayoutProfile.entries.associate { profile ->
-                    SizeF(profile.minWidthDp.toFloat(), profile.minHeightDp.toFloat()) to render(context, profile, appearance)
-                })
-            } else {
-                val options = mgr.getAppWidgetOptions(id)
-                val profile = WidgetLayoutProfile.forBounds(
-                    options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 250),
-                    options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 160)
-                )
-                render(context, profile, appearance)
-            }
-            mgr.updateAppWidget(id, views)
+            mgr.updateAppWidget(id, renderForOptions(context, options, appearance))
         }
+
+        internal fun renderForOptions(
+            context: Context, options: Bundle, appearance: WidgetAppearance = WidgetAppearance()
+        ): RemoteViews {
+            val views = mutableMapOf<Pair<Int,Int>, RemoteViews>()
+            fun at(width: Int, height: Int): RemoteViews {
+                val profile = WidgetLayoutProfile.forBounds(width, height)
+                return views.getOrPut(width to height) { render(context, profile, appearance, widthDp=width, heightDp=height) }
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                @Suppress("DEPRECATION")
+                val sizes = options.getParcelableArrayList<SizeF>(AppWidgetManager.OPTION_APPWIDGET_SIZES)
+                    .orEmpty().filter { it.width.isFinite() && it.height.isFinite() && it.width > 0 && it.height > 0 }
+                    .distinct()
+                if (sizes.size in 1..16) {
+                    return RemoteViews(sizes.associateWith { at(it.width.toInt(), it.height.toInt()) })
+                }
+            }
+
+            val minWidth = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 250)
+            val minHeight = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 160)
+            val maxWidth = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, minWidth)
+            val maxHeight = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, minHeight)
+            val portrait = at(minWidth, maxHeight)
+            val landscape = at(maxWidth, minHeight)
+            return if (portrait === landscape) portrait else RemoteViews(landscape, portrait)
+        }
+
         internal fun render(
             context: Context,
             profile: WidgetLayoutProfile = WidgetLayoutProfile.STANDARD,
             appearance: WidgetAppearance = WidgetAppearance(),
-            interactive: Boolean = true
+            interactive: Boolean = true,
+            widthDp: Int = 300, heightDp: Int = 180
         ): RemoteViews {
             val prefs=context.getSharedPreferences("r3_gate",Context.MODE_PRIVATE)
             val d=try { JSONObject(prefs.getString("data","{}")!!) } catch (_:Exception) { JSONObject() }
@@ -61,82 +82,128 @@ class GateWidget : AppWidgetProvider() {
             val last=if(arr!=null && arr.length()>0) arr.optJSONObject(arr.length()-1) else null
             val shown=a?:last
             val start=shown?.optLong("start")?:0L; val end=shown?.optLong("end")?:0L
-            val mini = profile == WidgetLayoutProfile.MINI
-            val wide = profile == WidgetLayoutProfile.STANDARD || profile == WidgetLayoutProfile.EXPANDED
-            val expanded = profile == WidgetLayoutProfile.EXPANDED
-            val v=RemoteViews(context.packageName,R.layout.widget)
-            val theme = appearance.theme ?: WorkMeterAppearance.theme(context)
-            v.setInt(R.id.wbackground, "setColorFilter", theme.palette.header)
-            v.setInt(R.id.wbackground, "setImageAlpha", appearance.backgroundAlpha(prefs.getInt("widgetTransparency", 0)))
+            val mini=profile==WidgetLayoutProfile.COMPACT
+            val shortWide=profile==WidgetLayoutProfile.MEDIUM
+            val wide=profile==WidgetLayoutProfile.LARGE
+            val expanded=wide && heightDp>=200
+            val fontScale=context.resources.configuration.fontScale
+            val now=System.currentTimeMillis()
+            val theme=appearance.theme ?: WorkMeterAppearance.theme(context)
+            val layout=when { mini -> R.layout.widget_compact;shortWide -> R.layout.widget_medium;expanded -> R.layout.widget_expanded;else -> R.layout.widget }
+            val v=RemoteViews(context.packageName,layout)
+            val backing=when(theme) { WorkMeterTheme.SLATE_SAGE -> R.drawable.widget_bg;WorkMeterTheme.NORDIC_BLUE -> R.drawable.widget_bg_nordic;WorkMeterTheme.GRAPHITE_DARK -> R.drawable.widget_bg_graphite }
+            v.setImageViewResource(R.id.wbackground,backing)
+            v.setInt(R.id.wbackground,"setImageAlpha",appearance.backgroundAlpha(prefs.getInt("widgetTransparency",0)))
+            // The shared background controls transparency; text has no separate backing.
             val travel=a?.optString("kind")=="Przejazd"
             val personal=a?.optString("kind")=="Prywatnie"
-            v.setTextViewText(R.id.wobject,when { a==null -> "Gotowy do pracy"; travel -> "W drodze"; personal -> "Czas prywatny"; a.optString("kind")=="Zakupy" -> "Zakupy"; else -> a.optString("object").substringBefore(" · ") })
-            v.setTextViewText(R.id.wtravel,if(travel) "DOTARŁEM" else "PRZEJAZD")
-            v.setInt(R.id.wtravel,"setBackgroundResource",if(travel) R.drawable.widget_active else R.drawable.widget_button)
-            v.setTextColor(R.id.wtravel, if (travel) theme.palette.onError else 0xFF37474F.toInt())
-            v.setTextColor(R.id.wstopbutton, theme.palette.onError)
-            v.setViewVisibility(R.id.wstartbutton,if(a==null) android.view.View.VISIBLE else android.view.View.GONE)
-            v.setViewVisibility(R.id.wstopbutton,if(a!=null) android.view.View.VISIBLE else android.view.View.GONE)
-            v.setViewVisibility(R.id.wcamera, if (wide) View.VISIBLE else View.GONE)
-            v.setViewVisibility(R.id.wprimary, if (mini || !appearance.showActions) View.GONE else View.VISIBLE)
-            v.setViewVisibility(R.id.wdetails, if (expanded) View.VISIBLE else View.GONE)
-            if (expanded && appearance.showGps) {
-                v.setViewVisibility(R.id.wgps, View.VISIBLE)
-                v.setTextViewText(R.id.wgps, GpsServiceStatusUi.read(context))
-            } else {
-                v.setViewVisibility(R.id.wgps, View.GONE)
+            val shopping=a?.optString("kind")=="Zakupy"
+            val text = AppLanguage.context(context)
+            val stage=when { a==null -> text.getString(R.string.shift_closed);travel -> text.getString(R.string.trip);personal -> text.getString(R.string.personal);shopping -> text.getString(R.string.shopping);a.optString("objectId").isNotBlank() -> text.getString(R.string.on_site);else -> text.getString(R.string.unassigned) }
+            val tag=a?.optString("object").orEmpty().substringBefore(" · ")
+            val status="● "+stage+if(wide && widthDp>=250 && appearance.showObject && !travel && !personal && !shopping && tag.isNotBlank()) " · "+tag else ""
+            val ink=0xFFF5F4EF.toInt()
+            val dot=when { travel -> 0xFF8CBAE6.toInt();shopping -> 0xFFF0A126.toInt();personal -> WorkMeterTheme.PERSONAL;else -> 0xFF5DC8A7.toInt() }
+            val statusInk=when { travel -> 0xFFBDD8F2.toInt();shopping -> 0xFFF5D19A.toInt();personal -> 0xFFE0C7DF.toInt();a==null -> ink;else -> 0xFFA9DEC9.toInt() }
+            val styled=android.text.SpannableString(status).apply {
+                setSpan(android.text.style.ForegroundColorSpan(statusInk),0,length,android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                setSpan(android.text.style.ForegroundColorSpan(dot),0,1,android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             }
-            v.setViewVisibility(R.id.wtitle, if (wide) View.VISIBLE else View.GONE)
-            v.setViewVisibility(R.id.wactions, if (appearance.showActions && wide && a != null && !personal) View.VISIBLE else View.GONE)
-            v.setViewVisibility(R.id.wend, if (a == null) View.VISIBLE else View.GONE)
-            v.setTextViewText(R.id.wswitch, if (wide) "ZMIEŃ OBIEKT" else "OBIEKT ↔")
-            if (mini) v.setTextViewTextSize(R.id.wduration, android.util.TypedValue.COMPLEX_UNIT_SP, 19f)
-            v.setTextViewText(R.id.wtitle,"WorkMeter")
-            v.setTextViewText(R.id.wshopping,if(a?.optString("kind")=="Zakupy") "ZAKOŃCZ ZAKUPY" else "ZAKUPY")
-            v.setViewVisibility(R.id.wshopping,if(a!=null && wide) android.view.View.VISIBLE else android.view.View.GONE)
-            v.setViewVisibility(R.id.wstage,if(travel && expanded) android.view.View.VISIBLE else android.view.View.GONE)
-            if(travel) v.setChronometer(R.id.wstage,SystemClock.elapsedRealtime()-(System.currentTimeMillis()-a!!.optLong("stageStart")),"W drodze: %s",true)
-            val status = if (wide) {
-                if (personal) "● PRYWATNIE" else if (a != null) "● ONLINE" else "● OFFLINE"
-            } else when {
-                a == null -> "Dzień zamknięty"
-                travel -> "Przejazd"
-                personal -> "Prywatnie"
-                a.optString("kind") == "Zakupy" -> "Zakupy"
-                a.optString("objectId").isNotBlank() -> "Na obiekcie"
-                else -> "Brak przypisanego etapu"
+            v.setTextViewText(R.id.wstatus,styled)
+            val statusSp=if(fontScale>1.5f) (if(heightDp<200) 8f else 10f) else if(wide && heightDp<175) 10f else 12f
+            v.setTextViewTextSize(R.id.wstatus,android.util.TypedValue.COMPLEX_UNIT_SP,statusSp)
+            val side=if(widthDp<176) 0 else if(widthDp<250) 8 else 14
+            val vertical=if(wide && heightDp<175) 2 else if(heightDp<200) 8 else 14
+            fun px(dp:Int)=(dp*context.resources.displayMetrics.density).toInt()
+            v.setViewPadding(R.id.wcontent,px(side),px(vertical),px(side),px(vertical))
+            v.setViewVisibility(R.id.wstartbutton,if(a==null) View.VISIBLE else View.GONE)
+            v.setViewVisibility(R.id.wstopbutton,if(a!=null) View.VISIBLE else View.GONE)
+            v.setViewVisibility(R.id.wprimary,View.VISIBLE)
+            val actions=wide && heightDp>=144 && appearance.showActions && a!=null && !personal
+            v.setViewVisibility(R.id.wactions,if(actions) View.VISIBLE else View.GONE)
+            v.setViewVisibility(R.id.wcamera,if(wide) View.VISIBLE else View.GONE)
+            v.setViewVisibility(R.id.wswitch,if(actions || (shortWide && a!=null && !personal)) View.VISIBLE else View.GONE)
+            if(wide) {
+                v.setViewVisibility(R.id.wverticalgap,if(actions) View.VISIBLE else View.GONE)
+                for(id in listOf(R.id.wgap1,R.id.wgap2)) v.setViewVisibility(id,if(widthDp<176) View.GONE else View.VISIBLE)
             }
-            v.setTextViewText(R.id.wstatus, status)
-            if (!appearance.showObject || (!wide && (a == null || travel || personal || a.optString("kind") == "Zakupy"))) {
-                v.setViewVisibility(R.id.wobject, View.GONE)
+            v.setInt(R.id.wstartbutton,"setBackgroundResource",if(mini) R.drawable.widget_round_start else R.drawable.widget_start_active)
+            v.setInt(R.id.wstopbutton,"setBackgroundResource",if(mini) R.drawable.widget_round_stop else R.drawable.widget_active)
+            v.setTextColor(R.id.wstartbutton,android.graphics.Color.WHITE);v.setTextColor(R.id.wstopbutton,android.graphics.Color.WHITE)
+            v.setTextViewText(R.id.wstartbutton,if(mini) "" else if(wide && widthDp<220) text.getString(R.string.widget_short_start) else text.getString(R.string.widget_start))
+            v.setTextViewText(R.id.wstopbutton,if(mini) "" else if(wide && widthDp<220) text.getString(R.string.widget_short_stop) else if(wide) text.getString(R.string.widget_stop_work) else text.getString(R.string.widget_stop))
+            for((id,icon) in listOf(R.id.wstartbutton to R.drawable.ic_widget_start,R.id.wstopbutton to R.drawable.ic_widget_stop)) {
+                v.setTextViewCompoundDrawables(id,icon,0,0,0)
+                v.setContentDescription(id,if(id==R.id.wstartbutton) text.getString(R.string.widget_start_description) else text.getString(R.string.widget_stop_description))
+                v.setTextViewTextSize(id,android.util.TypedValue.COMPLEX_UNIT_SP,if(widthDp<220) 11f else 14f)
+                if(mini) v.setViewPadding(id,px(12),px(12),px(12),px(12))
+                else {
+                    val label=if(id==R.id.wstartbutton) { if(wide && widthDp<220) text.getString(R.string.widget_short_start) else text.getString(R.string.widget_start) }
+                        else if(wide && widthDp<220) text.getString(R.string.widget_short_stop) else if(wide) text.getString(R.string.widget_stop_work) else text.getString(R.string.widget_stop)
+                    val metrics=context.resources.displayMetrics
+                    val paint=android.graphics.Paint().apply {
+                        typeface=android.graphics.Typeface.create("sans-serif",android.graphics.Typeface.NORMAL)
+                        textSize=android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP,if(widthDp<220) 11f else 14f,metrics)
+                    }
+                    val buttonWidth=if(shortWide) 110f else widthDp-2f*side-56f
+                    val inset=((buttonWidth-26f-paint.measureText(label)/metrics.density)/2f).toInt().coerceAtLeast(4)
+                    v.setViewPadding(id,px(inset),px(4),px(inset),px(4))
+                }
             }
-            v.setTextColor(R.id.wstatus,if(personal) 0xFFFFC88F.toInt() else if(a!=null) 0xFF6EE0AD.toInt() else 0xFFD1DDE0.toInt())
-            v.setTextViewText(R.id.wstart,"Rozpoczęcie: "+if(start>0) time.format(Date(start)) else "—")
-            v.setTextViewText(R.id.wend,"Zakończenie: "+if(a!=null || end<=0) "— Offline" else time.format(Date(end)))
-            if(start>0) {
-                val now=if(a!=null) System.currentTimeMillis() else end
-                val stages=shown?.optJSONArray("stages")
-                val personalPeriods=mutableListOf<Pair<Long,Long>>()
-                if(stages!=null) for(i in 0 until stages.length()) {
-                    val st=stages.optJSONObject(i) ?: continue
-                    if(st.optString("kind")=="Prywatnie") personalPeriods.add(st.optLong("start") to st.optLong("end"))
+            v.setContentDescription(R.id.wswitch,text.getString(R.string.change_object))
+            if(!shortWide) v.setTextViewText(R.id.wswitch,if(widthDp<220) "" else text.getString(R.string.work_object))
+            v.setTextViewText(R.id.wtravel,if(wide && widthDp<220) "" else if(travel) text.getString(R.string.widget_arrived) else text.getString(R.string.trip))
+            v.setTextViewText(R.id.wshopping,if(wide && widthDp<220) "" else if(shopping) text.getString(R.string.widget_finish) else text.getString(R.string.shopping))
+            v.setContentDescription(R.id.wtravel,if(travel) text.getString(R.string.widget_arrival_description) else text.getString(R.string.begin_trip))
+            v.setContentDescription(R.id.wshopping,if(shopping) text.getString(R.string.finish_shopping) else text.getString(R.string.widget_start_shopping))
+            v.setContentDescription(R.id.wcamera, text.getString(R.string.take_photo))
+            for(id in listOf(R.id.wtravel,R.id.wshopping)) v.setTextColor(id,ink)
+            if(wide) {
+                v.setTextColor(R.id.wswitch,ink)
+                val topIcons=expanded && fontScale<=1.5f && widthDp>=220
+                for((id,icon) in listOf(R.id.wswitch to R.drawable.ic_widget_object,R.id.wtravel to R.drawable.ic_widget_car,R.id.wshopping to R.drawable.ic_widget_cart)) {
+                    v.setTextViewCompoundDrawables(id,if(widthDp<220) icon else 0,if(topIcons) icon else 0,0,0)
+                    v.setTextViewTextSize(id,android.util.TypedValue.COMPLEX_UNIT_SP,if(expanded) 12f else 11f)
                 }
-                if(personal && a!=null) personalPeriods.add(a.optLong("stageStart",now) to now)
-                val clipped=personalPeriods.map { maxOf(start,it.first) to minOf(now,it.second) }.filter { it.second>it.first }.sortedBy { it.first }
-                var personalMs=0L
-                var until=start
-                for(p in clipped) {
-                    val from=maxOf(until,p.first)
-                    if(p.second>from) personalMs+=p.second-from
-                    until=maxOf(until,p.second)
+            }
+            v.setViewVisibility(R.id.wobject,View.GONE);v.setViewVisibility(R.id.wgps,View.GONE);v.setViewVisibility(R.id.wdetails,View.GONE)
+            val today=java.time.LocalDate.now()
+            val analytics=TimeAnalytics.calculate(TimeAnalyticsSnapshot.shifts(d,now),today,today,java.time.ZoneId.systemDefault())
+            val showDay=wide && widthDp>=250 && heightDp>=175 && a!=null
+            val mainMillis=WorkMeterHomeState.stageElapsed(now,a?.optLong("start") ?: 0L,a?.optLong("stageStart") ?: 0L)
+            v.setChronometer(R.id.wduration,SystemClock.elapsedRealtime()-mainMillis,null,a!=null)
+            v.setTextColor(R.id.wduration,ink)
+            if(wide) {
+                v.setViewVisibility(R.id.wstagecolumn,if(showDay) View.VISIBLE else View.GONE)
+                v.setTextViewText(R.id.wday,text.getString(R.string.widget_today))
+                v.setTextColor(R.id.wday,0xFFC3C5BD.toInt());v.setTextColor(R.id.wstage,0xFFC3C5BD.toInt())
+                v.setChronometer(R.id.wstage,SystemClock.elapsedRealtime()-analytics.workMillis,null,a!=null && !personal)
+                val connected=prefs.getBoolean("driveConnected",false)
+                val account=prefs.getString("driveEmail",null)
+                val verified=WidgetCloudEvidence.verified(connected,account,prefs.getString(com.r3gate.app.backup.BackupStatus.VERIFIED_ACCOUNT,null),prefs.getString(com.r3gate.app.backup.BackupStatus.VERIFIED_AT,null),now)
+                v.setImageViewResource(R.id.wcloud,if(verified) R.drawable.ic_widget_cloud_verified else R.drawable.ic_widget_cloud)
+                v.setContentDescription(R.id.wcloud,if(verified) text.getString(R.string.widget_backup_ok) else text.getString(R.string.widget_backup_missing))
+                v.setViewVisibility(R.id.wcloud,if(appearance.showGps && widthDp>=250) View.VISIBLE else View.GONE)
+            }
+            // Fit native live chronometers to the exact available space, including long hours and 200% text.
+            fun fit(id:Int,millis:Long,desired:Float,width:Float,height:Float) {
+                val metrics=context.resources.displayMetrics
+                val paint=android.graphics.Paint().apply { typeface=android.graphics.Typeface.create("sans-serif-light",android.graphics.Typeface.NORMAL) }
+                val label=android.text.format.DateUtils.formatElapsedTime(millis.coerceAtLeast(0)/1000)
+                fun fits(sp:Float):Boolean {
+                    paint.textSize=android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP,sp,metrics)
+                    return paint.measureText(label)<=width.coerceAtLeast(16f)*metrics.density && paint.fontMetrics.descent-paint.fontMetrics.ascent<=height.coerceAtLeast(18f)*metrics.density
                 }
-                val ms=(now-start-personalMs).coerceAtLeast(0)
-                if(a!=null) {
-                    v.setChronometer(R.id.wduration,SystemClock.elapsedRealtime()-ms,null,!personal)
-                } else {
-                    v.setChronometer(R.id.wduration,SystemClock.elapsedRealtime()-ms,null,false)
-                }
-            } else v.setChronometer(R.id.wduration,SystemClock.elapsedRealtime(),null,false)
+                var lo=0f;var hi=desired
+                if(fits(desired)) lo=desired else repeat(16) { val mid=(lo+hi)/2;if(fits(mid)) lo=mid else hi=mid }
+                v.setTextViewTextSize(id,android.util.TypedValue.COMPLEX_UNIT_SP,lo)
+            }
+            val header=if(expanded) 24f else if(wide) 20f else statusSp*fontScale*1.3f
+            val row=if(expanded) 56f else 48f
+            val available=heightDp-2f*vertical-(if(wide) 48f else 0f)-(if(actions) row+(if(expanded) 8f else 4f) else 0f)-header
+            val timerWidth=when { mini -> widthDp-2f*side-56f;shortWide -> widthDp-2f*side-174f;showDay -> widthDp*0.6f-2f*side;else -> widthDp-2f*side }
+            fit(R.id.wduration,mainMillis,if(wide) 42f else 30f,timerWidth,available)
+            if(showDay) fit(R.id.wstage,analytics.workMillis,12f,widthDp*0.4f-28f*fontScale,24f*fontScale)
             if (!interactive) return v
             for((view,action,code) in listOf(Triple(R.id.wstartbutton,"start",1),Triple(R.id.wstopbutton,"stop",2),Triple(R.id.wswitch,"switch",3),Triple(R.id.wtravel,"travel",4),Triple(R.id.wshopping,"shopping",5),Triple(R.id.wcamera,"camera",6))) {
                 val intent=Intent(context,MainActivity::class.java).apply { putExtra("widget_action",action); flags=Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP }

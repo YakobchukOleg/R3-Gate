@@ -23,11 +23,15 @@ object PhotoRestoreCoordinator {
         val photoCount: Int,
         private val originalJournal: String,
         private val prepared: PhotoRestoreAndroid.Prepared,
-        private val snapshots: Map<String, String>
+        private val snapshots: Map<String, String>,
+        private val diagnosticHistory: ByteArray?,
+        private val objectCatalog: String?
     ) {
         val stagingDirectory: File get() = prepared.staged.directory
         val summary: RestoreSummary = RestoreSummary.from(preview, photoCount)
         private var finished = false
+        var attachmentWarning:String?=null
+            private set
 
         /** Explicitly cancel a pending restore, deleting its private staged photos. */
         fun discard() = synchronized(lock) {
@@ -63,6 +67,20 @@ object PhotoRestoreCoordinator {
                 try {
                     val result = JournalRestoreStore.restore(context, modified, true)
                     if (result == JournalRestoreStore.Outcome.UNCHANGED || prepared.staged.files.isEmpty()) prepared.discard()
+                    try {
+                    diagnosticHistory?.let { com.r3gate.app.WorkMeterDiagnostics.importHistory(context,it) }
+                    objectCatalog?.let { text ->
+                        val editor=prefs.edit()
+                        val ids=org.json.JSONObject(rewritten).optJSONArray("objects") ?: org.json.JSONArray()
+                        val known=(0 until ids.length()).map { ids.getJSONObject(it).optString("id") }.toSet()
+                        ObjectCatalog.rows(text).filter { it.getString("id") in known }.forEach { row ->
+                            row.optJSONObject("gps")?.let { editor.putString("gps_object_"+row.getString("id"),it.toString()) }
+                        }
+                        check(editor.commit()) { "Nie zapisano lokalizacji obiektów" }
+                    }
+                    } catch(_:Exception) {
+                        attachmentWarning="Dziennik przywrócony, ale nie zapisano całej diagnostyki lub GPS obiektów. Zachowaj plik ZIP i ponów import pliku obiektów."
+                    }
                     finished = true
                     result
                 } catch (failure: Exception) {
@@ -104,7 +122,9 @@ object PhotoRestoreCoordinator {
             val snapshots = prepared.staged.files.mapValues { (_, file) -> digestFile(file) }
             val decision = if (rewritten == current) RestorePlan.Decision.NO_CHANGES
                 else RestorePlan.Decision.REPLACE_REQUIRES_CONFIRMATION
-            Session(plan.copy(decision = decision), prepared.remappedCount, plan.journalJson, prepared, snapshots)
+            Session(plan.copy(decision = decision), prepared.remappedCount, plan.journalJson, prepared, snapshots,
+                BackupCompanions.read(openArchive,BackupCompanions.DIAGNOSTICS),
+                BackupCompanions.read(openArchive,BackupCompanions.OBJECTS)?.toString(Charsets.UTF_8)?.also { ObjectCatalog.rows(it) })
         } catch (failure: Exception) {
             prepared.discard()
             throw failure

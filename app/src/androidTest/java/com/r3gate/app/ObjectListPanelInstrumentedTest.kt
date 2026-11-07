@@ -45,8 +45,8 @@ class ObjectListPanelInstrumentedTest {
 
     private fun goToObjects(activity: Activity) {
         val button = views(activity).filterIsInstance<Button>()
-            .firstOrNull { it.text.toString().contains("OBIEKTY") }
-        assertNotNull("Home button OBIEKTY should exist", button)
+            .firstOrNull { it.contentDescription == "Obiekty" }
+        assertNotNull("Permanent Obiekty navigation should exist", button)
         button!!.performClick()
         assertEquals(1, views(activity).filterIsInstance<ObjectListPanel>().size)
     }
@@ -72,7 +72,7 @@ class ObjectListPanelInstrumentedTest {
                 goToObjects(activity)
                 assertTrue(texts(activity).any { it.contains("TCZ-01") })
                 val archiveToggle = views(activity).filterIsInstance<TextView>()
-                    .firstOrNull { it.text.toString() == "Wszystkie" && it.isClickable }
+                    .firstOrNull { it.contentDescription == "Pokaż archiwum obiektów" && it.isClickable }
                 assertNotNull("Archive filter", archiveToggle)
                 archiveToggle!!.performClick()
                 assertTrue(texts(activity).any { it.contains("GDA-02") })
@@ -89,7 +89,7 @@ class ObjectListPanelInstrumentedTest {
             scenario.onActivity { activity ->
                 goToObjects(activity)
                 val search = views(activity).filterIsInstance<android.widget.EditText>()
-                    .firstOrNull { it.contentDescription == "Szukaj obiektu" }
+                    .firstOrNull { it.contentDescription == "Szukaj obiektu: miasto, firma, nazwa, ulica lub adres" }
                 assertNotNull("Search field", search)
                 search!!.setText("nieznany-adres")
                 assertTrue(texts(activity).contains("Brak obiektów dla wybranych filtrów."))
@@ -107,7 +107,7 @@ class ObjectListPanelInstrumentedTest {
             scenario.onActivity { activity ->
                 goToObjects(activity)
                 views(activity).filterIsInstance<android.widget.EditText>()
-                    .first { it.contentDescription == "Szukaj obiektu" }.setText("tczew")
+                    .first { it.contentDescription == "Szukaj obiektu: miasto, firma, nazwa, ulica lub adres" }.setText("tczew")
                 views(activity).first { it.contentDescription == "Wyłącz grupowanie" }.performClick()
                 views(activity).first { it.isClickable && it.contentDescription?.contains("TCZ-01") == true }.performClick()
                 activity.onBackPressed()
@@ -115,7 +115,7 @@ class ObjectListPanelInstrumentedTest {
             scenario.recreate()
             scenario.onActivity { activity ->
                 val search = views(activity).filterIsInstance<android.widget.EditText>()
-                    .first { it.contentDescription == "Szukaj obiektu" }
+                    .first { it.contentDescription == "Szukaj obiektu: miasto, firma, nazwa, ulica lub adres" }
                 assertEquals("tczew", search.text.toString())
                 assertTrue(views(activity).any { it.contentDescription == "Grupuj według miast" })
             }
@@ -144,6 +144,31 @@ class ObjectListPanelInstrumentedTest {
         }
         assertNotNull("Object card should be clickable", card)
         card!!.performClick()
+    }
+
+    private fun openObjectRecords(activity: Activity, label: String) {
+        views(activity).filterIsInstance<Button>().single { it.contentDescription == "Zakładka: $label" }.performClick()
+        views(activity).filterIsInstance<Button>().single { it.text.toString() == "Otwórz ${label.lowercase()}" }.performClick()
+    }
+
+    @Test fun multilineMapButtonFitsTheObjectActionRow() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                openActiveDetails(activity)
+                val panel = views(activity).filterIsInstance<ObjectDetailsPanel>().single()
+                val width = (260 * activity.resources.displayMetrics.density).toInt()
+                panel.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+                panel.layout(0, 0, width, panel.measuredHeight)
+                val buttons = views(activity).filterIsInstance<Button>()
+                val edit = buttons.single { it.text == "Edytuj obiekt" }
+                val maps = buttons.single { it.text == "Otwórz w Google Maps" }
+                assertTrue(maps.lineCount > 1)
+                assertEquals(edit.top, maps.top)
+                assertEquals(edit.bottom, maps.bottom)
+                assertTrue(maps.bottom <= (maps.parent as View).height)
+            }
+        }
     }
 
     @Test fun nativeDetailsShowsMetadataAndEmptyHistory() {
@@ -269,11 +294,9 @@ class ObjectListPanelInstrumentedTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 openActiveDetails(activity)
-                val materials=views(activity).filterIsInstance<Button>()
-                    .first { it.text.toString()=="Materiały" }
-                materials.performClick()
+                openObjectRecords(activity, "Materiały")
                 val add=views(activity).filterIsInstance<Button>()
-                    .first { it.text.toString()=="+ Dodaj" }
+                    .first { it.text.toString() in listOf("+ Dodaj","Dodaj zdjęcie") }
                 add.performClick()
                 val labels=texts(activity)
                 assertTrue(labels.contains("Materiał na obiekcie"))
@@ -289,11 +312,9 @@ class ObjectListPanelInstrumentedTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 openActiveDetails(activity)
-                val photos=views(activity).filterIsInstance<Button>()
-                    .first { it.text.toString()=="Zdjęcia" }
-                photos.performClick()
+                openObjectRecords(activity, "Zdjęcia")
                 val add=views(activity).filterIsInstance<Button>()
-                    .first { it.text.toString()=="+ Dodaj" }
+                    .first { it.text.toString() in listOf("+ Dodaj","Dodaj zdjęcie") }
                 add.performClick()
                 val labels=texts(activity)
                 assertTrue(labels.contains("Zdjęcia i dokumentacja"))
@@ -308,9 +329,7 @@ class ObjectListPanelInstrumentedTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 openActiveDetails(activity)
-                val photoShortcut=views(activity).filterIsInstance<Button>()
-                    .first { it.text.toString()=="Zdjęcia" && it.contentDescription!="Zakładka: Zdjęcia" }
-                photoShortcut.performClick()
+                openObjectRecords(activity, "Zdjęcia")
                 assertTrue(texts(activity).contains("Zdjęcia i dokumentacja"))
                 assertTrue(texts(activity).contains("0 wpisów"))
                 assertTrue(texts(activity).contains("Brak zdjęć. Dodaj pierwszą dokumentację."))
@@ -322,9 +341,7 @@ class ObjectListPanelInstrumentedTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 openActiveDetails(activity)
-                val materialShortcut=views(activity).filterIsInstance<Button>()
-                    .first { it.text.toString()=="Materiały" && it.contentDescription!="Zakładka: Materiały" }
-                materialShortcut.performClick()
+                openObjectRecords(activity, "Materiały")
                 assertTrue(texts(activity).contains("Zużyte materiały"))
                 assertTrue(texts(activity).contains("0 wpisów"))
                 assertTrue(texts(activity).contains("Brak materiałów. Dodaj pierwszy wpis."))
@@ -344,9 +361,7 @@ class ObjectListPanelInstrumentedTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 openActiveDetails(activity)
-                val shortcut=views(activity).filterIsInstance<Button>()
-                    .first { it.text.toString()=="Zdjęcia" && it.contentDescription!="Zakładka: Zdjęcia" }
-                shortcut.performClick()
+                openObjectRecords(activity, "Zdjęcia")
                 assertTrue(texts(activity).contains("1 wpis"))
                 assertEquals(1,views(activity).filterIsInstance<WorkRecordListCard>().size)
                 assertTrue(views(activity).any {
@@ -369,9 +384,7 @@ class ObjectListPanelInstrumentedTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 openActiveDetails(activity)
-                val shortcut=views(activity).filterIsInstance<Button>()
-                    .first { it.text.toString()=="Materiały" && it.contentDescription!="Zakładka: Materiały" }
-                shortcut.performClick()
+                openObjectRecords(activity, "Materiały")
                 assertTrue(texts(activity).contains("1 wpis"))
                 assertEquals(1,views(activity).filterIsInstance<WorkRecordListCard>().size)
                 val card=views(activity).filterIsInstance<WorkRecordListCard>().single()
@@ -382,24 +395,24 @@ class ObjectListPanelInstrumentedTest {
         }
     }
 
-    @Test fun unavailablePhotoHasAccessiblePlaceholderWithoutChangingRecord() {
+    @Test fun uploadedPhotoWithoutPreviewIsCountedAndOnlyPendingPhotoShowsError() {
         val context=InstrumentationRegistry.getInstrumentation().targetContext
         val pref=context.getSharedPreferences("r3_gate",0)
         val data=JSONObject(pref.getString("data","{}")!!)
         data.put("links",JSONArray().put(JSONObject()
             .put("id","missing-photo").put("objectId","active-1")
             .put("date","2026-11-03")
-            .put("photos",JSONArray().put("content://com.r3gate.app/not-existing-photo"))))
+            .put("photos",JSONArray().put("content://com.r3gate.app/not-existing-photo").put("file:///sent.jpg"))
+            .put("driveFiles", JSONObject().put("account|file:///sent.jpg", "drive-file-id"))))
         pref.edit().putString("data",data.toString()).commit()
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 openActiveDetails(activity)
-                views(activity).filterIsInstance<Button>()
-                    .first { it.text.toString()=="Zdjęcia" && it.contentDescription!="Zakładka: Zdjęcia" }
-                    .performClick()
+                openObjectRecords(activity, "Zdjęcia")
                 val card=views(activity).filterIsInstance<WorkRecordListCard>().single()
                 card.performClick()
-                assertTrue(texts(activity).contains("1 zdjęcie"))
+                assertTrue(texts(activity).contains("Wysłano na Google Drive: 1 z 2"))
+                assertFalse(texts(activity).contains("Zdjęcie 2 z 2"))
                 val placeholder=views(activity).filterIsInstance<TextView>()
                     .firstOrNull { it.contentDescription?.toString()?.contains("Niedostępne na urządzeniu")==true }
                 assertNotNull("Missing photo should expose accessible fallback",placeholder)

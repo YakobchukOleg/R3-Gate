@@ -85,6 +85,7 @@ class BackupSettingsActivityTest {
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 scenario.onActivity { activity ->
                     views(activity.window.decorView).single { it.contentDescription == "Ustawienia" }.performClick()
+                    views(activity.window.decorView).filterIsInstance<Button>().single { it.text.toString().startsWith("Dane i kopie") }.performClick()
                     click(activity, "Kopia zapasowa i synchronizacja")
                 }
                 val opened = instrumentation.waitForMonitorWithTimeout(monitor, 5000)
@@ -240,6 +241,7 @@ class BackupSettingsActivityTest {
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 scenario.onActivity { activity ->
                     views(activity.window.decorView).single { it.contentDescription == "Ustawienia" }.performClick()
+                    views(activity.window.decorView).filterIsInstance<Button>().single { it.text.toString().startsWith("Dane i kopie") }.performClick()
                     click(activity, "Kopia zapasowa i synchronizacja")
                 }
                 val activity = requireNotNull(instrumentation.waitForMonitorWithTimeout(childMonitor, 5000))

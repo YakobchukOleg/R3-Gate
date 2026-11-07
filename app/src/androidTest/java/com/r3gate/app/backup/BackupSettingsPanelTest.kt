@@ -105,7 +105,7 @@ class BackupSettingsPanelTest {
         val actions = mutableListOf<BackupSettingsPanel.Action>()
         val panel = BackupSettingsPanel(context, appearance(), actions::add)
         panel.render(state())
-        val retention = views(panel).filterIsInstance<EditText>().single()
+        val retention = views(panel).filterIsInstance<EditText>().single { it.contentDescription=="Liczba zachowanych kopii" }
         retention.setText("0")
         button(panel, "Zapisz harmonogram").performClick()
         assertTrue(actions.isEmpty())
@@ -225,4 +225,13 @@ class BackupSettingsPanelTest {
         assertTrue(actions.isEmpty())
     }
 
+    @Test fun eveningHourIsValidatedAndPassedToSchedule() = instrumentation.runOnMainSync {
+        val actions=mutableListOf<BackupSettingsPanel.Action>()
+        val panel=BackupSettingsPanel(context,appearance(),actions::add);panel.render(state())
+        val hour=views(panel).filterIsInstance<EditText>().single { it.contentDescription=="Godzina codziennej kopii" }
+        hour.setText("25");button(panel,"Zapisz harmonogram").performClick();assertTrue(actions.isEmpty())
+        hour.setText("20");button(panel,"Zapisz harmonogram").performClick()
+        val saved=actions.single() as BackupSettingsPanel.Action.UpdateSchedule
+        assertEquals(20,saved.schedule.eveningHour)
+    }
 }
