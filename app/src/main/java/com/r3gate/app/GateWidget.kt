@@ -98,7 +98,8 @@ class GateWidget : AppWidgetProvider() {
             val travel=a?.optString("kind")=="Przejazd"
             val personal=a?.optString("kind")=="Prywatnie"
             val shopping=a?.optString("kind")=="Zakupy"
-            val stage=when { a==null -> "Brak zmiany";travel -> "Przejazd";personal -> "Prywatnie";shopping -> "Zakupy";a.optString("objectId").isNotBlank() -> "Na obiekcie";else -> "Nieprzypisane" }
+            val text = AppLanguage.context(context)
+            val stage=when { a==null -> text.getString(R.string.shift_closed);travel -> text.getString(R.string.trip);personal -> text.getString(R.string.personal);shopping -> text.getString(R.string.shopping);a.optString("objectId").isNotBlank() -> text.getString(R.string.on_site);else -> text.getString(R.string.unassigned) }
             val tag=a?.optString("object").orEmpty().substringBefore(" · ")
             val status="● "+stage+if(wide && widthDp>=250 && appearance.showObject && !travel && !personal && !shopping && tag.isNotBlank()) " · "+tag else ""
             val ink=0xFFF5F4EF.toInt()
@@ -129,16 +130,16 @@ class GateWidget : AppWidgetProvider() {
             v.setInt(R.id.wstartbutton,"setBackgroundResource",if(mini) R.drawable.widget_round_start else R.drawable.widget_start_active)
             v.setInt(R.id.wstopbutton,"setBackgroundResource",if(mini) R.drawable.widget_round_stop else R.drawable.widget_active)
             v.setTextColor(R.id.wstartbutton,android.graphics.Color.WHITE);v.setTextColor(R.id.wstopbutton,android.graphics.Color.WHITE)
-            v.setTextViewText(R.id.wstartbutton,if(mini) "" else if(wide && widthDp<220) "Start" else "Rozpocznij")
-            v.setTextViewText(R.id.wstopbutton,if(mini) "" else if(wide && widthDp<220) "Stop" else if(wide) "Zakończ pracę" else "Zakończ")
+            v.setTextViewText(R.id.wstartbutton,if(mini) "" else if(wide && widthDp<220) text.getString(R.string.widget_short_start) else text.getString(R.string.widget_start))
+            v.setTextViewText(R.id.wstopbutton,if(mini) "" else if(wide && widthDp<220) text.getString(R.string.widget_short_stop) else if(wide) text.getString(R.string.widget_stop_work) else text.getString(R.string.widget_stop))
             for((id,icon) in listOf(R.id.wstartbutton to R.drawable.ic_widget_start,R.id.wstopbutton to R.drawable.ic_widget_stop)) {
                 v.setTextViewCompoundDrawables(id,icon,0,0,0)
-                v.setContentDescription(id,if(id==R.id.wstartbutton) "Rozpocznij dzień pracy" else "Zakończ dzień pracy")
+                v.setContentDescription(id,if(id==R.id.wstartbutton) text.getString(R.string.widget_start_description) else text.getString(R.string.widget_stop_description))
                 v.setTextViewTextSize(id,android.util.TypedValue.COMPLEX_UNIT_SP,if(widthDp<220) 11f else 14f)
                 if(mini) v.setViewPadding(id,px(12),px(12),px(12),px(12))
                 else {
-                    val label=if(id==R.id.wstartbutton) { if(wide && widthDp<220) "Start" else "Rozpocznij" }
-                        else if(wide && widthDp<220) "Stop" else if(wide) "Zakończ pracę" else "Zakończ"
+                    val label=if(id==R.id.wstartbutton) { if(wide && widthDp<220) text.getString(R.string.widget_short_start) else text.getString(R.string.widget_start) }
+                        else if(wide && widthDp<220) text.getString(R.string.widget_short_stop) else if(wide) text.getString(R.string.widget_stop_work) else text.getString(R.string.widget_stop)
                     val metrics=context.resources.displayMetrics
                     val paint=android.graphics.Paint().apply {
                         typeface=android.graphics.Typeface.create("sans-serif",android.graphics.Typeface.NORMAL)
@@ -149,12 +150,13 @@ class GateWidget : AppWidgetProvider() {
                     v.setViewPadding(id,px(inset),px(4),px(inset),px(4))
                 }
             }
-            v.setContentDescription(R.id.wswitch,"Zmień obiekt")
-            if(!shortWide) v.setTextViewText(R.id.wswitch,if(widthDp<220) "" else "Obiekt")
-            v.setTextViewText(R.id.wtravel,if(wide && widthDp<220) "" else if(travel) "Dojechałem" else "Przejazd")
-            v.setTextViewText(R.id.wshopping,if(wide && widthDp<220) "" else if(shopping) "Koniec" else "Zakupy")
-            v.setContentDescription(R.id.wtravel,if(travel) "Dojechałem — wybierz obiekt" else "Rozpocznij przejazd")
-            v.setContentDescription(R.id.wshopping,if(shopping) "Zakończ zakupy" else "Rozpocznij zakupy")
+            v.setContentDescription(R.id.wswitch,text.getString(R.string.change_object))
+            if(!shortWide) v.setTextViewText(R.id.wswitch,if(widthDp<220) "" else text.getString(R.string.work_object))
+            v.setTextViewText(R.id.wtravel,if(wide && widthDp<220) "" else if(travel) text.getString(R.string.widget_arrived) else text.getString(R.string.trip))
+            v.setTextViewText(R.id.wshopping,if(wide && widthDp<220) "" else if(shopping) text.getString(R.string.widget_finish) else text.getString(R.string.shopping))
+            v.setContentDescription(R.id.wtravel,if(travel) text.getString(R.string.widget_arrival_description) else text.getString(R.string.begin_trip))
+            v.setContentDescription(R.id.wshopping,if(shopping) text.getString(R.string.finish_shopping) else text.getString(R.string.widget_start_shopping))
+            v.setContentDescription(R.id.wcamera, text.getString(R.string.take_photo))
             for(id in listOf(R.id.wtravel,R.id.wshopping)) v.setTextColor(id,ink)
             if(wide) {
                 v.setTextColor(R.id.wswitch,ink)
@@ -173,14 +175,14 @@ class GateWidget : AppWidgetProvider() {
             v.setTextColor(R.id.wduration,ink)
             if(wide) {
                 v.setViewVisibility(R.id.wstagecolumn,if(showDay) View.VISIBLE else View.GONE)
-                v.setTextViewText(R.id.wday,"Dziś")
+                v.setTextViewText(R.id.wday,text.getString(R.string.widget_today))
                 v.setTextColor(R.id.wday,0xFFC3C5BD.toInt());v.setTextColor(R.id.wstage,0xFFC3C5BD.toInt())
                 v.setChronometer(R.id.wstage,SystemClock.elapsedRealtime()-analytics.workMillis,null,a!=null && !personal)
                 val connected=prefs.getBoolean("driveConnected",false)
                 val account=prefs.getString("driveEmail",null)
                 val verified=WidgetCloudEvidence.verified(connected,account,prefs.getString(com.r3gate.app.backup.BackupStatus.VERIFIED_ACCOUNT,null),prefs.getString(com.r3gate.app.backup.BackupStatus.VERIFIED_AT,null),now)
                 v.setImageViewResource(R.id.wcloud,if(verified) R.drawable.ic_widget_cloud_verified else R.drawable.ic_widget_cloud)
-                v.setContentDescription(R.id.wcloud,if(verified) "Ostatnia kopia Google Drive została sprawdzona" else "Brak sprawdzonej kopii Google Drive")
+                v.setContentDescription(R.id.wcloud,if(verified) text.getString(R.string.widget_backup_ok) else text.getString(R.string.widget_backup_missing))
                 v.setViewVisibility(R.id.wcloud,if(appearance.showGps && widthDp>=250) View.VISIBLE else View.GONE)
             }
             // Fit native live chronometers to the exact available space, including long hours and 200% text.

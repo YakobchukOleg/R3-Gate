@@ -3,6 +3,7 @@ package com.r3gate.app
 import android.app.Activity
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.widget.CheckBox
@@ -13,6 +14,10 @@ import android.widget.SeekBar
 import android.widget.TextView
 
 class WidgetAppearanceActivity : Activity() {
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(AppLanguage.context(newBase))
+    }
+
     private var appearance = WidgetAppearance()
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -67,7 +72,7 @@ class WidgetAppearanceActivity : Activity() {
             contentDescription = getString(R.string.widget_transparency)
         }
         fun previewAppearance() {
-            transparencyLabel.text = "Przezroczystość tła: ${(appearance.transparency ?: defaultTransparency).coerceIn(0,50)}% · maks. 50%"
+            transparencyLabel.text = getString(R.string.widget_transparency_limit, (appearance.transparency ?: defaultTransparency).coerceIn(0,50))
             preview.removeAllViews()
             preview.layoutParams=LinearLayout.LayoutParams(dp(previewSize.first),dp(previewSize.second))
             preview.addView(GateWidget.render(this,WidgetLayoutProfile.forBounds(previewSize.first,previewSize.second),appearance,interactive=false,widthDp=previewSize.first,heightDp=previewSize.second).apply(this,preview))
@@ -137,7 +142,7 @@ class WidgetAppearanceActivity : Activity() {
         content.addView(objectToggle)
         content.addView(actionsToggle)
         sizes.forEach { size ->
-            content.addView(workMeterButton(this,"Podgląd ${size.first} × ${size.second} dp",WorkMeterButtonRole.SECONDARY) {
+            content.addView(workMeterButton(this,getString(R.string.widget_preview_size, size.first, size.second),WorkMeterButtonRole.SECONDARY) {
                 previewSize=size; previewAppearance()
             })
         }

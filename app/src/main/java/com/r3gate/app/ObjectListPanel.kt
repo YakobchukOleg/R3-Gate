@@ -44,22 +44,22 @@ class ObjectListPanel(
         val pad = dp(16)
         setPadding(pad, pad, pad, pad)
 
-        val add = workMeterButton(context, "＋ Dodaj obiekt", WorkMeterButtonRole.PRIMARY, onAddObject).apply {
+        val add = workMeterButton(context, context.getString(R.string.add_object_button), WorkMeterButtonRole.PRIMARY, onAddObject).apply {
             gravity = Gravity.CENTER
             setTypeface(null, Typeface.BOLD)
-            contentDescription = "Dodaj obiekt"
+            contentDescription = context.getString(R.string.add_object)
         }
         addView(add, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(8) })
 
         val search = EditText(context).apply {
-            hint = "Szukaj"
+            hint = context.getString(R.string.search)
             setSingleLine(true)
             textSize = 14f
             setTextColor(ink)
             setHintTextColor(muted)
             setPadding(dp(14), dp(8), dp(14), dp(8))
             background = rounded(palette.surface, 16)
-            contentDescription = "Szukaj obiektu: miasto, firma, nazwa, ulica lub adres"
+            contentDescription = context.getString(R.string.search_objects_description)
             setText(initialQuery)
         }
         addView(search, LayoutParams(LayoutParams.MATCH_PARENT, dp(52)))
@@ -133,23 +133,23 @@ class ObjectListPanel(
         val grouped = filterState.grouped
         archiveToggle.isSelected = archived
         groupToggle.isSelected = grouped
-        archiveToggle.text = if (archived) "Archiwum ✓" else "Aktywne"
-        groupToggle.text = if (grouped) "▤ Grupuj: miasta" else "☷ Lista"
-        archiveToggle.contentDescription = if (archived) "Pokaż aktywne obiekty" else "Pokaż archiwum obiektów"
-        groupToggle.contentDescription = if (grouped) "Wyłącz grupowanie" else "Grupuj według miast"
+        archiveToggle.text = if (archived) context.getString(R.string.archive_checked) else context.getString(R.string.active_objects)
+        groupToggle.text = if (grouped) context.getString(R.string.group_cities) else context.getString(R.string.list_ungrouped)
+        archiveToggle.contentDescription = if (archived) context.getString(R.string.show_active_objects) else context.getString(R.string.show_archive_objects)
+        groupToggle.contentDescription = if (grouped) context.getString(R.string.disable_grouping) else context.getString(R.string.group_by_city)
         cityChips.removeAllViews()
         val cities = if (archived) emptyList() else ObjectListUiModel.activeCities(items)
         val choices: List<String?> = listOf(null) + cities
         for (city in choices) {
             val active = filterState.city == city
-            val chip = label(city ?: "Wszystkie miasta", if (active) palette.onPrimary else ink, 12f).apply {
+            val chip = label(city ?: context.getString(R.string.all_cities), if (active) palette.onPrimary else ink, 12f).apply {
                 gravity = Gravity.CENTER
                 minimumHeight = dp(48)
                 setPadding(dp(12), dp(7), dp(12), dp(7))
                 background = rounded(if (active) palette.primary else palette.surface, 18)
                 isClickable = true
                 isFocusable = true
-                contentDescription = if (city == null) "Wszystkie miasta" else "Filtr miasta: " + city
+                contentDescription = if (city == null) context.getString(R.string.all_cities) else context.getString(R.string.city_filter_prefix) + city
                 isSelected = active
                 setOnClickListener { filterState = ObjectFilterUiState.city(filterState, city); filtersChanged() }
             }
@@ -158,16 +158,32 @@ class ObjectListPanel(
             })
         }
         val display = ObjectListUiModel.display(items, archived, query, filterState.city)
-        count.text = ObjectCountLabel.format(display.rows.size, archived)
+        val total = display.rows.size
+        count.text = if (context.resources.configuration.locales[0].language == AppLanguage.RUSSIAN.tag) {
+            resources.getQuantityString(R.plurals.object_count, total, total) + " · " +
+                context.getString(if (archived) R.string.archive else R.string.active_list)
+        } else {
+            ObjectCountLabel.format(total, archived)
+        }
         results.removeAllViews()
         if (display.emptyMessage != null) {
-            results.addView(label(display.emptyMessage, muted, 14f).apply {
+            val emptyMessage = when {
+                query.isNotBlank() || filterState.city != null -> R.string.no_matching_objects
+                archived -> R.string.no_archived_objects
+                else -> R.string.no_active_objects
+            }
+            results.addView(label(context.getString(emptyMessage), muted, 14f).apply {
                 gravity = Gravity.CENTER
                 setPadding(0, dp(36), 0, dp(36))
             })
         }
         for (group in ObjectListUiModel.groups(display, grouped, archived)) {
-            results.addView(label("${group.heading}  ·  ${group.rows.size}", ink, 14f).apply {
+            val heading = when {
+                !grouped || archived -> context.getString(R.string.objects)
+                group.rows.all { it.city.isBlank() } -> context.getString(R.string.no_city)
+                else -> group.heading
+            }
+            results.addView(label("$heading  ·  ${group.rows.size}", ink, 14f).apply {
                 setTypeface(null, Typeface.BOLD)
                 setPadding(dp(4), dp(14), 0, dp(6))
             })
@@ -176,12 +192,14 @@ class ObjectListPanel(
                     orientation = VERTICAL
                     background = rounded(palette.surface, 17)
                     setPadding(dp(15), dp(12), dp(15), dp(12))
-                    contentDescription = row.accessibilityLabel
+                    contentDescription = listOf(row.title.trim(),
+                        context.getString(if (archived) R.string.archived_status else R.string.active_status))
+                        .filter(String::isNotEmpty).joinToString(", ")
                     isFocusable = true
                     isClickable = true
                     setOnClickListener { onOpenObject(row.id) }
                 }
-                val badge = label(row.tag.ifBlank { "Obiekt" }, muted, 11f).apply {
+                val badge = label(row.tag.ifBlank { context.getString(R.string.work_object) }, muted, 11f).apply {
                     setTypeface(null, Typeface.BOLD)
                     background = rounded(bg, 8)
                     setPadding(dp(8), dp(5), dp(8), dp(5))
@@ -191,7 +209,8 @@ class ObjectListPanel(
                     gravity = Gravity.CENTER_VERTICAL
                 }
                 header.addView(badge, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
-                header.addView(label(row.status, if (row.status == "Aktywny") green else muted, 11f))
+                val status = context.getString(if (archived) R.string.archived_status else R.string.active_status)
+                header.addView(label(status, if (archived) muted else green, 11f))
                 card.addView(header)
                 card.addView(label(row.name, ink, 16f).apply {
                     setTypeface(null, Typeface.BOLD)
