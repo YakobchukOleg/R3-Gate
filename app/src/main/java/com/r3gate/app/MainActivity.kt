@@ -2575,6 +2575,7 @@ class MainActivity : Activity() {
                     return@setOnClickListener
                 }
                 if(en<=st) { toast("Koniec musi być po rozpoczęciu"); return@setOnClickListener }
+                val snapshot = prefs.getString("data", null)
                 val current=data()
                 val saved=rows(current,"shifts")
                 val row=saved.singleOrNull { it.optString("id")==id } ?: return@setOnClickListener
@@ -2589,20 +2590,39 @@ class MainActivity : Activity() {
                     toast("Nowy zakres pominąłby część zapisanego etapu")
                     return@setOnClickListener
                 }
-                arr(row,"edits").put(JSONObject().put("at",System.currentTimeMillis()).put("start",row.optLong("start")).put("end",row.optLong("end")))
-                row.put("start", st).put("end", en)
-                if (st != original.start) row.put("recordedStart", st)
-                if (en != original.end) row.put("recordedEnd", en)
-                val updated = ShiftContinuity.replace(saved, row, active(current))
+                arr(revised, "edits").put(JSONObject().put("at", System.currentTimeMillis())
+                    .put("start", original.start).put("end", original.end))
+                if (st != original.start) revised.put("recordedStart", st)
+                if (en != original.end) revised.put("recordedEnd", en)
+                val updated = ShiftContinuity.replace(saved, revised, active(current))
                 if (updated == null) {
                     toast("Zmiana nakłada się na inną zmianę lub historia zawiera nieprawidłowe daty")
                     return@setOnClickListener
                 }
-                current.put("shifts", JSONArray(updated))
-                save(current, "EDIT_SHIFT", id)
-                if (updated.size < saved.size) toast("Połączono zmiany")
-                dialog.dismiss()
-                report()
+                val merging = updated.size < saved.size
+                fun commitEdit() {
+                    if (prefs.getString("data", null) != snapshot) {
+                        toast("Historia uległa zmianie. Otwórz edycję ponownie")
+                        dialog.dismiss()
+                        report()
+                        return
+                    }
+                    current.put("shifts", JSONArray(updated))
+                    save(current, "EDIT_SHIFT", id)
+                    if (merging) toast("Połączono zmiany")
+                    dialog.dismiss()
+                    report()
+                }
+                if (merging) {
+                    AlertDialog.Builder(this, dialogStyle)
+                        .setTitle("Połączyć zmiany?")
+                        .setMessage("Zapisanie tych godzin połączy sąsiadujące zmiany w jedną.")
+                        .setNegativeButton("Nie", null)
+                        .setPositiveButton("Tak") { _, _ -> commitEdit() }
+                        .show()
+                } else {
+                    commitEdit()
+                }
             }
         }
         dialog.show()
