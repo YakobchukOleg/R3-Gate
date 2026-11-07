@@ -54,7 +54,7 @@ internal object ShiftContinuity {
         return result
     }
 
-    private fun join(earlier: JSONObject, later: JSONObject): JSONObject? {
+    private fun join(earlier: JSONObject, later: JSONObject, repairLegacyOverlap: Boolean = false): JSONObject? {
         val first = bounds(earlier)
         val second = bounds(later)
         val id = earlier.optString("id")
@@ -63,8 +63,10 @@ internal object ShiftContinuity {
             !WorkShiftIntegrity.isValid(second.start, second.end) ||
             second.start <= first.start || second.end < first.end) return null
         val roundedEnd = WorkTimeRounding.ceil(first.end)
-        if (WorkTimeRounding.ceil(second.start) != roundedEnd &&
-            second.start !in (roundedEnd - WorkTimeRounding.STEP_MILLIS)..roundedEnd) return null
+        val sameBoundary = WorkTimeRounding.ceil(second.start) == roundedEnd
+        val legacyOverlap = repairLegacyOverlap &&
+            second.start in (roundedEnd - WorkTimeRounding.STEP_MILLIS)..roundedEnd
+        if (!sameBoundary && !legacyOverlap) return null
         val firstRate = WalletRules.rate(earlier.optString("rate", "30.00")) ?: return null
         val secondRate = WalletRules.rate(later.optString("rate", "30.00")) ?: return null
         if (firstRate.compareTo(secondRate) != 0) return null
@@ -93,7 +95,7 @@ internal object ShiftContinuity {
     fun normalizeHistory(shifts: List<JSONObject>, active: JSONObject?): List<JSONObject> {
         val joined = mutableListOf<JSONObject>()
         for (shift in shifts.sortedBy { bounds(it).start }) {
-            val merged = joined.lastOrNull()?.let { join(it, shift) }
+            val merged = joined.lastOrNull()?.let { join(it, shift, repairLegacyOverlap = true) }
             if (merged == null) joined.add(shift) else joined[joined.lastIndex] = merged
         }
         return joined.mapIndexed { index, shift ->

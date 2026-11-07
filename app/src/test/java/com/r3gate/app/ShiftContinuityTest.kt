@@ -60,6 +60,8 @@ class ShiftContinuityTest {
         val first = shift("first", at(8, 30), at(17, 35)).put("rate", "30.00")
         val overlap = shift("second", at(16, 0), at(18, 0))
         assertNull(ShiftContinuity.replace(listOf(first), overlap, null))
+        val differentBoundary = shift("second", at(17, 30), at(18, 0))
+        assertNull(ShiftContinuity.replace(listOf(first), differentBoundary, null))
         val differentRate = shift("third", at(17, 35), at(18, 0)).put("rate", "40.00")
         assertEquals(2, ShiftContinuity.normalizeHistory(listOf(first, differentRate), null).size)
     }
