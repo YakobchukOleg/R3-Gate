@@ -178,6 +178,7 @@ class BackupSettingsPanel(
     private fun reports(busy: Boolean) {
         text("Raporty do pliku", heading = true)
         text("Cała zapisana historia. Raporty czasu obejmują zakończone dni i nie wyliczają wynagrodzenia.")
+        text("Historia pracy na wszystkich obiektach: daty, godziny, obiekt i adres. Czas na obiektach: sumy dla każdego obiektu.")
         val reports=JournalCsvExport.Report.entries
         val picker=Spinner(context).apply {
             adapter=object: ArrayAdapter<String>(context,android.R.layout.simple_spinner_item,reports.map(BackupReportExport::title)) {

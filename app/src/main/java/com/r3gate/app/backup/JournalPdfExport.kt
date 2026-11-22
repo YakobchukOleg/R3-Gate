@@ -18,6 +18,7 @@ object JournalPdfExport {
             JournalCsvExport.Report.WORK_TIME -> "Przedziały dni pracy (brutto)"
             JournalCsvExport.Report.BY_OBJECT -> "Zestawienie czasu na obiektach"
             JournalCsvExport.Report.STAGES -> "Etapy pracy i przejazdy"
+            JournalCsvExport.Report.OBJECT_HISTORY -> "Historia pracy na wszystkich obiektach"
             JournalCsvExport.Report.MATERIALS -> "Zestawienie materiałów"
         }
         WorkMeterPdf.write(destination, title, table.headers, table.rows.asSequence())

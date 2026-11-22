@@ -19,6 +19,7 @@ object BackupReportExport {
                 JournalCsvExport.Report.BY_OBJECT -> "SOLO-czas-na-obiektach"
                 JournalCsvExport.Report.MATERIALS -> "SOLO-materialy"
                 JournalCsvExport.Report.STAGES -> "SOLO-etapy-pracy"
+                JournalCsvExport.Report.OBJECT_HISTORY -> "SOLO-historia-obiektow"
             }
             return BackupFilePicker.suggestName(kind,date,slug)
         }
@@ -29,6 +30,7 @@ object BackupReportExport {
         JournalCsvExport.Report.BY_OBJECT -> "Czas na obiektach"
         JournalCsvExport.Report.MATERIALS -> "Materiały"
         JournalCsvExport.Report.STAGES -> "Etapy pracy i przejazdy"
+        JournalCsvExport.Report.OBJECT_HISTORY -> "Historia pracy na wszystkich obiektach"
     }
 
     fun write(context: Context, destination: Uri, request: Request) {

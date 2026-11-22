@@ -1,5 +1,7 @@
 package com.r3gate.app.backup
 
+import com.r3gate.app.WorkPlaceRules
+import com.r3gate.app.WorkTimeRounding
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.OutputStream
@@ -12,7 +14,7 @@ import java.time.format.DateTimeFormatter
 
 /** Read-only reports from existing JSON; never changes journal, wages, or stage types. */
 object JournalCsvExport {
-    enum class Report { WORK_TIME, BY_OBJECT, MATERIALS, STAGES }
+    enum class Report { WORK_TIME, BY_OBJECT, MATERIALS, STAGES, OBJECT_HISTORY }
     data class Table(val headers: List<String>, val rows: List<List<String>>)
     data class Period(val from: LocalDate? = null, val to: LocalDate? = null) {
         init { require(from == null || to == null || !from.isAfter(to)) }
@@ -43,13 +45,23 @@ object JournalCsvExport {
 
     fun table(json: String, report: Report, period: Period): Table {
         val data = JSONObject(json)
-        val names = list(data, "objects").filter { it.optString("id").isNotBlank() }
-            .groupBy { it.optString("id") }.mapNotNull { (id, objects) ->
-                val obj = objects.singleOrNull() ?: return@mapNotNull null
-                val title = listOf("name", "title", "organization", "Opis")
-                    .map { obj.optString(it) }.firstOrNull(String::isNotBlank).orEmpty()
-                id to listOf(obj.optString("TAG"), title).filter(String::isNotBlank).distinct().joinToString(" · ")
+        val objects = list(data, "objects").filter { it.optString("id").isNotBlank() }
+            .groupBy { it.optString("id") }.mapNotNull { (id, matches) ->
+                matches.singleOrNull()?.let { id to it }
             }.toMap()
+        val names = objects.mapValues { (_, obj) ->
+            val title = listOf("name", "title", "organization", "Opis")
+                .map { obj.optString(it) }.firstOrNull(String::isNotBlank).orEmpty()
+            listOf(obj.optString("TAG"), title).filter(String::isNotBlank).distinct().joinToString(" · ")
+        }
+        fun address(id: String): String {
+            val obj = objects[id] ?: return ""
+            val street = obj.optString("Adres").ifBlank {
+                listOf("street", "building", "postcode").map { obj.optString(it) }
+                    .filter(String::isNotBlank).joinToString(" ")
+            }
+            return listOf(obj.optString("city"), street).filter(String::isNotBlank).joinToString(", ")
+        }
         fun name(id: String, fallback: String) = names[id]?.takeIf { it.isNotBlank() } ?: fallback
         fun clipped(start: Long, end: Long): Pair<Long,Long>? {
             require(end >= start) { "Negative duration" }
@@ -58,6 +70,17 @@ object JournalCsvExport {
             val upper = period.to?.plusDays(1)?.atStartOfDay(zone)?.toInstant()?.toEpochMilli() ?: Long.MAX_VALUE
             if (end <= lower || start >= upper) return null
             return maxOf(start,lower) to minOf(end,upper)
+        }
+        fun stageBounds(shift: JSONObject, stage: JSONObject, start: Long, end: Long): Pair<Long, Long>? {
+            val from = millis(stage, "start")
+            val to = millis(stage, "end")
+            val recordedStart = shift.optLong("recordedStart", start)
+            // Rounding retains the actual stage start as evidence before the accounting boundary.
+            val earliest = if (recordedStart in 1..start && WorkTimeRounding.ceil(recordedStart) == start)
+                recordedStart else start
+            require(to >= from && from >= earliest && to <= end) { "Invalid stage duration" }
+            if (to <= start) return null
+            return clipped(maxOf(start, from), to)
         }
         return when (report) {
             Report.WORK_TIME -> {
@@ -81,17 +104,15 @@ object JournalCsvExport {
                     if (clipped(start,end) == null) continue
                     val stages = list(shift, "stages")
                     if (stages.isEmpty()) {
-                        if (shift.optString("kind","Obiekt") != "Obiekt") continue
+                        if (!WorkPlaceRules.isOnSiteStage(shift.optString("kind", "Obiekt"))) continue
                         val (from,to) = requireNotNull(clipped(start,end))
                         val id = shift.optString("objectId")
                         val key = id to name(id, shift.optString("object"))
                         totals[key] = Math.addExact(totals[key] ?: 0,to - from)
                     } else for (stage in stages) {
-                        val a = millis(stage, "start")
-                        val b = millis(stage, "end")
-                        require(b >= a && a >= start && b <= end) { "Invalid stage duration" }
-                        if (stage.optString("kind", "Obiekt") != "Obiekt") continue
-                        val (from,to) = clipped(a,b) ?: continue
+                        val interval = stageBounds(shift, stage, start, end) ?: continue
+                        if (!WorkPlaceRules.isOnSiteStage(stage.optString("kind", "Obiekt"))) continue
+                        val (from, to) = interval
                         val id = stage.optString("objectId")
                         val key = id to name(id, stage.optString("object"))
                         totals[key] = Math.addExact(totals[key] ?: 0,to - from)
@@ -99,26 +120,35 @@ object JournalCsvExport {
                 }
                 Table(listOf("ID obiektu", "Obiekt", "Godziny na obiekcie"), totals.map { (key, value) -> listOf(key.first, key.second, hours(value)) })
             }
-            Report.STAGES -> {
-                val rows = list(data,"shifts").flatMap { shift ->
-                    val start=millis(shift,"start"); val end=millis(shift,"end")
-                    if(clipped(start,end)==null) emptyList() else {
-                        val stages=list(shift,"stages").ifEmpty { listOf(JSONObject(shift.toString())
-                            .put("kind",shift.optString("kind").ifBlank { "Nieprzypisane" })) }
-                        stages.mapNotNull { stage ->
-                            val a=millis(stage,"start"); val b=millis(stage,"end")
-                            require(b>=a && a>=start && b<=end) { "Invalid stage duration" }
-                            clipped(a,b)?.let { (from,to) ->
-                                val id=stage.optString("objectId")
-                                val route=listOf(stage.optString("fromObject"),stage.optString("toObject"))
-                                    .takeIf { it.any(String::isNotBlank) }?.joinToString(" → ").orEmpty()
-                                listOf(stage.optString("kind").ifBlank { "Nieprzypisane" }, stamp(from),stamp(to),
-                                    hours(to-from), id,name(id,stage.optString("object")),route)
+            Report.STAGES, Report.OBJECT_HISTORY -> {
+                val objectHistory = report == Report.OBJECT_HISTORY
+                val rows = list(data, "shifts").flatMap { shift ->
+                    val start = millis(shift, "start")
+                    val end = millis(shift, "end")
+                    if (clipped(start, end) == null) emptyList() else {
+                        val stages = list(shift, "stages").ifEmpty {
+                            val assigned = shift.optString("objectId").isNotBlank() || shift.optString("object").isNotBlank()
+                            val kind = shift.optString("kind").ifBlank {
+                                if (objectHistory && assigned) "Obiekt" else "Nieprzypisane"
                             }
+                            listOf(JSONObject(shift.toString()).put("kind", kind))
+                        }
+                        stages.mapNotNull { stage ->
+                            val (from, to) = stageBounds(shift, stage, start, end) ?: return@mapNotNull null
+                            val kind = stage.optString("kind").ifBlank { "Nieprzypisane" }
+                            val id = stage.optString("objectId")
+                            val label = name(id, stage.optString("object"))
+                            if (objectHistory && (!WorkPlaceRules.isOnSiteStage(kind) ||
+                                    (id.isBlank() && label.isBlank()))) return@mapNotNull null
+                            val detail = if (objectHistory) address(id) else
+                                listOf(stage.optString("fromObject"), stage.optString("toObject"))
+                                    .takeIf { it.any(String::isNotBlank) }?.joinToString(" → ").orEmpty()
+                            listOf(kind, stamp(from), stamp(to), hours(to - from), id, label, detail)
                         }
                     }
                 }
-                Table(listOf("Etap","Początek","Koniec","Godziny","ID obiektu","Obiekt","Trasa"),rows)
+                val lastColumn = if (objectHistory) "Adres" else "Trasa"
+                Table(listOf("Etap", "Początek", "Koniec", "Godziny", "ID obiektu", "Obiekt", lastColumn), rows)
             }
             Report.MATERIALS -> {
                 val rows = list(data, "materials").mapNotNull { item ->
