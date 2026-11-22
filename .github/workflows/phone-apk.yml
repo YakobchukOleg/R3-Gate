@@ -1,7 +1,7 @@
 name: WorkMeter SOLO phone APK
 on:
   push:
-    branches: [build/workmeter-solo-2.3.3]
+    branches: [build/workmeter-solo-2.3.3, fix/all-object-history-export-20261122]
 permissions:
   contents: read
 jobs:
@@ -36,8 +36,8 @@ jobs:
           keytool -list -v -keystore "$selected" -storepass android | sed -n '/SHA1:/p'
       - name: Prepare licensed Clash Grotesk fonts from publisher
         run: python3 .github/scripts/prepare-fonts.py
-      - name: Build signed APK
-        run: gradle --no-daemon :app:assembleDebug
+      - name: Test, lint and build signed APK
+        run: gradle --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
       - name: Verify signed APK and package metadata
         run: |
           set -euo pipefail
@@ -45,10 +45,16 @@ jobs:
           tools="$ANDROID_HOME/build-tools/35.0.0"
           "$tools/apksigner" verify --verbose --print-certs "$apk"
           "$tools/aapt" dump badging "$apk" | sed -n '/^package:/p; /^sdkVersion:/p; /^targetSdkVersion:/p'
-          cp "$apk" WorkMeter-SOLO-2.3.3.apk
-          sha256sum WorkMeter-SOLO-2.3.3.apk
+          cp "$apk" WorkMeter-SOLO-2.7.8.apk
+          sha256sum WorkMeter-SOLO-2.7.8.apk > WorkMeter-SOLO-2.7.8.apk.sha256
+          git rev-parse HEAD > tested-sha.txt
+          "$tools/apksigner" verify --print-certs "$apk" > apk-signature.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: WorkMeter-SOLO-2.3.3
-          path: WorkMeter-SOLO-2.3.3.apk
+          name: WorkMeter-SOLO-2.7.8
+          path: |
+            WorkMeter-SOLO-2.7.8.apk
+            WorkMeter-SOLO-2.7.8.apk.sha256
+            tested-sha.txt
+            apk-signature.txt
           if-no-files-found: error
